@@ -5,7 +5,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{AppState, SelectionSummary};
-use crate::model::{MetricAggregate, Run, ScalarMetric};
+use crate::model::{MetricAggregate, MetricRanking, Run, ScalarMetric};
 use crate::ui::theme::Theme;
 
 pub struct Dashboard {
@@ -33,7 +33,7 @@ impl Dashboard {
                 total_runs,
                 runs_by_status,
                 children,
-                metrics,
+                rankings,
             } => self.render_branch(
                 frame,
                 area,
@@ -43,7 +43,7 @@ impl Dashboard {
                 *total_runs,
                 runs_by_status,
                 children,
-                metrics,
+                rankings,
             ),
             SelectionSummary::Leaf {
                 name,
@@ -82,10 +82,7 @@ impl Dashboard {
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
             )));
-            lines.push(Line::from(Span::styled(
-                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
-                Style::default().fg(self.theme.border),
-            )));
+            lines.push(self.separator());
 
             for run in recent_runs {
                 let status_style = self.status_style(&run.status);
@@ -123,7 +120,7 @@ impl Dashboard {
         total_runs: i64,
         runs_by_status: &[(String, i64)],
         children: &[(String, i64)],
-        metrics: &[MetricAggregate],
+        rankings: &[MetricRanking],
     ) {
         let mut lines = vec![
             Line::from(""),
@@ -153,10 +150,7 @@ impl Dashboard {
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
             )));
-            lines.push(Line::from(Span::styled(
-                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
-                Style::default().fg(self.theme.border),
-            )));
+            lines.push(self.separator());
 
             for (child_name, run_count) in children {
                 let run_label = if *run_count == 1 { "run" } else { "runs" };
@@ -170,19 +164,44 @@ impl Dashboard {
             }
         }
 
-        if !metrics.is_empty() {
+        if !rankings.is_empty() {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "  Metrics (across all runs)",
+                "  Rankings",
                 Style::default()
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
             )));
-            lines.push(Line::from(Span::styled(
-                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
-                Style::default().fg(self.theme.border),
-            )));
-            self.append_metric_aggregates(&mut lines, metrics);
+            lines.push(self.separator());
+
+            for ranking in rankings {
+                let arrow = if ranking.lower_is_better {
+                    "\u{2193}" // ↓
+                } else {
+                    "\u{2191}" // ↑
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("  {} {arrow}", ranking.metric_name),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )));
+                for (rank, (name, value)) in ranking.entries.iter().enumerate() {
+                    let rank_num = rank + 1;
+                    let style = if rank == 0 {
+                        self.theme.status_completed // green for best
+                    } else {
+                        Style::default()
+                    };
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("    {rank_num}. "),
+                            Style::default().fg(self.theme.accent_dim),
+                        ),
+                        Span::styled(format!("{:<24}", name), style),
+                        Span::raw(format!("{:.4}", value)),
+                    ]));
+                }
+                lines.push(Line::from(""));
+            }
         }
 
         frame.render_widget(Paragraph::new(lines), area);
@@ -225,10 +244,7 @@ impl Dashboard {
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
             )));
-            lines.push(Line::from(Span::styled(
-                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
-                Style::default().fg(self.theme.border),
-            )));
+            lines.push(self.separator());
 
             for (i, run) in runs.iter().enumerate() {
                 let status_style = self.status_style(&run.status);
@@ -267,10 +283,7 @@ impl Dashboard {
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
             )));
-            lines.push(Line::from(Span::styled(
-                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
-                Style::default().fg(self.theme.border),
-            )));
+            lines.push(self.separator());
             self.append_metric_aggregates(&mut lines, aggregate_metrics);
         }
 
@@ -299,6 +312,13 @@ impl Dashboard {
                 )));
             }
         }
+    }
+
+    fn separator(&self) -> Line<'static> {
+        Line::from(Span::styled(
+            "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+            Style::default().fg(self.theme.border),
+        ))
     }
 
     fn status_style(&self, status: &str) -> Style {

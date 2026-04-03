@@ -3,7 +3,9 @@ use std::path::PathBuf;
 use color_eyre::Result;
 
 use crate::db::Db;
-use crate::model::{Experiment, MetricAggregate, Run, ScalarMetric};
+use std::collections::HashMap;
+
+use crate::model::{is_lower_better, Experiment, MetricAggregate, MetricRanking, Run, ScalarMetric};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -43,7 +45,7 @@ pub enum SelectionSummary {
         total_runs: i64,
         runs_by_status: Vec<(String, i64)>,
         children: Vec<(String, i64)>,
-        metrics: Vec<MetricAggregate>,
+        rankings: Vec<MetricRanking>,
     },
     Leaf {
         name: String,
@@ -129,6 +131,41 @@ impl AppState {
             .any(|e| e.parent_id.as_deref() == Some(&exp.id));
 
         if has_children {
+            // Build per-metric rankings of children
+            let raw = self.db.child_best_metrics(&exp.id)?;
+            let mut metric_map: HashMap<String, Vec<(String, f64, f64)>> = HashMap::new();
+            for (child, metric, min_val, max_val) in raw {
+                metric_map
+                    .entry(metric)
+                    .or_default()
+                    .push((child, min_val, max_val));
+            }
+            let mut rankings: Vec<MetricRanking> = metric_map
+                .into_iter()
+                .map(|(metric_name, entries)| {
+                    let lower = is_lower_better(&metric_name);
+                    let mut ranked: Vec<(String, f64)> = entries
+                        .iter()
+                        .map(|(name, min_val, max_val)| {
+                            (name.clone(), if lower { *min_val } else { *max_val })
+                        })
+                        .collect();
+                    ranked.sort_by(|a, b| {
+                        if lower {
+                            a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal)
+                        } else {
+                            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+                        }
+                    });
+                    MetricRanking {
+                        metric_name,
+                        lower_is_better: lower,
+                        entries: ranked,
+                    }
+                })
+                .collect();
+            rankings.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
+
             self.selection_summary = SelectionSummary::Branch {
                 name: exp.name.clone(),
                 path: exp.path.clone(),
@@ -136,7 +173,7 @@ impl AppState {
                 total_runs: self.db.count_runs_for_subtree(&exp.path)?,
                 runs_by_status: self.db.runs_by_status_for_subtree(&exp.path)?,
                 children: self.db.run_counts_by_child(&exp.id)?,
-                metrics: self.db.aggregate_final_metrics_for_subtree(&exp.path)?,
+                rankings,
             };
         } else {
             let mut run_metrics = Vec::new();

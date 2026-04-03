@@ -467,6 +467,47 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// For each direct child of parent_id, get min and max of the final value
+    /// of each metric across all runs in that child's subtree.
+    /// Returns (child_name, metric_name, min_value, max_value).
+    pub fn child_best_metrics(
+        &self,
+        parent_id: &str,
+    ) -> Result<Vec<(String, String, f64, f64)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT sub.child_name, sub.metric_name, \
+                    MIN(sub.final_value), MAX(sub.final_value) \
+             FROM ( \
+                 SELECT e.name AS child_name, sm.name AS metric_name, sm.value AS final_value \
+                 FROM experiments e \
+                 INNER JOIN experiments e2 \
+                     ON (e2.path = e.path OR e2.path LIKE e.path || '/%') \
+                 INNER JOIN runs r ON r.experiment_id = e2.id \
+                 INNER JOIN ( \
+                     SELECT run_id, name, MAX(step) AS max_step \
+                     FROM scalar_metrics GROUP BY run_id, name \
+                 ) latest ON latest.run_id = r.id \
+                 INNER JOIN scalar_metrics sm \
+                     ON sm.run_id = latest.run_id \
+                     AND sm.name = latest.name \
+                     AND sm.step = latest.max_step \
+                 WHERE e.parent_id = ? \
+             ) sub \
+             GROUP BY sub.child_name, sub.metric_name \
+             ORDER BY sub.metric_name, sub.child_name",
+        )?;
+        let rows = stmt.query_map(params![parent_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, f64>(2)?,
+                row.get::<_, f64>(3)?,
+            ))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     pub fn count_unique_configs(&self, experiment_id: &str) -> Result<i64> {
         let count: i64 = self.conn.query_row(
             "SELECT COUNT(DISTINCT config) FROM runs \
@@ -677,5 +718,31 @@ mod tests {
         let db = test_db();
         assert_eq!(db.count_unique_configs("e_b").unwrap(), 2);
         assert_eq!(db.count_unique_configs("e_c").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_child_best_metrics() {
+        let db = test_db();
+        // Parent e_a has children: b (runs r1,r2), c (run r3), d (subtree run r4)
+        let data = db.child_best_metrics("e_a").unwrap();
+        // Should have entries for (b, accuracy), (b, loss), (c, accuracy), (c, loss),
+        // (d, accuracy), (d, loss)
+        assert_eq!(data.len(), 6);
+
+        // Child "b" accuracy: r1=0.85, r2=0.65 → min=0.65, max=0.85
+        let b_acc = data
+            .iter()
+            .find(|(n, m, _, _)| n == "b" && m == "accuracy")
+            .unwrap();
+        assert!((b_acc.2 - 0.65).abs() < 0.001); // min
+        assert!((b_acc.3 - 0.85).abs() < 0.001); // max
+
+        // Child "d" loss: r4=0.9 → min=max=0.9
+        let d_loss = data
+            .iter()
+            .find(|(n, m, _, _)| n == "d" && m == "loss")
+            .unwrap();
+        assert!((d_loss.2 - 0.9).abs() < 0.001);
+        assert!((d_loss.3 - 0.9).abs() < 0.001);
     }
 }

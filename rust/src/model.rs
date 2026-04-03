@@ -95,3 +95,26 @@ pub struct MetricAggregate {
     pub max: f64,
     pub count: i64,
 }
+
+#[derive(Debug, Clone)]
+pub struct MetricRanking {
+    pub metric_name: String,
+    pub lower_is_better: bool,
+    pub entries: Vec<(String, f64)>, // (child_name, best_value) sorted best-first
+}
+
+/// Heuristic: returns true if lower values are better for this metric.
+pub fn is_lower_better(metric_name: &str) -> bool {
+    let name = metric_name.to_lowercase();
+    name.contains("loss")
+        || name.contains("error")
+        || name.contains("perplexity")
+        || name.contains("mse")
+        || name.contains("mae")
+        || name.contains("rmse")
+        || name.contains("nll")
+        || name.contains("cer")
+        || name.contains("wer")
+        || name.contains("fid")
+        || name.contains("divergence")
+}
