@@ -85,3 +85,13 @@ pub struct Todo {
     pub created_at: String,
     pub completed_at: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricAggregate {
+    pub name: String,
+    pub mean: f64,
+    pub std_dev: f64,
+    pub min: f64,
+    pub max: f64,
+    pub count: i64,
+}
