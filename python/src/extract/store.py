@@ -22,7 +22,8 @@ CREATE TABLE IF NOT EXISTS experiments (
     parent_id   TEXT REFERENCES experiments(id),
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     metadata    TEXT,
-    status      TEXT NOT NULL DEFAULT 'created'
+    status      TEXT NOT NULL DEFAULT 'created',
+    node_type   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_experiments_path      ON experiments(path);
@@ -110,14 +111,28 @@ CREATE TABLE IF NOT EXISTS todos (
 );
 
 CREATE INDEX IF NOT EXISTS idx_todos_scope ON todos(scope_type, scope_id);
+
+CREATE TABLE IF NOT EXISTS hierarchy (
+    level_order INTEGER NOT NULL,
+    level_name  TEXT NOT NULL UNIQUE,
+    PRIMARY KEY (level_order)
+);
 """
+
+
+def _parse_hierarchy(hierarchy_str: str) -> list[str]:
+    """Parse 'benchmark > method > variant' into ['benchmark', 'method', 'variant']."""
+    levels = [level.strip() for level in hierarchy_str.split(">")]
+    if any(not level for level in levels):
+        raise ValueError(f"Invalid hierarchy: empty level name in {hierarchy_str!r}")
+    return levels
 
 
 class Store:
     """Manages the .extract/ directory, SQLite database, and provides the
     top-level API for creating experiments and global TODOs."""
 
-    def __init__(self, root: str | Path = ".extract") -> None:
+    def __init__(self, root: str | Path = ".extract", hierarchy: str | None = None) -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "artifacts").mkdir(exist_ok=True)
@@ -132,19 +147,67 @@ class Store:
         # Run migrations (embedded schema uses IF NOT EXISTS, safe to re-run)
         with self.lock:
             self._conn.executescript(_SCHEMA)
+            # Migrate existing DBs that lack node_type column
+            try:
+                self._conn.execute("ALTER TABLE experiments ADD COLUMN node_type TEXT")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            self._conn.commit()
+
+        # Load or save hierarchy config
+        existing = self._load_hierarchy()
+        if hierarchy is not None:
+            levels = _parse_hierarchy(hierarchy)
+            if existing and existing != levels:
+                raise ValueError(
+                    f"Store already has hierarchy {' > '.join(existing)}, "
+                    f"cannot change to {' > '.join(levels)}"
+                )
+            if not existing:
+                self._save_hierarchy(levels)
+                existing = levels
+        self._hierarchy = existing
+
+    def _load_hierarchy(self) -> list[str]:
+        """Load hierarchy level names from DB, ordered."""
+        with self.lock:
+            rows = self._conn.execute(
+                "SELECT level_name FROM hierarchy ORDER BY level_order"
+            ).fetchall()
+        return [r["level_name"] for r in rows]
+
+    def _save_hierarchy(self, levels: list[str]) -> None:
+        """Persist hierarchy levels to DB."""
+        with self.lock:
+            for i, name in enumerate(levels):
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO hierarchy (level_order, level_name) "
+                    "VALUES (?, ?)",
+                    (i, name),
+                )
+            self._conn.commit()
 
     # ------------------------------------------------------------------
     # Experiments
     # ------------------------------------------------------------------
 
-    def experiment(self, path: str) -> Experiment:
-        """Create or get an experiment by path, auto-creating hierarchy nodes.
+    def experiment(self, spec: dict[str, str] | str) -> Experiment:
+        """Create or get an experiment.
 
-        For path "a/b/c", creates experiments with paths "a", "a/b", "a/b/c"
-        with proper parent_id linkage (like mkdir -p).
+        Args:
+            spec: Either a dict mapping hierarchy levels to values
+                  (e.g. {"benchmark": "cifar100", "method": "ewc"})
+                  or a plain path string (legacy mode, no node_type).
         """
+        if isinstance(spec, str):
+            return self._experiment_by_path(spec)
+        return self._experiment_by_dict(spec)
+
+    def _experiment_by_path(self, path: str) -> Experiment:
+        """Legacy: create experiment from a plain slash-delimited path."""
         parts = path.strip("/").split("/")
         parent_id: str | None = None
+        exp_id = exp_path = exp_name = ""
 
         with self.lock:
             for i in range(len(parts)):
@@ -169,6 +232,57 @@ class Store:
                     parent_id = exp_id
                     exp_path = partial_path
                     exp_name = name
+
+            self._conn.commit()
+
+        return Experiment(store=self, id=exp_id, path=exp_path, name=exp_name)
+
+    def _experiment_by_dict(self, spec: dict[str, str]) -> Experiment:
+        """Create experiment from a hierarchy-keyed dict."""
+        if not self._hierarchy:
+            raise ValueError(
+                "Cannot use dict spec without hierarchy. "
+                "Initialize Store with hierarchy='level1 > level2 > ...'"
+            )
+
+        unknown = set(spec.keys()) - set(self._hierarchy)
+        if unknown:
+            raise ValueError(f"Unknown hierarchy levels: {unknown}")
+
+        # Build path parts in hierarchy order, only including levels present in spec
+        parts: list[tuple[str, str]] = []  # (value, level_name)
+        for level_name in self._hierarchy:
+            if level_name in spec:
+                parts.append((spec[level_name], level_name))
+
+        if not parts:
+            raise ValueError("Spec must include at least one hierarchy level")
+
+        parent_id: str | None = None
+        exp_id = exp_path = exp_name = ""
+
+        with self.lock:
+            for i, (value, level_name) in enumerate(parts):
+                partial_path = "/".join(p[0] for p in parts[: i + 1])
+
+                row = self._conn.execute(
+                    "SELECT id, path, name FROM experiments WHERE path = ?",
+                    (partial_path,),
+                ).fetchone()
+
+                if row is not None:
+                    parent_id = row["id"]
+                    exp_id, exp_path, exp_name = row["id"], row["path"], row["name"]
+                else:
+                    exp_id = str(ULID())
+                    self._conn.execute(
+                        "INSERT INTO experiments (id, path, name, parent_id, node_type) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (exp_id, partial_path, value, parent_id, level_name),
+                    )
+                    parent_id = exp_id
+                    exp_path = partial_path
+                    exp_name = value
 
             self._conn.commit()
 
