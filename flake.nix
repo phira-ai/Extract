@@ -30,6 +30,11 @@
         venvDir = ".venv";
         packages = with pkgs; [
           uv
+          rustc
+          cargo
+          pkg-config
+          sqlite
+          rust-analyzer
         ];
 
         shellHook = "";
