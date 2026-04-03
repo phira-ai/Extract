@@ -4,11 +4,15 @@ mod db;
 mod event;
 mod keys;
 mod model;
+mod ui;
 
 use std::time::Duration;
 
 use clap::Parser;
 use event::AppEvent;
+
+use crate::app::Action;
+use crate::ui::layout::AppLayout;
 
 #[derive(Parser)]
 #[command(name = "extract-tui", about = "Extract experiment tracker TUI")]
@@ -25,8 +29,9 @@ async fn main() -> color_eyre::Result<()> {
 
     let db_path = std::path::Path::new(&cli.store).join("extract.db");
     let db = db::Db::open(&db_path)?;
-    let mut _app = app::AppState::new(db, std::path::PathBuf::from(&cli.store))?;
+    let mut app = app::AppState::new(db, std::path::PathBuf::from(&cli.store))?;
     let mut events = event::EventHandler::new(Duration::from_millis(500));
+    let mut layout = AppLayout::new();
 
     // Setup terminal
     crossterm::terminal::enable_raw_mode()?;
@@ -35,26 +40,40 @@ async fn main() -> color_eyre::Result<()> {
     let backend = ratatui::backend::CrosstermBackend::new(stdout);
     let mut terminal = ratatui::Terminal::new(backend)?;
 
-    // Main loop (placeholder - UI rendering comes in Task 4)
+    // Main loop
     loop {
         terminal.draw(|frame| {
-            let area = frame.area();
-            let block = ratatui::widgets::Block::default()
-                .title(" Extract ")
-                .borders(ratatui::widgets::Borders::ALL);
-            frame.render_widget(block, area);
+            layout.render(frame, &app);
         })?;
 
-        match events.next().await? {
-            AppEvent::Key(key) => {
-                if key.code == crossterm::event::KeyCode::Char('q') {
-                    break;
+        let event = events.next().await?;
+
+        match &event {
+            AppEvent::Tick => {
+                // Periodically refresh data from DB
+                let _ = app.refresh_experiments();
+                if app.selected_experiment.is_some() {
+                    let _ = app.refresh_runs();
                 }
             }
-            AppEvent::Tick => {
-                // Will refresh data periodically
+            AppEvent::Resize(_, _) => {
+                // Terminal will re-render on next loop iteration
             }
-            AppEvent::Resize(_, _) => {}
+            AppEvent::Key(_) => {}
+        }
+
+        let action = layout.handle_event(&event, &mut app);
+
+        match action {
+            Action::Quit => break,
+            Action::Navigate(view) => {
+                app.current_view = view;
+            }
+            Action::Refresh => {
+                let _ = app.refresh_experiments();
+                let _ = app.refresh_runs();
+            }
+            Action::None => {}
         }
     }
 

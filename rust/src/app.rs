@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use color_eyre::Result;
 
 use crate::db::Db;
-use crate::model::{Experiment, Run};
+use crate::model::{Experiment, Run, ScalarMetric};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -14,6 +14,12 @@ pub enum View {
     Registry,
     Lineage,
     TodoGlobal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Focus {
+    Tree,
+    Detail,
 }
 
 #[derive(Debug, Clone)]
@@ -28,12 +34,14 @@ pub struct AppState {
     pub db: Db,
     pub store_root: PathBuf,
     pub current_view: View,
+    pub focus: Focus,
     pub should_quit: bool,
     pub experiments: Vec<Experiment>,
     pub selected_experiment: Option<usize>,
     pub runs: Vec<Run>,
     pub selected_run: Option<usize>,
     pub selected_runs_for_compare: Vec<String>,
+    pub metrics: Vec<ScalarMetric>,
 }
 
 impl AppState {
@@ -43,12 +51,14 @@ impl AppState {
             db,
             store_root,
             current_view: View::Explorer,
+            focus: Focus::Tree,
             should_quit: false,
             experiments,
             selected_experiment: None,
             runs: Vec::new(),
             selected_run: None,
             selected_runs_for_compare: Vec::new(),
+            metrics: Vec::new(),
         })
     }
 
