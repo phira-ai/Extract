@@ -5,7 +5,7 @@ use color_eyre::Result;
 use crate::db::Db;
 use std::collections::HashMap;
 
-use crate::model::{is_lower_better, Experiment, MetricAggregate, MetricRanking, Run, ScalarMetric};
+use crate::model::{is_lower_better, Artifact, Experiment, MetricAggregate, MetricRanking, Run, ScalarMetric};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -70,6 +70,10 @@ pub struct AppState {
     pub selected_run: Option<usize>,
     pub selected_runs_for_compare: Vec<String>,
     pub metrics: Vec<ScalarMetric>,
+    pub artifacts: Vec<Artifact>,
+    pub metric_history: Vec<ScalarMetric>,
+    pub available_metric_names: Vec<String>,
+    pub selected_metric_idx: usize,
     pub selection_summary: SelectionSummary,
 }
 
@@ -93,6 +97,10 @@ impl AppState {
             selected_run: None,
             selected_runs_for_compare: Vec::new(),
             metrics: Vec::new(),
+            artifacts: Vec::new(),
+            metric_history: Vec::new(),
+            available_metric_names: Vec::new(),
+            selected_metric_idx: 0,
             selection_summary: SelectionSummary::Root {
                 total_experiments,
                 total_runs,
@@ -112,6 +120,42 @@ impl AppState {
                 self.runs = self.db.list_runs(&exp.id)?;
             }
         }
+        Ok(())
+    }
+
+    pub fn refresh_artifacts(&mut self) -> Result<()> {
+        if let Some(run) = self.selected_run.and_then(|i| self.runs.get(i)) {
+            self.artifacts = self.db.list_artifacts(&run.id)?;
+        } else {
+            self.artifacts.clear();
+        }
+        Ok(())
+    }
+
+    pub fn refresh_metric_history(&mut self) -> Result<()> {
+        let Some(run) = self.selected_run.and_then(|i| self.runs.get(i)) else {
+            self.metric_history.clear();
+            self.available_metric_names.clear();
+            return Ok(());
+        };
+
+        // Get distinct metric names for this run
+        let all = self.db.get_scalar_metrics(&run.id, None)?;
+        let mut names: Vec<String> = Vec::new();
+        for m in &all {
+            if !names.contains(&m.name) {
+                names.push(m.name.clone());
+            }
+        }
+        self.available_metric_names = names;
+
+        // Load full history for selected metric
+        if let Some(name) = self.available_metric_names.get(self.selected_metric_idx) {
+            self.metric_history = self.db.get_scalar_metrics(&run.id, Some(name))?;
+        } else {
+            self.metric_history.clear();
+        }
+
         Ok(())
     }
 

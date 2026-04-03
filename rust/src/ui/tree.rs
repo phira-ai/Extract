@@ -87,6 +87,10 @@ impl TreePanel {
                             }
                         }
 
+                        // Load artifacts and metric history for visualization tabs
+                        let _ = state.refresh_artifacts();
+                        let _ = state.refresh_metric_history();
+
                         state.focus = Focus::Detail;
                         return Action::Navigate(View::Detail);
                     }

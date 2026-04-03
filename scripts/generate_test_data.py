@@ -8,6 +8,8 @@ from pathlib import Path
 # Add the Python SDK to the path
 sys.path.insert(0, str(Path(__file__).parent.parent / "python" / "src"))
 
+import numpy as np
+
 import extract
 
 STORE_ROOT = Path(__file__).parent.parent / ".extract"
@@ -28,6 +30,22 @@ def main():
         for step in range(50):
             run.log(step=step, loss=1.0 / (step + 1), accuracy=0.5 + 0.35 * (step / 49))
 
+        # Log accuracy matrix (5 tasks, lower-triangular pattern for CL)
+        acc_matrix = np.array([
+            [0.92, 0.00, 0.00, 0.00, 0.00],
+            [0.85, 0.88, 0.00, 0.00, 0.00],
+            [0.78, 0.82, 0.90, 0.00, 0.00],
+            [0.71, 0.75, 0.83, 0.87, 0.00],
+            [0.65, 0.70, 0.78, 0.82, 0.85],
+        ])
+        run.log_matrix("accuracy_matrix", acc_matrix, step=49,
+                       axes={"rows": "evaluated_on", "cols": "trained_up_to"})
+
+        # Log loss timeseries artifact
+        steps_list = list(range(50))
+        loss_values = [1.0 / (s + 1) for s in steps_list]
+        run.log_timeseries("loss_curve", steps_list, loss_values)
+
     with store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "online_ewc"}).run(
         config={"lr": 0.001, "lambda": 1.0, "online": True}
     ) as run:
@@ -40,6 +58,20 @@ def main():
     ) as run:
         for step in range(50):
             run.log(step=step, loss=1.2 / (step + 1), accuracy=0.5 + 0.30 * (step / 49))
+
+        acc_matrix = np.array([
+            [0.88, 0.00, 0.00, 0.00, 0.00],
+            [0.80, 0.84, 0.00, 0.00, 0.00],
+            [0.72, 0.76, 0.86, 0.00, 0.00],
+            [0.65, 0.69, 0.78, 0.83, 0.00],
+            [0.58, 0.63, 0.72, 0.77, 0.80],
+        ])
+        run.log_matrix("accuracy_matrix", acc_matrix, step=49,
+                       axes={"rows": "evaluated_on", "cols": "trained_up_to"})
+
+        steps_list = list(range(50))
+        loss_values = [1.2 / (s + 1) for s in steps_list]
+        run.log_timeseries("loss_curve", steps_list, loss_values)
 
     # Replay
     with store.experiment({"benchmark": "cifar100", "method": "replay", "variant": "buffer_500"}).run(

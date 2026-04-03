@@ -20,6 +20,13 @@ pub struct Theme {
     pub status_failed: Style,
     pub tab_active: Style,
     pub tab_inactive: Style,
+    pub heatmap_low: Color,
+    pub heatmap_mid: Color,
+    pub heatmap_high: Color,
+    pub heatmap_zero: Color,
+    pub chart_line_1: Color,
+    pub chart_line_2: Color,
+    pub chart_axis: Color,
 }
 
 impl Default for Theme {
@@ -55,6 +62,13 @@ impl Default for Theme {
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
             tab_inactive: Style::default().fg(Color::DarkGray),
+            heatmap_low: Color::Blue,
+            heatmap_mid: Color::Yellow,
+            heatmap_high: Color::Green,
+            heatmap_zero: Color::DarkGray,
+            chart_line_1: Color::Cyan,
+            chart_line_2: Color::Magenta,
+            chart_axis: Color::DarkGray,
         }
     }
 }

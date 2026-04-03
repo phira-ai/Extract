@@ -1,3 +1,5 @@
+pub mod chart;
+pub mod heatmap;
 pub mod dashboard;
 pub mod detail;
 pub mod layout;
