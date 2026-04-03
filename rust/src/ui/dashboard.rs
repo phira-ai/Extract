@@ -90,7 +90,9 @@ impl Dashboard {
             for run in recent_runs {
                 let status_style = self.status_style(&run.status);
                 let date = run.started_at.get(..10).unwrap_or(&run.started_at);
-                let name = run.name.as_deref().unwrap_or(&run.id[..8]);
+                let name = run.name.as_deref().unwrap_or(
+                    run.id.get(..8).unwrap_or(&run.id),
+                );
                 lines.push(Line::from(vec![
                     Span::raw("  "),
                     Span::styled(format!("{:<11}", run.status), status_style),

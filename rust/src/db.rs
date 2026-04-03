@@ -391,6 +391,7 @@ impl Db {
             .map_err(Into::into)
     }
 
+    /// Uses population std_dev (not sample) — consistent with ML tracking conventions.
     pub fn aggregate_final_metrics(&self, experiment_id: &str) -> Result<Vec<MetricAggregate>> {
         let mut stmt = self.conn.prepare(
             "SELECT sm.name, \
