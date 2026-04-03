@@ -29,6 +29,7 @@ impl Dashboard {
             SelectionSummary::Branch {
                 name,
                 path,
+                child_type,
                 descendant_experiments,
                 total_runs,
                 runs_by_status,
@@ -39,6 +40,7 @@ impl Dashboard {
                 area,
                 name,
                 path,
+                child_type.as_deref(),
                 *descendant_experiments,
                 *total_runs,
                 runs_by_status,
@@ -116,6 +118,7 @@ impl Dashboard {
         area: Rect,
         _name: &str,
         path: &str,
+        child_type: Option<&str>,
         descendant_experiments: i64,
         total_runs: i64,
         runs_by_status: &[(String, i64)],
@@ -166,8 +169,12 @@ impl Dashboard {
 
         if !rankings.is_empty() {
             lines.push(Line::from(""));
+            let ranking_title = match child_type {
+                Some(t) => format!("  Rankings ({t}s)"),
+                None => "  Rankings".to_string(),
+            };
             lines.push(Line::from(Span::styled(
-                "  Rankings",
+                ranking_title,
                 Style::default()
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),

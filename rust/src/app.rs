@@ -41,6 +41,7 @@ pub enum SelectionSummary {
     Branch {
         name: String,
         path: String,
+        child_type: Option<String>,
         descendant_experiments: i64,
         total_runs: i64,
         runs_by_status: Vec<(String, i64)>,
@@ -59,6 +60,7 @@ pub enum SelectionSummary {
 pub struct AppState {
     pub db: Db,
     pub store_root: PathBuf,
+    pub hierarchy: Vec<String>,
     pub current_view: View,
     pub focus: Focus,
     pub should_quit: bool,
@@ -77,9 +79,11 @@ impl AppState {
         let total_runs = db.count_all_runs()?;
         let recent_runs = db.recent_runs(5)?;
         let total_experiments = experiments.len();
+        let hierarchy = db.list_hierarchy()?;
         Ok(Self {
             db,
             store_root,
+            hierarchy,
             current_view: View::Explorer,
             focus: Focus::Tree,
             should_quit: false,
@@ -131,6 +135,11 @@ impl AppState {
             .any(|e| e.parent_id.as_deref() == Some(&exp.id));
 
         if has_children {
+            let child_type = self
+                .experiments
+                .iter()
+                .filter(|e| e.parent_id.as_deref() == Some(&exp.id))
+                .find_map(|e| e.node_type.clone());
             // Build per-metric rankings of children
             let raw = self.db.child_best_metrics(&exp.id)?;
             let mut metric_map: HashMap<String, Vec<(String, f64, f64)>> = HashMap::new();
@@ -169,6 +178,7 @@ impl AppState {
             self.selection_summary = SelectionSummary::Branch {
                 name: exp.name.clone(),
                 path: exp.path.clone(),
+                child_type,
                 descendant_experiments: self.db.count_descendant_experiments(&exp.path)?,
                 total_runs: self.db.count_runs_for_subtree(&exp.path)?,
                 runs_by_status: self.db.runs_by_status_for_subtree(&exp.path)?,
