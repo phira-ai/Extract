@@ -9,7 +9,8 @@ CREATE TABLE IF NOT EXISTS experiments (
     parent_id   TEXT REFERENCES experiments(id),
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     metadata    TEXT,
-    status      TEXT NOT NULL DEFAULT 'created'
+    status      TEXT NOT NULL DEFAULT 'created',
+    node_type   TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_experiments_path      ON experiments(path);
@@ -89,6 +90,13 @@ CREATE TABLE IF NOT EXISTS lineage (
 
 CREATE INDEX IF NOT EXISTS idx_lineage_child  ON lineage(child_type, child_id);
 CREATE INDEX IF NOT EXISTS idx_lineage_parent ON lineage(parent_type, parent_id);
+
+-- hierarchy: user-defined level ordering for typed experiment nodes
+CREATE TABLE IF NOT EXISTS hierarchy (
+    level_order INTEGER NOT NULL,
+    level_name  TEXT NOT NULL UNIQUE,
+    PRIMARY KEY (level_order)
+);
 
 -- todos: task notes scoped to global, an experiment, or a run
 CREATE TABLE IF NOT EXISTS todos (
