@@ -412,10 +412,11 @@ impl Db {
              GROUP BY sm.name ORDER BY sm.name",
         )?;
         let rows = stmt.query_map(params![experiment_id], |row| {
+            let variance: f64 = row.get(2)?;
             Ok(MetricAggregate {
                 name: row.get(0)?,
                 mean: row.get(1)?,
-                std_dev: row.get(2)?,
+                std_dev: variance.max(0.0).sqrt(),
                 min: row.get(3)?,
                 max: row.get(4)?,
                 count: row.get(5)?,
@@ -451,10 +452,11 @@ impl Db {
              GROUP BY sm.name ORDER BY sm.name",
         )?;
         let rows = stmt.query_map(params![path_prefix, pattern], |row| {
+            let variance: f64 = row.get(2)?;
             Ok(MetricAggregate {
                 name: row.get(0)?,
                 mean: row.get(1)?,
-                std_dev: row.get(2)?,
+                std_dev: variance.max(0.0).sqrt(),
                 min: row.get(3)?,
                 max: row.get(4)?,
                 count: row.get(5)?,
@@ -649,8 +651,12 @@ mod tests {
         assert!((acc.min - 0.65).abs() < 0.001);
         assert!((acc.max - 0.85).abs() < 0.001);
         assert_eq!(acc.count, 2);
+        // std_dev for accuracy: values [0.85, 0.65], mean=0.75, std=0.1
+        assert!((acc.std_dev - 0.1).abs() < 0.001);
         let loss = agg.iter().find(|m| m.name == "loss").unwrap();
         assert!((loss.mean - 0.45).abs() < 0.001);
+        // std_dev for loss: values [0.3, 0.6], mean=0.45, std=0.15
+        assert!((loss.std_dev - 0.15).abs() < 0.001);
     }
 
     #[test]
