@@ -1,0 +1,54 @@
+use std::time::Duration;
+
+use color_eyre::Result;
+use crossterm::event::{self, Event, KeyEvent};
+use tokio::sync::mpsc;
+
+#[derive(Debug)]
+pub enum AppEvent {
+    Key(KeyEvent),
+    Tick,
+    Resize(u16, u16),
+}
+
+pub struct EventHandler {
+    rx: mpsc::UnboundedReceiver<AppEvent>,
+}
+
+impl EventHandler {
+    pub fn new(tick_rate: Duration) -> Self {
+        let (tx, rx) = mpsc::unbounded_channel();
+
+        tokio::spawn(async move {
+            loop {
+                let has_event = event::poll(tick_rate).unwrap_or(false);
+                if has_event {
+                    match event::read() {
+                        Ok(Event::Key(key)) => {
+                            if tx.send(AppEvent::Key(key)).is_err() {
+                                return;
+                            }
+                        }
+                        Ok(Event::Resize(w, h)) => {
+                            if tx.send(AppEvent::Resize(w, h)).is_err() {
+                                return;
+                            }
+                        }
+                        _ => {}
+                    }
+                } else if tx.send(AppEvent::Tick).is_err() {
+                    return;
+                }
+            }
+        });
+
+        Self { rx }
+    }
+
+    pub async fn next(&mut self) -> Result<AppEvent> {
+        self.rx
+            .recv()
+            .await
+            .ok_or_else(|| color_eyre::eyre::eyre!("Event channel closed"))
+    }
+}
