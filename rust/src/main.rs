@@ -55,6 +55,7 @@ async fn main() -> color_eyre::Result<()> {
                 if app.selected_experiment.is_some() {
                     let _ = app.refresh_runs();
                 }
+                let _ = app.refresh_selection_summary();
             }
             AppEvent::Resize(_, _) => {
                 // Terminal will re-render on next loop iteration

@@ -136,8 +136,17 @@ impl TreePanel {
         if let Some(last_id) = selected.last() {
             if let Some(idx) = state.experiments.iter().position(|e| e.id == *last_id) {
                 state.selected_experiment = Some(idx);
+                state.selected_run = None;
+                state.metrics.clear();
                 let _ = state.refresh_runs();
+                let _ = state.refresh_selection_summary();
             }
+        } else {
+            state.selected_experiment = None;
+            state.selected_run = None;
+            state.runs.clear();
+            state.metrics.clear();
+            let _ = state.refresh_selection_summary();
         }
     }
 

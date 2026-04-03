@@ -81,8 +81,13 @@ impl AppLayout {
             } else {
                 Style::default().fg(self.theme.border)
             };
+            let title = match &state.selection_summary {
+                crate::app::SelectionSummary::Root { .. } => " Overview ".to_string(),
+                crate::app::SelectionSummary::Branch { path, .. } => format!(" {path} "),
+                crate::app::SelectionSummary::Leaf { name, .. } => format!(" {name} "),
+            };
             let block = Block::bordered()
-                .title(" Detail ")
+                .title(title)
                 .border_style(border_style);
             let inner_detail = block.inner(detail_area);
             frame.render_widget(block, detail_area);
