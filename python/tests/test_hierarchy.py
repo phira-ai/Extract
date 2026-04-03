@@ -93,6 +93,11 @@ class TestDictExperiment:
         count = conn.execute("SELECT COUNT(*) FROM experiments WHERE path = 'cifar100'").fetchone()[0]
         assert count == 1  # cifar100 created only once
 
+    def test_skipped_level_raises(self, tmp_store):
+        # Can't skip "method" between "benchmark" and "variant"
+        with pytest.raises(ValueError, match="Cannot skip"):
+            tmp_store.experiment({"benchmark": "cifar100", "variant": "lambda_1.0"})
+
     def test_unknown_level_raises(self, tmp_store):
         with pytest.raises(ValueError, match="Unknown hierarchy levels"):
             tmp_store.experiment({"benchmark": "cifar100", "dataset": "oops"})

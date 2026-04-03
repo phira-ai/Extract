@@ -249,11 +249,19 @@ class Store:
         if unknown:
             raise ValueError(f"Unknown hierarchy levels: {unknown}")
 
-        # Build path parts in hierarchy order, only including levels present in spec
+        # Build path parts in hierarchy order — must be contiguous from root
         parts: list[tuple[str, str]] = []  # (value, level_name)
+        gap_level: str | None = None
         for level_name in self._hierarchy:
             if level_name in spec:
+                if gap_level is not None:
+                    raise ValueError(
+                        f"Cannot skip hierarchy level '{gap_level}'. "
+                        f"Provide all levels from root down."
+                    )
                 parts.append((spec[level_name], level_name))
+            elif parts:
+                gap_level = level_name
 
         if not parts:
             raise ValueError("Spec must include at least one hierarchy level")
