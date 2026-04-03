@@ -9,6 +9,7 @@ pub struct Experiment {
     pub created_at: String,
     pub metadata: Option<String>,
     pub status: String,
+    pub node_type: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

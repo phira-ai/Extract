@@ -20,7 +20,7 @@ impl Db {
 
     pub fn list_experiments(&self) -> Result<Vec<Experiment>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, path, name, parent_id, created_at, metadata, status FROM experiments ORDER BY created_at",
+            "SELECT id, path, name, parent_id, created_at, metadata, status, node_type FROM experiments ORDER BY created_at",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Experiment {
@@ -31,6 +31,7 @@ impl Db {
                 created_at: row.get(4)?,
                 metadata: row.get(5)?,
                 status: row.get(6)?,
+                node_type: row.get(7)?,
             })
         })?;
         let mut experiments = Vec::new();
@@ -42,7 +43,7 @@ impl Db {
 
     pub fn get_experiment(&self, id: &str) -> Result<Option<Experiment>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, path, name, parent_id, created_at, metadata, status FROM experiments WHERE id = ?",
+            "SELECT id, path, name, parent_id, created_at, metadata, status, node_type FROM experiments WHERE id = ?",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
             Ok(Experiment {
@@ -53,6 +54,7 @@ impl Db {
                 created_at: row.get(4)?,
                 metadata: row.get(5)?,
                 status: row.get(6)?,
+                node_type: row.get(7)?,
             })
         })?;
         match rows.next() {
@@ -71,6 +73,7 @@ impl Db {
                 created_at: row.get(4)?,
                 metadata: row.get(5)?,
                 status: row.get(6)?,
+                node_type: row.get(7)?,
             })
         };
 
@@ -78,7 +81,7 @@ impl Db {
 
         if let Some(pid) = parent_id {
             let mut stmt = self.conn.prepare(
-                "SELECT id, path, name, parent_id, created_at, metadata, status FROM experiments WHERE parent_id = ? ORDER BY created_at",
+                "SELECT id, path, name, parent_id, created_at, metadata, status, node_type FROM experiments WHERE parent_id = ? ORDER BY created_at",
             )?;
             let rows = stmt.query_map(params![pid], row_mapper)?;
             for row in rows {
@@ -86,7 +89,7 @@ impl Db {
             }
         } else {
             let mut stmt = self.conn.prepare(
-                "SELECT id, path, name, parent_id, created_at, metadata, status FROM experiments WHERE parent_id IS NULL ORDER BY created_at",
+                "SELECT id, path, name, parent_id, created_at, metadata, status, node_type FROM experiments WHERE parent_id IS NULL ORDER BY created_at",
             )?;
             let rows = stmt.query_map([], row_mapper)?;
             for row in rows {
@@ -95,6 +98,15 @@ impl Db {
         }
 
         Ok(experiments)
+    }
+
+    pub fn list_hierarchy(&self) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT level_name FROM hierarchy ORDER BY level_order",
+        )?;
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     // Runs
@@ -599,11 +611,14 @@ mod tests {
         conn.execute_batch(include_str!("../../schema/migrations/001_init.sql"))
             .unwrap();
         conn.execute_batch(
-            "INSERT INTO experiments VALUES ('e_a', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active');
-             INSERT INTO experiments VALUES ('e_b', 'a/b', 'b', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active');
-             INSERT INTO experiments VALUES ('e_c', 'a/c', 'c', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active');
-             INSERT INTO experiments VALUES ('e_d', 'a/d', 'd', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active');
-             INSERT INTO experiments VALUES ('e_e', 'a/d/e', 'e', 'e_d', '2026-01-01T00:00:00Z', NULL, 'active');
+            "INSERT INTO hierarchy VALUES (0, 'benchmark');
+             INSERT INTO hierarchy VALUES (1, 'method');
+             INSERT INTO hierarchy VALUES (2, 'variant');
+             INSERT INTO experiments VALUES ('e_a', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark');
+             INSERT INTO experiments VALUES ('e_b', 'a/b', 'b', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active', 'method');
+             INSERT INTO experiments VALUES ('e_c', 'a/c', 'c', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active', 'method');
+             INSERT INTO experiments VALUES ('e_d', 'a/d', 'd', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active', 'method');
+             INSERT INTO experiments VALUES ('e_e', 'a/d/e', 'e', 'e_d', '2026-01-01T00:00:00Z', NULL, 'active', 'variant');
              INSERT INTO runs VALUES ('r1', 'e_b', 'run1', '{\"lr\": 0.01}', '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z', 'completed', NULL, NULL, NULL, NULL);
              INSERT INTO runs VALUES ('r2', 'e_b', 'run2', '{\"lr\": 0.001}', '2026-01-02T00:00:00Z', NULL, 'running', NULL, NULL, NULL, NULL);
              INSERT INTO runs VALUES ('r3', 'e_c', 'run3', '{\"lr\": 0.01}', '2026-01-03T00:00:00Z', '2026-01-03T01:00:00Z', 'completed', NULL, NULL, NULL, NULL);
@@ -718,6 +733,13 @@ mod tests {
         let db = test_db();
         assert_eq!(db.count_unique_configs("e_b").unwrap(), 2);
         assert_eq!(db.count_unique_configs("e_c").unwrap(), 1);
+    }
+
+    #[test]
+    fn test_list_hierarchy() {
+        let db = test_db();
+        let levels = db.list_hierarchy().unwrap();
+        assert_eq!(levels, vec!["benchmark", "method", "variant"]);
     }
 
     #[test]
