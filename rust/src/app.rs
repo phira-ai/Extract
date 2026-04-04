@@ -191,8 +191,18 @@ pub struct AppState {
     pub todo_cursor: usize,
     pub todo_input: Option<String>,
     pub todo_filter: TodoFilter,
+    /// Chosen scope for the next TODO add (set by picker or directly)
+    pub todo_add_scope: Option<(String, Option<String>)>,
+    /// Scope picker for adding scoped TODOs
+    pub todo_scope_picker: Option<TodoScopePicker>,
     /// When set, tree panel should open ancestors and select this experiment path.
     pub pending_tree_select: Option<String>,
+}
+
+pub struct TodoScopePicker {
+    pub items: Vec<(String, String)>, // (id, label)
+    pub cursor: usize,
+    pub scope_type: String, // "experiment" or "run"
 }
 
 impl AppState {
@@ -247,6 +257,8 @@ impl AppState {
             todo_cursor: 0,
             todo_input: None,
             todo_filter: TodoFilter::All,
+            todo_add_scope: None,
+            todo_scope_picker: None,
             pending_tree_select: None,
         })
     }
