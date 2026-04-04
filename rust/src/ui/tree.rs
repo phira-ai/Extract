@@ -332,10 +332,11 @@ fn build_tree_items<'a>(
             .filter_map(|exp| {
                 let sub_children = build_children(Some(&exp.id), children_map, marked);
                 let marker = if marked.contains(&exp.id) { "\u{25cf} " } else { "" };
+                let icon = node_icon(exp.node_type.as_deref(), sub_children.is_empty());
                 let label = if sub_children.is_empty() {
-                    format!("{marker}{}", exp.name)
+                    format!("{marker}{icon}{}", exp.name)
                 } else {
-                    format!("{marker}{} [{}]", exp.name, sub_children.len())
+                    format!("{marker}{icon}{} [{}]", exp.name, sub_children.len())
                 };
 
                 if sub_children.is_empty() {
@@ -348,4 +349,18 @@ fn build_tree_items<'a>(
     }
 
     build_children(None, &children_map, marked_experiment_ids)
+}
+
+/// Map node_type to an icon prefix. Leaf nodes get a distinct icon.
+fn node_icon(node_type: Option<&str>, is_leaf: bool) -> &'static str {
+    if is_leaf {
+        return "\u{25cb} "; // ○ leaf experiment
+    }
+    match node_type {
+        Some("benchmark") | Some("dataset") => "\u{25ce} ", // ◎ target/dataset
+        Some("method") | Some("model") => "\u{25c6} ",      // ◆ method/approach
+        Some("variant") | Some("ablation") => "\u{25c7} ",  // ◇ variant
+        Some("task") | Some("sweep") => "\u{25a3} ",        // ▣ task/grid
+        _ => "\u{25c8} ",                                    // ◈ default branch
+    }
 }
