@@ -388,8 +388,14 @@ impl SummaryRenderer {
             for c in 0..table.cols {
                 let cell = &table.values[r][c];
                 let display = cell.display(cell_width);
-                let color = match_highlight_rule(cell, &tables_config.highlight);
-                spans.push(Span::styled(display, Style::default().fg(color)));
+                let color_name = match_highlight_rule(cell, &tables_config.highlight);
+                let style = if color_name == "transparent" {
+                    // Render text in background color so it visually disappears
+                    Style::default().fg(self.theme.bg)
+                } else {
+                    Style::default().fg(parse_color(color_name))
+                };
+                spans.push(Span::styled(display, style));
             }
 
             lines.push(Line::from(spans));
@@ -491,10 +497,11 @@ fn catmull_rom_interpolate(points: &[(f64, f64)], num_points: usize) -> Vec<(f64
     result
 }
 
-/// Match a cell value against highlight rules. Returns the color to use.
-fn match_highlight_rule(cell: &CellValue, rules: &[HighlightRule]) -> Color {
+/// Match a cell value against highlight rules. Returns the color name string.
+/// Special values: "transparent" (render invisible), "none"/"reset" (default terminal color).
+fn match_highlight_rule<'a>(cell: &CellValue, rules: &'a [HighlightRule]) -> &'a str {
     if rules.is_empty() {
-        return Color::Reset;
+        return "reset";
     }
 
     let numeric = cell.as_f64();
@@ -505,14 +512,14 @@ fn match_highlight_rule(cell: &CellValue, rules: &[HighlightRule]) -> Color {
             // Exact match takes precedence
             if let Some(eq) = rule.eq {
                 if (val - eq).abs() < f64::EPSILON {
-                    return parse_color(&rule.color);
+                    return &rule.color;
                 }
                 continue;
             }
             let min_ok = rule.min.map_or(true, |min| val >= min);
             let max_ok = rule.max.map_or(true, |max| val < max);
             if min_ok && max_ok && rule.pattern.is_none() {
-                return parse_color(&rule.color);
+                return &rule.color;
             }
         }
 
@@ -523,12 +530,12 @@ fn match_highlight_rule(cell: &CellValue, rules: &[HighlightRule]) -> Color {
                 CellValue::Int(v) => format!("{v}"),
             };
             if text.contains(pattern.as_str()) {
-                return parse_color(&rule.color);
+                return &rule.color;
             }
         }
     }
 
-    Color::Reset
+    "reset"
 }
 
 #[cfg(test)]
@@ -538,7 +545,7 @@ mod tests {
 
     fn test_rules() -> Vec<HighlightRule> {
         vec![
-            HighlightRule { eq: Some(0.0), min: None, max: None, pattern: None, color: "none".into() },
+            HighlightRule { eq: Some(0.0), min: None, max: None, pattern: None, color: "transparent".into() },
             HighlightRule { eq: None, min: Some(0.7), max: None, pattern: None, color: "red".into() },
             HighlightRule { eq: None, min: Some(0.5), max: Some(0.7), pattern: None, color: "orange".into() },
             HighlightRule { eq: None, min: Some(0.3), max: Some(0.5), pattern: None, color: "yellow".into() },
@@ -549,30 +556,30 @@ mod tests {
     #[test]
     fn test_highlight_exact_zero() {
         let rules = test_rules();
-        assert_eq!(match_highlight_rule(&CellValue::Float(0.0), &rules), Color::Reset);
+        assert_eq!(match_highlight_rule(&CellValue::Float(0.0), &rules), "transparent");
     }
 
     #[test]
     fn test_highlight_high_value() {
         let rules = test_rules();
-        assert_eq!(match_highlight_rule(&CellValue::Float(0.92), &rules), Color::Red);
+        assert_eq!(match_highlight_rule(&CellValue::Float(0.92), &rules), "red");
     }
 
     #[test]
     fn test_highlight_mid_value() {
         let rules = test_rules();
-        assert_eq!(match_highlight_rule(&CellValue::Float(0.65), &rules), Color::Rgb(255, 165, 0)); // orange
+        assert_eq!(match_highlight_rule(&CellValue::Float(0.65), &rules), "orange");
     }
 
     #[test]
     fn test_highlight_low_value() {
         let rules = test_rules();
-        assert_eq!(match_highlight_rule(&CellValue::Float(0.4), &rules), Color::Yellow);
+        assert_eq!(match_highlight_rule(&CellValue::Float(0.4), &rules), "yellow");
     }
 
     #[test]
     fn test_highlight_very_low() {
         let rules = test_rules();
-        assert_eq!(match_highlight_rule(&CellValue::Float(0.2), &rules), Color::White);
+        assert_eq!(match_highlight_rule(&CellValue::Float(0.2), &rules), "white");
     }
 }
