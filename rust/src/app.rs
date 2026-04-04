@@ -343,6 +343,15 @@ impl AppState {
             }
             seen_run_ids.push(run.id.clone());
 
+            let experiment_name = self
+                .db
+                .get_experiment(&run.experiment_id)?
+                .map(|e| e.name.clone())
+                .unwrap_or_else(|| {
+                    let id = &run.id;
+                    if id.len() > 8 { id[id.len() - 8..].to_string() } else { id.clone() }
+                });
+
             let latest_metrics = self.db.get_latest_metrics(&run.id)?;
             let run_params = self.db.list_run_params(&run.id)?;
             let config: Option<JsonValue> =
@@ -386,13 +395,28 @@ impl AppState {
 
             runs_data.push(CompareRunData {
                 run,
-                experiment_name: String::new(),
+                experiment_name,
                 latest_metrics,
                 run_params,
                 config,
                 metric_histories,
                 tables,
             });
+        }
+
+        // Add #N suffix for runs sharing the same experiment_name
+        let mut name_counts: HashMap<String, usize> = HashMap::new();
+        for rd in &runs_data {
+            *name_counts.entry(rd.experiment_name.clone()).or_default() += 1;
+        }
+        let mut name_indices: HashMap<String, usize> = HashMap::new();
+        for rd in &mut runs_data {
+            let count = name_counts[&rd.experiment_name];
+            if count > 1 {
+                let idx = name_indices.entry(rd.experiment_name.clone()).or_insert(0);
+                *idx += 1;
+                rd.experiment_name = format!("{} #{}", rd.experiment_name, idx);
+            }
         }
 
         // Compute union of names
