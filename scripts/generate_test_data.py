@@ -119,6 +119,81 @@ def main():
         for step in range(30):
             run.log(step=step, loss=1.8 / (step + 1), accuracy=0.4 + 0.20 * (step / 29))
 
+    # --- Phase 5: Models, Lineage, TODOs ---
+
+    from ulid import ULID
+
+    # Retrieve runs for model registration
+    ewc_lambda_runs = store.experiment(
+        {"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"}
+    ).list_runs()
+    si_runs = store.experiment(
+        {"benchmark": "cifar100", "method": "si", "variant": "c_0.5"}
+    ).list_runs()
+
+    run_ewc_v1 = ewc_lambda_runs[0]["id"] if ewc_lambda_runs else None
+    run_ewc_v2 = ewc_lambda_runs[1]["id"] if len(ewc_lambda_runs) > 1 else None
+    run_si_v1  = si_runs[0]["id"] if si_runs else None
+
+    # Register 3 models via raw SQL
+    model_ewc_v1  = str(ULID())
+    model_ewc_v2  = str(ULID())
+    model_si_v1   = str(ULID())
+
+    store._conn.executemany(
+        "INSERT OR IGNORE INTO models (id, name, version, run_id, artifact_path, framework) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        [
+            (model_ewc_v1, "ewc-cifar100", "1.0", run_ewc_v1,
+             "models/ewc-cifar100-v1.0.pt", "pytorch"),
+            (model_ewc_v2, "ewc-cifar100", "2.0", run_ewc_v2,
+             "models/ewc-cifar100-v2.0.pt", "pytorch"),
+            (model_si_v1,  "si-cifar100",  "1.0", run_si_v1,
+             "models/si-cifar100-v1.0.pt",  "pytorch"),
+        ],
+    )
+
+    # Lineage edges
+    lineage_rows = [
+        # ewc v2.0 fine_tuned_from v1.0
+        ("model", model_ewc_v1, "model", model_ewc_v2, "fine_tuned_from"),
+        # si v1.0 branched_from ewc v1.0
+        ("model", model_ewc_v1, "model", model_si_v1,  "branched_from"),
+    ]
+    if run_ewc_v1:
+        lineage_rows.append(("run", run_ewc_v1, "model", model_ewc_v1, "produced"))
+    if run_ewc_v2:
+        lineage_rows.append(("run", run_ewc_v2, "model", model_ewc_v2, "produced"))
+    if run_si_v1:
+        lineage_rows.append(("run", run_si_v1,  "model", model_si_v1,  "produced"))
+
+    store._conn.executemany(
+        "INSERT OR IGNORE INTO lineage "
+        "(parent_type, parent_id, child_type, child_id, relation) "
+        "VALUES (?, ?, ?, ?, ?)",
+        lineage_rows,
+    )
+    store._conn.commit()
+
+    # Global TODOs
+    store.todo("Tune EWC lambda on Split-CIFAR", priority=2)
+    store.todo("Run ablation: diagonal vs full Fisher", priority=1)
+    store.todo("Add SI with cosine LR schedule", priority=0)
+
+    # Experiment-scoped TODOs via raw SQL
+    ewc_exp = store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"})
+    si_exp  = store.experiment({"benchmark": "cifar100", "method": "si", "variant": "c_0.5"})
+
+    store._conn.executemany(
+        "INSERT INTO todos (id, scope_type, scope_id, content, priority) "
+        "VALUES (?, 'experiment', ?, ?, ?)",
+        [
+            (str(ULID()), ewc_exp.id, "Compare v1.0 vs v2.0 final accuracy", 1),
+            (str(ULID()), si_exp.id,  "Profile memory usage on 10-task split", 0),
+        ],
+    )
+    store._conn.commit()
+
     store.close()
     print(f"Generated test data at {STORE_ROOT}")
     print(f"  Hierarchy: benchmark > method > variant")
@@ -134,9 +209,12 @@ def main():
         "WHERE NOT EXISTS (SELECT 1 FROM experiments c WHERE c.parent_id = e.id) "
         "ORDER BY e.path"
     ).fetchall()
-    runs = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    runs    = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
+    models  = conn.execute("SELECT COUNT(*) FROM models").fetchone()[0]
+    lineage = conn.execute("SELECT COUNT(*) FROM lineage").fetchone()[0]
+    todos   = conn.execute("SELECT COUNT(*) FROM todos").fetchone()[0]
 
-    print(f"  Experiments: {len(leaves)}, Runs: {runs}")
+    print(f"  Experiments: {len(leaves)}, Runs: {runs}, Models: {models}, Lineage edges: {lineage}, TODOs: {todos}")
     for e in leaves:
         run_count = conn.execute(
             "SELECT COUNT(*) FROM runs r JOIN experiments x ON r.experiment_id = x.id "
