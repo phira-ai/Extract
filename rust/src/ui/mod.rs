@@ -5,6 +5,7 @@ pub mod detail;
 pub mod diff;
 pub mod heatmap;
 pub mod layout;
+pub mod popup;
 pub mod statusbar;
 pub mod summary;
 pub mod theme;

@@ -103,17 +103,58 @@ impl TreePanel {
         }
 
         if keys::matches(key, keys::TOGGLE_SELECT) {
-            // Toggle run selection for comparison
             let selected = self.tree_state.selected().to_vec();
             if let Some(last_id) = selected.last() {
-                if state.selected_runs_for_compare.contains(last_id) {
-                    state
-                        .selected_runs_for_compare
-                        .retain(|id| id != last_id);
+                // Only allow on leaf experiments (no children)
+                let has_children = state
+                    .experiments
+                    .iter()
+                    .any(|e| e.parent_id.as_deref() == Some(last_id));
+                if has_children {
+                    return Action::None;
+                }
+
+                // Get runs for this experiment
+                let runs = state.db.list_runs(last_id).unwrap_or_default();
+                if runs.is_empty() {
+                    return Action::None;
+                }
+
+                let exp_name = state
+                    .experiments
+                    .iter()
+                    .find(|e| e.id == *last_id)
+                    .map(|e| e.name.clone())
+                    .unwrap_or_default();
+
+                if runs.len() == 1 {
+                    // Single run: direct toggle
+                    let run_id = runs[0].id.clone();
+                    if state.selected_runs_for_compare.contains(&run_id) {
+                        state.selected_runs_for_compare.retain(|id| id != &run_id);
+                    } else {
+                        state.selected_runs_for_compare.push(run_id);
+                    }
+                    state.refresh_marked_experiments();
                 } else {
-                    state
-                        .selected_runs_for_compare
-                        .push(last_id.clone());
+                    // Multiple runs: open picker popup
+                    let already_selected: Vec<String> = runs
+                        .iter()
+                        .filter(|r| state.selected_runs_for_compare.contains(&r.id))
+                        .map(|r| r.id.clone())
+                        .collect();
+                    let mut sorted_runs = runs;
+                    sorted_runs.sort_by(|a, b| {
+                        let a_time = a.ended_at.as_deref().unwrap_or(&a.started_at);
+                        let b_time = b.ended_at.as_deref().unwrap_or(&b.started_at);
+                        b_time.cmp(a_time)
+                    });
+                    state.run_picker = Some(crate::app::RunPickerState {
+                        experiment_name: exp_name,
+                        runs: sorted_runs,
+                        selected: already_selected,
+                        cursor: 0,
+                    });
                 }
             }
             return Action::None;

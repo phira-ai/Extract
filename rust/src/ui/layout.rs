@@ -9,6 +9,7 @@ use crate::ui::compare::CompareView;
 use crate::ui::dashboard::Dashboard;
 use crate::ui::detail::DetailPanel;
 use crate::ui::diff::DiffView;
+use crate::ui::popup::PopupRenderer;
 use crate::ui::statusbar::StatusBar;
 use crate::ui::theme::Theme;
 use crate::ui::tree::TreePanel;
@@ -20,6 +21,7 @@ pub struct AppLayout {
     pub compare: CompareView,
     pub diff: DiffView,
     pub statusbar: StatusBar,
+    pub popup: PopupRenderer,
     theme: Theme,
 }
 
@@ -32,11 +34,28 @@ impl AppLayout {
             compare: CompareView::new(),
             diff: DiffView::new(),
             statusbar: StatusBar::new(),
+            popup: PopupRenderer::new(),
             theme: Theme::default(),
         }
     }
 
     pub fn handle_event(&mut self, event: &AppEvent, state: &mut AppState) -> Action {
+        if let AppEvent::Key(key) = event {
+            if state.delete_confirm.is_some() {
+                if let Some(confirmed) = self.popup.handle_delete_confirm_key(key) {
+                    if confirmed {
+                        // Delete will be wired in Task 10
+                    }
+                    state.delete_confirm = None;
+                }
+                return Action::None;
+            }
+            if state.run_picker.is_some() {
+                self.popup.handle_run_picker_key(key, state);
+                return Action::None;
+            }
+        }
+
         // Route to full-screen views first
         match state.current_view {
             View::Compare => return self.compare.handle_event(event, state),
@@ -76,11 +95,25 @@ impl AppLayout {
             View::Compare => {
                 self.compare.render(frame, main_area, state);
                 self.statusbar.render(frame, status_area, state);
+                // Popup overlays
+                if let Some(ref picker) = state.run_picker {
+                    self.popup.render_run_picker(frame, area, picker);
+                }
+                if let Some(ref confirm) = state.delete_confirm {
+                    self.popup.render_delete_confirm(frame, area, confirm);
+                }
                 return;
             }
             View::Diff => {
                 self.diff.render(frame, main_area, state);
                 self.statusbar.render(frame, status_area, state);
+                // Popup overlays
+                if let Some(ref picker) = state.run_picker {
+                    self.popup.render_run_picker(frame, area, picker);
+                }
+                if let Some(ref confirm) = state.delete_confirm {
+                    self.popup.render_delete_confirm(frame, area, confirm);
+                }
                 return;
             }
             _ => {}
@@ -124,5 +157,13 @@ impl AppLayout {
 
         // Render status bar
         self.statusbar.render(frame, status_area, state);
+
+        // Popup overlays (rendered last, on top)
+        if let Some(ref picker) = state.run_picker {
+            self.popup.render_run_picker(frame, area, picker);
+        }
+        if let Some(ref confirm) = state.delete_confirm {
+            self.popup.render_delete_confirm(frame, area, confirm);
+        }
     }
 }
