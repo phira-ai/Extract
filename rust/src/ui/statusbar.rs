@@ -86,7 +86,6 @@ impl StatusBar {
                 ("x", "delete"),
                 ("0/1/2", "priority"),
                 ("a", "add"),
-                ("Tab", "filter"),
                 ("q", "quit"),
             ],
             (View::Lineage, _) => vec![

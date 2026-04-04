@@ -82,7 +82,17 @@ impl AppLayout {
             }
         }
 
-        // Global panel shortcuts (1, 2, 3)
+        // Route to full-screen views first (before panel shortcuts)
+        match state.current_view {
+            View::Compare => return self.compare.handle_event(event, state),
+            View::Diff => return self.diff.handle_event(event, state),
+            View::Registry => return self.registry.handle_event(event, state),
+            View::Lineage => return self.lineage.handle_event(event, state),
+            View::TodoGlobal => return self.todo_view.handle_event(event, state),
+            _ => {}
+        }
+
+        // Explorer-only panel shortcuts (1, 2, 3) and view shortcuts
         if let AppEvent::Key(key) = event {
             if keys::matches(key, keys::PANEL_1) {
                 state.focus = Focus::Tree;
@@ -133,16 +143,6 @@ impl AppLayout {
                 self.selection.handle_event(key, state);
                 return Action::None;
             }
-        }
-
-        // Route to full-screen views first
-        match state.current_view {
-            View::Compare => return self.compare.handle_event(event, state),
-            View::Diff => return self.diff.handle_event(event, state),
-            View::Registry => return self.registry.handle_event(event, state),
-            View::Lineage => return self.lineage.handle_event(event, state),
-            View::TodoGlobal => return self.todo_view.handle_event(event, state),
-            _ => {}
         }
 
         // Dispatch to the focused component
