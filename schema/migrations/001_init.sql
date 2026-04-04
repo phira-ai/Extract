@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS hierarchy (
     PRIMARY KEY (level_order)
 );
 
+-- run_params: categorical/string key-value attributes for a run
+CREATE TABLE IF NOT EXISTS run_params (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(id),
+    name   TEXT NOT NULL,
+    value  TEXT NOT NULL,
+    UNIQUE(run_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_params_run_id ON run_params(run_id);
+
 -- todos: task notes scoped to global, an experiment, or a run
 CREATE TABLE IF NOT EXISTS todos (
     id           TEXT PRIMARY KEY,

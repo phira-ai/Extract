@@ -7,7 +7,7 @@ use crate::config::{self, Config};
 use crate::db::Db;
 use std::collections::HashMap;
 
-use crate::model::{is_lower_better, Artifact, Experiment, MetricAggregate, MetricRanking, Run, ScalarMetric};
+use crate::model::{is_lower_better, Artifact, Experiment, MetricAggregate, MetricRanking, Run, RunParam, ScalarMetric};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -74,6 +74,7 @@ pub struct AppState {
     pub selected_runs_for_compare: Vec<String>,
     pub metrics: Vec<ScalarMetric>,
     pub artifacts: Vec<Artifact>,
+    pub run_params: Vec<RunParam>,
     pub metric_histories: Vec<(String, Vec<ScalarMetric>)>,
     pub selection_summary: SelectionSummary,
     pub summary_scroll: u16,
@@ -107,6 +108,7 @@ impl AppState {
             selected_runs_for_compare: Vec::new(),
             metrics: Vec::new(),
             artifacts: Vec::new(),
+            run_params: Vec::new(),
             metric_histories: Vec::new(),
             selection_summary: SelectionSummary::Root {
                 total_experiments,
@@ -174,6 +176,7 @@ impl AppState {
 
         if self.runs.is_empty() {
             self.metric_histories.clear();
+            self.run_params.clear();
             self.artifacts.clear();
             self.cached_table = None;
             self.cached_table_artifact_id = None;
@@ -193,8 +196,9 @@ impl AppState {
         };
         let run_id = run.id.clone();
 
-        // Load all metric histories for the preview run
+        // Load all metric histories and params for the preview run
         self.load_all_metric_histories(&run_id)?;
+        self.run_params = self.db.list_run_params(&run_id)?;
 
         // Load artifacts and cache first table (matrix artifact)
         self.artifacts = self.db.list_artifacts(&run_id)?;

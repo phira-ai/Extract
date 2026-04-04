@@ -112,6 +112,16 @@ CREATE TABLE IF NOT EXISTS todos (
 
 CREATE INDEX IF NOT EXISTS idx_todos_scope ON todos(scope_type, scope_id);
 
+CREATE TABLE IF NOT EXISTS run_params (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(id),
+    name   TEXT NOT NULL,
+    value  TEXT NOT NULL,
+    UNIQUE(run_id, name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_run_params_run_id ON run_params(run_id);
+
 CREATE TABLE IF NOT EXISTS hierarchy (
     level_order INTEGER NOT NULL,
     level_name  TEXT NOT NULL UNIQUE,

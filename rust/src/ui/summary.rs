@@ -8,7 +8,7 @@ use ratatui::Frame;
 
 use crate::artifact::{CellValue, TableData};
 use crate::config::{parse_color, HighlightRule, SummarySection, TablesConfig};
-use crate::model::{MetricAggregate, Run, ScalarMetric};
+use crate::model::{MetricAggregate, Run, RunParam, ScalarMetric};
 use crate::ui::theme::Theme;
 
 /// All data needed to render a summary panel.
@@ -18,6 +18,7 @@ pub struct SummaryData<'a> {
     pub run_metrics: &'a [Vec<ScalarMetric>],
     pub aggregate_metrics: &'a [MetricAggregate],
     pub unique_configs: i64,
+    pub run_params: &'a [RunParam],
     pub metric_histories: &'a [(String, Vec<ScalarMetric>)],
     pub table: Option<&'a TableData>,
     pub table_title: Option<&'a str>,
@@ -160,7 +161,7 @@ impl SummaryRenderer {
     }
 
     fn build_metrics(&self, lines: &mut Vec<Line<'static>>, data: &SummaryData) {
-        if data.aggregate_metrics.is_empty() {
+        if data.aggregate_metrics.is_empty() && data.run_params.is_empty() {
             return;
         }
 
@@ -190,6 +191,17 @@ impl SummaryRenderer {
             } else {
                 lines.push(Line::from(format!("  {:<14}{:.4}", m.name, m.mean)));
             }
+        }
+
+        // Categorical/string parameters
+        for p in data.run_params {
+            lines.push(Line::from(vec![
+                Span::raw(format!("  {:<14}", p.name)),
+                Span::styled(
+                    p.value.clone(),
+                    Style::default().fg(self.theme.accent),
+                ),
+            ]));
         }
     }
 

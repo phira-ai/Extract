@@ -27,6 +27,8 @@ def main():
     with store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"}).run(
         config={"lr": 0.001, "lambda": 1.0}
     ) as run:
+        # Categorical params logged alongside numeric metrics
+        run.log(step=0, arch="resnet18", fisher_label="empirical")
         for step in range(50):
             run.log(step=step, loss=1.0 / (step + 1), accuracy=0.5 + 0.35 * (step / 49))
 

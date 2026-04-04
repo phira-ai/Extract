@@ -3,7 +3,7 @@ use std::path::Path;
 use color_eyre::Result;
 use rusqlite::{Connection, params};
 
-use crate::model::{Artifact, Experiment, LineageEdge, MetricAggregate, Model, Run, ScalarMetric, Todo};
+use crate::model::{Artifact, Experiment, LineageEdge, MetricAggregate, Model, Run, RunParam, ScalarMetric, Todo};
 
 pub struct Db {
     conn: Connection,
@@ -259,6 +259,23 @@ impl Db {
             artifacts.push(row?);
         }
         Ok(artifacts)
+    }
+
+    // Run params (categorical/string attributes)
+
+    pub fn list_run_params(&self, run_id: &str) -> Result<Vec<RunParam>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT run_id, name, value FROM run_params WHERE run_id = ? ORDER BY name",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| {
+            Ok(RunParam {
+                run_id: row.get(0)?,
+                name: row.get(1)?,
+                value: row.get(2)?,
+            })
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     // Models
@@ -632,7 +649,9 @@ mod tests {
              INSERT INTO scalar_metrics VALUES (NULL, 'r3', 15, 'loss', 0.4, NULL);
              INSERT INTO scalar_metrics VALUES (NULL, 'r3', 15, 'accuracy', 0.8, NULL);
              INSERT INTO scalar_metrics VALUES (NULL, 'r4', 10, 'loss', 0.9, NULL);
-             INSERT INTO scalar_metrics VALUES (NULL, 'r4', 10, 'accuracy', 0.4, NULL);",
+             INSERT INTO scalar_metrics VALUES (NULL, 'r4', 10, 'accuracy', 0.4, NULL);
+             INSERT INTO run_params VALUES (NULL, 'r1', 'arch', 'resnet18');
+             INSERT INTO run_params VALUES (NULL, 'r1', 'fisher_label', 'empirical');",
         )
         .unwrap();
         Db { conn }
@@ -740,6 +759,21 @@ mod tests {
         let db = test_db();
         let levels = db.list_hierarchy().unwrap();
         assert_eq!(levels, vec!["benchmark", "method", "variant"]);
+    }
+
+    #[test]
+    fn test_list_run_params() {
+        let db = test_db();
+        let params = db.list_run_params("r1").unwrap();
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0].name, "arch");
+        assert_eq!(params[0].value, "resnet18");
+        assert_eq!(params[1].name, "fisher_label");
+        assert_eq!(params[1].value, "empirical");
+
+        // Run with no params
+        let params = db.list_run_params("r2").unwrap();
+        assert!(params.is_empty());
     }
 
     #[test]

@@ -213,6 +213,7 @@ impl DetailPanel {
             run_metrics: &run_metrics,
             aggregate_metrics: &aggregate_metrics,
             unique_configs,
+            run_params: &state.run_params,
             metric_histories: &state.metric_histories,
             table: state.cached_table.as_ref(),
             table_title: state.cached_table_title.as_deref(),

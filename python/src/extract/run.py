@@ -64,17 +64,31 @@ class Run:
     # Scalar metrics
     # ------------------------------------------------------------------
 
-    def log(self, step: int, **kwargs: float) -> None:
-        """Log scalar metrics at a given step.
+    def log(self, step: int, **kwargs: float | int | str) -> None:
+        """Log metrics at a given step.
 
-        Each keyword argument is a metric name/value pair.
+        Numeric values (int, float) are stored as time-series scalar metrics.
+        String values are stored as run-level categorical parameters.
         """
         wall_time = time.time() - self._start_time
         for name, value in kwargs.items():
-            self._buffer.append((self._id, step, name, float(value), wall_time))
+            if isinstance(value, str):
+                self._log_param(name, value)
+            else:
+                self._buffer.append((self._id, step, name, float(value), wall_time))
 
         if len(self._buffer) >= _FLUSH_THRESHOLD:
             self._flush()
+
+    def _log_param(self, name: str, value: str) -> None:
+        """Store a categorical/string parameter for this run."""
+        with self._store.lock:
+            self._store._conn.execute(
+                "INSERT OR REPLACE INTO run_params (run_id, name, value) "
+                "VALUES (?, ?, ?)",
+                (self._id, name, value),
+            )
+            self._store._conn.commit()
 
     def _flush(self) -> None:
         """Flush the scalar metrics buffer to the database."""

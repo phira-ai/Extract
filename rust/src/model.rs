@@ -97,6 +97,13 @@ pub struct MetricAggregate {
     pub count: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunParam {
+    pub run_id: String,
+    pub name: String,
+    pub value: String,
+}
+
 #[derive(Debug, Clone)]
 pub struct MetricRanking {
     pub metric_name: String,
