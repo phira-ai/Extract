@@ -99,6 +99,28 @@ impl DetailPanel {
             }
         }
 
+        if keys::matches(key, keys::CYCLE_NEXT) {
+            if let Some(idx) = state.selected_run {
+                if idx + 1 < state.runs.len() {
+                    state.selected_run = Some(idx + 1);
+                    let _ = state.load_run_preview(idx + 1);
+                    self.load_metrics_for_selected_run(state);
+                }
+            }
+            return Action::None;
+        }
+
+        if keys::matches(key, keys::CYCLE_PREV) {
+            if let Some(idx) = state.selected_run {
+                if idx > 0 {
+                    state.selected_run = Some(idx - 1);
+                    let _ = state.load_run_preview(idx - 1);
+                    self.load_metrics_for_selected_run(state);
+                }
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::TOGGLE_SELECT) {
             if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
                 let run_id = run.id.clone();
@@ -157,8 +179,18 @@ impl DetailPanel {
             Style::default().fg(self.theme.border)
         };
 
+        let run_indicator = if state.runs.len() > 1 {
+            format!(
+                " run {}/{} ",
+                state.selected_run.map(|i| i + 1).unwrap_or(0),
+                state.runs.len()
+            )
+        } else {
+            String::new()
+        };
+
         let block = Block::bordered()
-            .title(" Detail ")
+            .title(format!(" Detail{run_indicator}"))
             .border_style(border_style);
         let inner = block.inner(area);
         frame.render_widget(block, area);

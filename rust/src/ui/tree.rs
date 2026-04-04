@@ -74,7 +74,7 @@ impl TreePanel {
 
                         // Select the first run if available
                         if !state.runs.is_empty() {
-                            state.selected_run = Some(0);
+                            state.selected_run = Some(state.runs.len() - 1);
                         }
 
                         // Load metrics for the selected run
