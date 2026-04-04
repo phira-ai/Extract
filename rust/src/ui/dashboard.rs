@@ -65,10 +65,10 @@ impl Dashboard {
                     unique_configs: *unique_configs,
                     metric_history: &state.metric_history,
                     metric_name: state.available_metric_names.first().map(|s| s.as_str()),
-                    matrix: state.cached_matrix.as_ref(),
-                    matrix_title: state.cached_matrix_title.as_deref(),
-                    matrix_axes: state
-                        .cached_matrix_axes
+                    table: state.cached_table.as_ref(),
+                    table_title: state.cached_table_title.as_deref(),
+                    table_axes: state
+                        .cached_table_axes
                         .as_ref()
                         .map(|(r, c)| (r.as_str(), c.as_str())),
                 };
@@ -78,6 +78,8 @@ impl Dashboard {
                     &data,
                     &state.config.summary.sections,
                     state.summary_scroll,
+                    state.config.summary.curve_width,
+                    &state.config.tables,
                 );
                 state.summary_total_lines = total;
             }

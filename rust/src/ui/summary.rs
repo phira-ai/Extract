@@ -1,4 +1,3 @@
-use ndarray::Array2;
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -7,7 +6,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Chart, Dataset, GraphType, Paragraph, Widget};
 use ratatui::Frame;
 
-use crate::config::SummarySection;
+use crate::artifact::{CellValue, TableData};
+use crate::config::{parse_color, HighlightRule, SummarySection, TablesConfig};
 use crate::model::{MetricAggregate, Run, ScalarMetric};
 use crate::ui::theme::Theme;
 
@@ -20,9 +20,9 @@ pub struct SummaryData<'a> {
     pub unique_configs: i64,
     pub metric_history: &'a [ScalarMetric],
     pub metric_name: Option<&'a str>,
-    pub matrix: Option<&'a Array2<f64>>,
-    pub matrix_title: Option<&'a str>,
-    pub matrix_axes: Option<(&'a str, &'a str)>,
+    pub table: Option<&'a TableData>,
+    pub table_title: Option<&'a str>,
+    pub table_axes: Option<(&'a str, &'a str)>,
 }
 
 pub struct SummaryRenderer {
@@ -44,25 +44,28 @@ impl SummaryRenderer {
         data: &SummaryData,
         sections: &[SummarySection],
         scroll_offset: u16,
+        curve_width_pct: u8,
+        tables_config: &TablesConfig,
     ) -> usize {
         let mut lines: Vec<Line<'static>> = Vec::new();
 
-        // Header (always first)
         self.build_header(&mut lines, data);
 
-        // Configurable sections
         for section in sections {
             match section {
                 SummarySection::Runs => self.build_runs(&mut lines, data),
                 SummarySection::Metrics => self.build_metrics(&mut lines, data),
                 SummarySection::Curves => {
-                    self.build_curves(&mut lines, data, area.width.saturating_sub(4))
+                    let chart_width =
+                        ((area.width as f32) * (curve_width_pct.min(100) as f32 / 100.0)) as u16;
+                    self.build_curves(&mut lines, data, chart_width.max(20));
                 }
-                SummarySection::Matrix => self.build_matrix(&mut lines, data),
+                SummarySection::Tables => {
+                    self.build_tables(&mut lines, data, tables_config);
+                }
             }
         }
 
-        // Trailing blank line
         lines.push(Line::from(""));
 
         let total_lines = lines.len();
@@ -71,7 +74,6 @@ impl SummaryRenderer {
         let paragraph = Paragraph::new(lines).scroll((scroll_offset, 0));
         frame.render_widget(paragraph, area);
 
-        // Scroll indicators
         if total_lines > visible_height {
             if scroll_offset > 0 {
                 let hint = Paragraph::new(Line::from(Span::styled(
@@ -263,12 +265,10 @@ impl SummaryRenderer {
                     .labels(y_labels),
             );
 
-        // Render to offscreen buffer
         let rect = Rect::new(0, 0, width, height);
         let mut buf = Buffer::empty(rect);
         Widget::render(chart, rect, &mut buf);
 
-        // Extract styled lines from buffer
         let mut result = Vec::new();
         for y in 0..height {
             let mut spans: Vec<Span<'static>> = Vec::new();
@@ -304,31 +304,22 @@ impl SummaryRenderer {
         result
     }
 
-    fn build_matrix(&self, lines: &mut Vec<Line<'static>>, data: &SummaryData) {
-        let Some(matrix) = data.matrix else {
+    fn build_tables(
+        &self,
+        lines: &mut Vec<Line<'static>>,
+        data: &SummaryData,
+        tables_config: &TablesConfig,
+    ) {
+        let Some(table) = data.table else {
             return;
         };
 
-        let (rows, cols) = matrix.dim();
-        if rows == 0 || cols == 0 {
+        if table.rows == 0 || table.cols == 0 {
             return;
         }
 
-        let mut vmin = f64::MAX;
-        let mut vmax = f64::MIN;
-        for &v in matrix.iter() {
-            if v != 0.0 {
-                vmin = vmin.min(v);
-                vmax = vmax.max(v);
-            }
-        }
-        if vmin > vmax {
-            vmin = 0.0;
-            vmax = 1.0;
-        }
-
         lines.push(Line::from(""));
-        let title = data.matrix_title.unwrap_or("Matrix");
+        let title = data.table_title.unwrap_or("Table");
         lines.push(Line::from(Span::styled(
             format!("  {title}"),
             Style::default()
@@ -336,39 +327,34 @@ impl SummaryRenderer {
                 .add_modifier(Modifier::BOLD),
         )));
 
+        // Determine cell display width based on content
+        let cell_width = 6;
+
         // Column header
-        if data.matrix_axes.is_some() {
+        if data.table_axes.is_some() {
             let mut header_spans: Vec<Span<'static>> = vec![Span::raw("       ".to_string())];
-            for c in 0..cols {
+            for c in 0..table.cols {
                 header_spans.push(Span::styled(
-                    format!(" T{:<3}", c + 1),
+                    format!("{:>width$}", format!("C{}", c + 1), width = cell_width),
                     Style::default().fg(self.theme.accent_dim),
                 ));
             }
             lines.push(Line::from(header_spans));
         }
 
-        for r in 0..rows {
+        // Rows
+        for r in 0..table.rows {
             let mut spans: Vec<Span<'static>> = Vec::new();
             spans.push(Span::styled(
-                format!("  T{:<3} ", r + 1),
+                format!("  R{:<3} ", r + 1),
                 Style::default().fg(self.theme.accent_dim),
             ));
 
-            for c in 0..cols {
-                let v = matrix[[r, c]];
-                if v == 0.0 {
-                    spans.push(Span::styled(
-                        "  \u{00b7}  ".to_string(),
-                        Style::default().fg(self.theme.heatmap_zero),
-                    ));
-                } else {
-                    let color = self.value_to_color(v, vmin, vmax);
-                    spans.push(Span::styled(
-                        format!(" {:.2}", v),
-                        Style::default().fg(color),
-                    ));
-                }
+            for c in 0..table.cols {
+                let cell = &table.values[r][c];
+                let display = cell.display(cell_width);
+                let color = match_highlight_rule(cell, &tables_config.highlight);
+                spans.push(Span::styled(display, Style::default().fg(color)));
             }
 
             lines.push(Line::from(spans));
@@ -376,7 +362,7 @@ impl SummaryRenderer {
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            format!("  {rows}\u{00d7}{cols}  range: [{vmin:.3}, {vmax:.3}]"),
+            format!("  {}\u{00d7}{}", table.rows, table.cols),
             Style::default().fg(self.theme.accent_dim),
         )));
     }
@@ -396,19 +382,37 @@ impl SummaryRenderer {
             _ => Style::default(),
         }
     }
+}
 
-    fn value_to_color(&self, value: f64, min: f64, max: f64) -> Color {
-        let range = max - min;
-        if range == 0.0 {
-            return self.theme.heatmap_high;
+/// Match a cell value against highlight rules. Returns the color to use.
+fn match_highlight_rule(cell: &CellValue, rules: &[HighlightRule]) -> Color {
+    if rules.is_empty() {
+        return Color::Reset;
+    }
+
+    let numeric = cell.as_f64();
+
+    for rule in rules {
+        // Numeric matching
+        if let Some(val) = numeric {
+            let min_ok = rule.min.map_or(true, |min| val >= min);
+            let max_ok = rule.max.map_or(true, |max| val < max);
+            if min_ok && max_ok && rule.pattern.is_none() {
+                return parse_color(&rule.color);
+            }
         }
-        let t = (value - min) / range;
-        if t < 0.5 {
-            self.theme.heatmap_low
-        } else if t < 0.8 {
-            self.theme.heatmap_mid
-        } else {
-            self.theme.heatmap_high
+
+        // Pattern matching (for future string support)
+        if let Some(ref pattern) = rule.pattern {
+            let text = match cell {
+                CellValue::Float(v) => format!("{v}"),
+                CellValue::Int(v) => format!("{v}"),
+            };
+            if text.contains(pattern.as_str()) {
+                return parse_color(&rule.color);
+            }
         }
     }
+
+    Color::Reset
 }

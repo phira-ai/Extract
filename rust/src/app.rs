@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use color_eyre::Result;
-use ndarray::Array2;
 
+use crate::artifact::TableData;
 use crate::config::{self, Config};
 use crate::db::Db;
 use std::collections::HashMap;
@@ -80,10 +80,10 @@ pub struct AppState {
     pub selection_summary: SelectionSummary,
     pub summary_scroll: u16,
     pub summary_total_lines: usize,
-    pub cached_matrix: Option<Array2<f64>>,
-    pub cached_matrix_artifact_id: Option<String>,
-    pub cached_matrix_axes: Option<(String, String)>,
-    pub cached_matrix_title: Option<String>,
+    pub cached_table: Option<TableData>,
+    pub cached_table_artifact_id: Option<String>,
+    pub cached_table_axes: Option<(String, String)>,
+    pub cached_table_title: Option<String>,
 }
 
 impl AppState {
@@ -119,10 +119,10 @@ impl AppState {
             },
             summary_scroll: 0,
             summary_total_lines: 0,
-            cached_matrix: None,
-            cached_matrix_artifact_id: None,
-            cached_matrix_axes: None,
-            cached_matrix_title: None,
+            cached_table: None,
+            cached_table_artifact_id: None,
+            cached_table_axes: None,
+            cached_table_title: None,
         })
     }
 
@@ -185,8 +185,8 @@ impl AppState {
             self.metric_history.clear();
             self.available_metric_names.clear();
             self.artifacts.clear();
-            self.cached_matrix = None;
-            self.cached_matrix_artifact_id = None;
+            self.cached_table = None;
+            self.cached_table_artifact_id = None;
             return Ok(());
         }
 
@@ -220,32 +220,31 @@ impl AppState {
             self.metric_history.clear();
         }
 
-        // Load artifacts and cache first matrix
+        // Load artifacts and cache first table (matrix artifact)
         self.artifacts = self.db.list_artifacts(&run_id)?;
-        self.load_first_matrix()?;
+        self.load_first_table()?;
 
         Ok(())
     }
 
-    fn load_first_matrix(&mut self) -> Result<()> {
-        let matrix_artifact = self.artifacts.iter().find(|a| a.kind == "matrix");
+    fn load_first_table(&mut self) -> Result<()> {
+        let table_artifact = self.artifacts.iter().find(|a| a.kind == "matrix");
 
-        let Some(artifact) = matrix_artifact else {
-            self.cached_matrix = None;
-            self.cached_matrix_artifact_id = None;
-            self.cached_matrix_axes = None;
-            self.cached_matrix_title = None;
+        let Some(artifact) = table_artifact else {
+            self.cached_table = None;
+            self.cached_table_artifact_id = None;
+            self.cached_table_axes = None;
+            self.cached_table_title = None;
             return Ok(());
         };
 
-        // Skip if already cached for this artifact
-        if self.cached_matrix_artifact_id.as_deref() == Some(&artifact.id) {
+        if self.cached_table_artifact_id.as_deref() == Some(&artifact.id) {
             return Ok(());
         }
 
         let path = self.store_root.join(&artifact.rel_path);
-        match crate::artifact::load_npy_matrix(&path) {
-            Ok(matrix) => {
+        match crate::artifact::load_table(&path) {
+            Ok(table) => {
                 let axes = artifact.metadata.as_ref().and_then(|m| {
                     let parsed: serde_json::Value = serde_json::from_str(m).ok()?;
                     let axes_obj = parsed.get("axes")?;
@@ -253,14 +252,14 @@ impl AppState {
                     let cols = axes_obj.get("cols")?.as_str()?.to_string();
                     Some((rows, cols))
                 });
-                self.cached_matrix = Some(matrix);
-                self.cached_matrix_artifact_id = Some(artifact.id.clone());
-                self.cached_matrix_title = Some(artifact.name.clone());
-                self.cached_matrix_axes = axes;
+                self.cached_table = Some(table);
+                self.cached_table_artifact_id = Some(artifact.id.clone());
+                self.cached_table_title = Some(artifact.name.clone());
+                self.cached_table_axes = axes;
             }
             Err(_) => {
-                self.cached_matrix = None;
-                self.cached_matrix_artifact_id = None;
+                self.cached_table = None;
+                self.cached_table_artifact_id = None;
             }
         }
 
