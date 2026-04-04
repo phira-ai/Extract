@@ -18,8 +18,7 @@ pub struct SummaryData<'a> {
     pub run_metrics: &'a [Vec<ScalarMetric>],
     pub aggregate_metrics: &'a [MetricAggregate],
     pub unique_configs: i64,
-    pub metric_history: &'a [ScalarMetric],
-    pub metric_name: Option<&'a str>,
+    pub metric_histories: &'a [(String, Vec<ScalarMetric>)],
     pub table: Option<&'a TableData>,
     pub table_title: Option<&'a str>,
     pub table_axes: Option<(&'a str, &'a str)>,
@@ -194,24 +193,34 @@ impl SummaryRenderer {
     }
 
     fn build_curves(&self, lines: &mut Vec<Line<'static>>, data: &SummaryData, width: u16) {
-        if data.metric_history.is_empty() {
+        if data.metric_histories.is_empty() {
             return;
         }
 
-        let chart_height: u16 = 10;
+        // Scale chart height based on number of metrics
+        let chart_height: u16 = match data.metric_histories.len() {
+            1 => 12,
+            2 => 10,
+            3 => 8,
+            _ => 6,
+        };
 
-        lines.push(Line::from(""));
+        for (name, history) in data.metric_histories {
+            if history.is_empty() {
+                continue;
+            }
 
-        let label = data.metric_name.unwrap_or("metric");
-        lines.push(Line::from(Span::styled(
-            format!("  {label}"),
-            Style::default()
-                .fg(self.theme.accent)
-                .add_modifier(Modifier::BOLD),
-        )));
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                format!("  {name}"),
+                Style::default()
+                    .fg(self.theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )));
 
-        let chart_lines = self.render_chart_to_lines(data.metric_history, width, chart_height);
-        lines.extend(chart_lines);
+            let chart_lines = self.render_chart_to_lines(history, width, chart_height);
+            lines.extend(chart_lines);
+        }
     }
 
     fn render_chart_to_lines(

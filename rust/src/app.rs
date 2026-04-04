@@ -74,9 +74,7 @@ pub struct AppState {
     pub selected_runs_for_compare: Vec<String>,
     pub metrics: Vec<ScalarMetric>,
     pub artifacts: Vec<Artifact>,
-    pub metric_history: Vec<ScalarMetric>,
-    pub available_metric_names: Vec<String>,
-    pub selected_metric_idx: usize,
+    pub metric_histories: Vec<(String, Vec<ScalarMetric>)>,
     pub selection_summary: SelectionSummary,
     pub summary_scroll: u16,
     pub summary_total_lines: usize,
@@ -109,9 +107,7 @@ impl AppState {
             selected_runs_for_compare: Vec::new(),
             metrics: Vec::new(),
             artifacts: Vec::new(),
-            metric_history: Vec::new(),
-            available_metric_names: Vec::new(),
-            selected_metric_idx: 0,
+            metric_histories: Vec::new(),
             selection_summary: SelectionSummary::Root {
                 total_experiments,
                 total_runs,
@@ -149,30 +145,25 @@ impl AppState {
         Ok(())
     }
 
-    pub fn refresh_metric_history(&mut self) -> Result<()> {
-        let Some(run) = self.selected_run.and_then(|i| self.runs.get(i)) else {
-            self.metric_history.clear();
-            self.available_metric_names.clear();
-            return Ok(());
-        };
-
-        // Get distinct metric names for this run
-        let all = self.db.get_scalar_metrics(&run.id, None)?;
+    /// Load all metric histories for a given run.
+    fn load_all_metric_histories(&mut self, run_id: &str) -> Result<()> {
+        let all = self.db.get_scalar_metrics(run_id, None)?;
         let mut names: Vec<String> = Vec::new();
         for m in &all {
             if !names.contains(&m.name) {
                 names.push(m.name.clone());
             }
         }
-        self.available_metric_names = names;
-
-        // Load full history for selected metric
-        if let Some(name) = self.available_metric_names.get(self.selected_metric_idx) {
-            self.metric_history = self.db.get_scalar_metrics(&run.id, Some(name))?;
-        } else {
-            self.metric_history.clear();
-        }
-
+        self.metric_histories = names
+            .into_iter()
+            .map(|name| {
+                let history = self
+                    .db
+                    .get_scalar_metrics(run_id, Some(&name))
+                    .unwrap_or_default();
+                (name, history)
+            })
+            .collect();
         Ok(())
     }
 
@@ -182,8 +173,7 @@ impl AppState {
         self.summary_scroll = 0;
 
         if self.runs.is_empty() {
-            self.metric_history.clear();
-            self.available_metric_names.clear();
+            self.metric_histories.clear();
             self.artifacts.clear();
             self.cached_table = None;
             self.cached_table_artifact_id = None;
@@ -203,22 +193,8 @@ impl AppState {
         };
         let run_id = run.id.clone();
 
-        // Load metric names and history for first metric
-        let all = self.db.get_scalar_metrics(&run_id, None)?;
-        let mut names: Vec<String> = Vec::new();
-        for m in &all {
-            if !names.contains(&m.name) {
-                names.push(m.name.clone());
-            }
-        }
-        self.available_metric_names = names;
-        self.selected_metric_idx = 0;
-
-        if let Some(name) = self.available_metric_names.first() {
-            self.metric_history = self.db.get_scalar_metrics(&run_id, Some(name))?;
-        } else {
-            self.metric_history.clear();
-        }
+        // Load all metric histories for the preview run
+        self.load_all_metric_histories(&run_id)?;
 
         // Load artifacts and cache first table (matrix artifact)
         self.artifacts = self.db.list_artifacts(&run_id)?;

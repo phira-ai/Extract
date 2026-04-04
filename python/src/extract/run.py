@@ -98,7 +98,7 @@ class Run:
     def _artifact_dir(self, kind: str) -> Path:
         return self._store.root / "artifacts" / self._id / kind
 
-    def log_matrix(
+    def log_table(
         self,
         name: str,
         data: np.ndarray,

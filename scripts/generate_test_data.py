@@ -38,7 +38,7 @@ def main():
             [0.71, 0.75, 0.83, 0.87, 0.00],
             [0.65, 0.70, 0.78, 0.82, 0.85],
         ])
-        run.log_matrix("accuracy_matrix", acc_matrix, step=49,
+        run.log_table("accuracy_matrix", acc_matrix, step=49,
                        axes={"rows": "evaluated_on", "cols": "trained_up_to"})
 
         # Log loss timeseries artifact
@@ -66,7 +66,7 @@ def main():
             [0.65, 0.69, 0.78, 0.83, 0.00],
             [0.58, 0.63, 0.72, 0.77, 0.80],
         ])
-        run.log_matrix("accuracy_matrix", acc_matrix, step=49,
+        run.log_table("accuracy_matrix", acc_matrix, step=49,
                        axes={"rows": "evaluated_on", "cols": "trained_up_to"})
 
         steps_list = list(range(50))
