@@ -303,6 +303,29 @@ impl Db {
         Ok(models)
     }
 
+    pub fn get_model(&self, id: &str) -> Result<Option<Model>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, name, version, run_id, artifact_path, framework, metadata, created_at \
+             FROM models WHERE id = ?",
+        )?;
+        let mut rows = stmt.query_map(params![id], |row| {
+            Ok(Model {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                version: row.get(2)?,
+                run_id: row.get(3)?,
+                artifact_path: row.get(4)?,
+                framework: row.get(5)?,
+                metadata: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?;
+        match rows.next() {
+            Some(row) => Ok(Some(row?)),
+            None => Ok(None),
+        }
+    }
+
     // Lineage
 
     pub fn get_lineage(&self, entity_type: &str, entity_id: &str) -> Result<Vec<LineageEdge>> {
@@ -313,6 +336,30 @@ impl Db {
              ORDER BY created_at",
         )?;
         let rows = stmt.query_map(params![entity_type, entity_id, entity_type, entity_id], |row| {
+            Ok(LineageEdge {
+                id: row.get(0)?,
+                parent_type: row.get(1)?,
+                parent_id: row.get(2)?,
+                child_type: row.get(3)?,
+                child_id: row.get(4)?,
+                relation: row.get(5)?,
+                metadata: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })?;
+        let mut edges = Vec::new();
+        for row in rows {
+            edges.push(row?);
+        }
+        Ok(edges)
+    }
+
+    pub fn list_all_lineage(&self) -> Result<Vec<LineageEdge>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, parent_type, parent_id, child_type, child_id, relation, metadata, created_at \
+             FROM lineage ORDER BY created_at",
+        )?;
+        let rows = stmt.query_map([], |row| {
             Ok(LineageEdge {
                 id: row.get(0)?,
                 parent_type: row.get(1)?,
@@ -645,6 +692,40 @@ impl Db {
 
         Ok(rows)
     }
+
+    /// Toggle a todo's done status. Opens a writable connection.
+    pub fn toggle_todo(db_path: &Path, todo_id: &str) -> Result<bool> {
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        let done: i64 = conn.query_row(
+            "SELECT done FROM todos WHERE id = ?",
+            params![todo_id],
+            |row| row.get(0),
+        )?;
+        let new_done = if done != 0 { 0 } else { 1 };
+        let completed_at = if new_done == 1 {
+            Some(chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
+        } else {
+            None
+        };
+        conn.execute(
+            "UPDATE todos SET done = ?, completed_at = ? WHERE id = ?",
+            params![new_done, completed_at, todo_id],
+        )?;
+        Ok(new_done == 1)
+    }
+
+    /// Add a new global todo. Opens a writable connection.
+    pub fn add_todo(db_path: &Path, content: &str, priority: i64) -> Result<()> {
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        let id = format!("{}", ulid::Ulid::new());
+        conn.execute(
+            "INSERT INTO todos (id, scope_type, content, done, priority) VALUES (?, 'global', ?, 0, ?)",
+            params![id, content, priority],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -829,5 +910,57 @@ mod tests {
             .unwrap();
         assert!((d_loss.2 - 0.9).abs() < 0.001);
         assert!((d_loss.3 - 0.9).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_list_all_lineage() {
+        let db = test_db();
+        db.conn.execute_batch(
+            "INSERT INTO lineage (parent_type, parent_id, child_type, child_id, relation) \
+             VALUES ('run', 'r1', 'model', 'm1', 'produced');
+             INSERT INTO lineage (parent_type, parent_id, child_type, child_id, relation) \
+             VALUES ('model', 'm1', 'model', 'm2', 'fine_tuned');",
+        ).unwrap();
+        let edges = db.list_all_lineage().unwrap();
+        assert_eq!(edges.len(), 2);
+        assert_eq!(edges[0].relation, "produced");
+        assert_eq!(edges[1].relation, "fine_tuned");
+    }
+
+    #[test]
+    fn test_list_models() {
+        let db = test_db();
+        db.conn.execute_batch(
+            "INSERT INTO models (id, name, version, run_id, artifact_path, framework) \
+             VALUES ('m1', 'test-model', '1.0', 'r1', 'path/to/model', 'pytorch');
+             INSERT INTO models (id, name, version, run_id, artifact_path, framework) \
+             VALUES ('m2', 'test-model', '2.0', 'r2', 'path/to/model2', 'pytorch');",
+        ).unwrap();
+        let models = db.list_models().unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].name, "test-model");
+        assert_eq!(models[0].version, "1.0");
+        assert_eq!(models[1].version, "2.0");
+    }
+
+    #[test]
+    fn test_list_todos() {
+        let db = test_db();
+        db.conn.execute_batch(
+            "INSERT INTO todos (id, scope_type, content, done, priority) \
+             VALUES ('t1', 'global', 'First todo', 0, 2);
+             INSERT INTO todos (id, scope_type, content, done, priority) \
+             VALUES ('t2', 'global', 'Second todo', 1, 1);
+             INSERT INTO todos (id, scope_type, scope_id, content, done, priority) \
+             VALUES ('t3', 'experiment', 'e_b', 'Exp todo', 0, 0);",
+        ).unwrap();
+        let all = db.list_todos(None, None).unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].id, "t1");
+        let global = db.list_todos(Some("global"), None).unwrap();
+        assert_eq!(global.len(), 2);
+        let exp = db.list_todos(Some("experiment"), Some("e_b")).unwrap();
+        assert_eq!(exp.len(), 1);
+        assert_eq!(exp[0].content, "Exp todo");
     }
 }
