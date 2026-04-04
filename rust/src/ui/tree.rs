@@ -3,9 +3,11 @@ use std::collections::HashMap;
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
+use ratatui::symbols::border;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 use ratatui::Frame;
-use tui_tree_widget::{Tree, TreeItem, TreeState};
+use tui_tree_widget::{Scrollbar, Tree, TreeItem, TreeState};
 
 use crate::app::{Action, AppState, Focus, View};
 use crate::event::AppEvent;
@@ -284,14 +286,16 @@ impl TreePanel {
 
         let block = Block::bordered()
             .title(" 1 Experiments ")
-            .border_style(border_style);
+            .border_style(border_style)
+            .border_set(border::ROUNDED);
 
         // Build tree items from experiments
-        let tree_items = build_tree_items(&state.experiments, &state.marked_experiment_ids);
+        let tree_items = build_tree_items(&state.experiments, &state.marked_experiment_ids, &self.theme);
 
         if let Ok(tree_widget) = Tree::new(&tree_items) {
             let tree_widget = tree_widget
                 .block(block)
+                .experimental_scrollbar(Some(Scrollbar::new(ratatui::widgets::ScrollbarOrientation::VerticalRight)))
                 .highlight_style(self.theme.selected)
                 .highlight_symbol(">> ")
                 .node_closed_symbol("")
@@ -307,7 +311,10 @@ impl TreePanel {
 fn build_tree_items<'a>(
     experiments: &[Experiment],
     marked_experiment_ids: &std::collections::HashSet<String>,
+    theme: &Theme,
 ) -> Vec<TreeItem<'a, String>> {
+    let dim_style = Style::default().fg(theme.accent_dim);
+
     // Group experiments by parent_id
     let mut children_map: HashMap<Option<String>, Vec<&Experiment>> = HashMap::new();
     for exp in experiments {
@@ -321,6 +328,7 @@ fn build_tree_items<'a>(
         parent_id: Option<&str>,
         children_map: &HashMap<Option<String>, Vec<&Experiment>>,
         marked: &std::collections::HashSet<String>,
+        dim_style: Style,
     ) -> Vec<TreeItem<'a, String>> {
         let key = parent_id.map(String::from);
         let Some(children) = children_map.get(&key) else {
@@ -330,13 +338,17 @@ fn build_tree_items<'a>(
         children
             .iter()
             .filter_map(|exp| {
-                let sub_children = build_children(Some(&exp.id), children_map, marked);
+                let sub_children = build_children(Some(&exp.id), children_map, marked, dim_style);
                 let marker = if marked.contains(&exp.id) { "\u{25cf} " } else { "" };
                 let icon = node_icon(exp.node_type.as_deref(), sub_children.is_empty());
-                let label = if sub_children.is_empty() {
-                    format!("{marker}{icon}{}", exp.name)
+
+                let label: Line = if sub_children.is_empty() {
+                    Line::from(format!("{marker}{icon}{}", exp.name))
                 } else {
-                    format!("{marker}{icon}{} [{}]", exp.name, sub_children.len())
+                    Line::from(vec![
+                        Span::raw(format!("{marker}{icon}{} ", exp.name)),
+                        Span::styled(format!("[{}]", sub_children.len()), dim_style),
+                    ])
                 };
 
                 if sub_children.is_empty() {
@@ -348,7 +360,7 @@ fn build_tree_items<'a>(
             .collect()
     }
 
-    build_children(None, &children_map, marked_experiment_ids)
+    build_children(None, &children_map, marked_experiment_ids, dim_style)
 }
 
 /// Map node_type to a Nerd Font icon prefix. Leaf nodes get the variant/run icon.
