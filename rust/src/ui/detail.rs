@@ -192,7 +192,7 @@ impl DetailPanel {
             Style::default().fg(self.theme.border)
         };
 
-        let run_indicator = if state.runs.len() > 1 {
+        let run_indicator = if focused && state.runs.len() > 1 {
             format!(
                 " run {}/{} ",
                 state.selected_run.map(|i| i + 1).unwrap_or(0),
