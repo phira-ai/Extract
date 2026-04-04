@@ -25,6 +25,7 @@ pub enum View {
 pub enum Focus {
     Tree,
     Detail,
+    Selection,
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +64,7 @@ pub enum SelectionSummary {
 /// Per-run data loaded for comparison.
 pub struct CompareRunData {
     pub run: Run,
+    pub experiment_name: String,
     pub latest_metrics: Vec<ScalarMetric>,
     pub run_params: Vec<RunParam>,
     pub config: Option<JsonValue>,
@@ -83,14 +85,10 @@ pub fn format_json_value(v: &JsonValue) -> String {
 
 impl CompareRunData {
     pub fn label(&self) -> String {
-        self.run.name.clone().unwrap_or_else(|| {
-            let id = &self.run.id;
-            if id.len() > 8 {
-                id[id.len() - 8..].to_string()
-            } else {
-                id.clone()
-            }
-        })
+        if let Some(ref name) = self.run.name {
+            return name.clone();
+        }
+        self.experiment_name.clone()
     }
 }
 
@@ -103,6 +101,20 @@ pub struct CompareData {
     pub table_names: Vec<String>,
     pub scroll: u16,
     pub total_lines: usize,
+}
+
+/// State for the run picker popup.
+pub struct RunPickerState {
+    pub experiment_name: String,
+    pub runs: Vec<Run>,
+    pub selected: Vec<String>,
+    pub cursor: usize,
+}
+
+/// State for the delete confirmation popup.
+pub struct DeleteConfirmState {
+    pub run_id: String,
+    pub label: String,
 }
 
 pub struct AppState {
@@ -130,6 +142,11 @@ pub struct AppState {
     pub cached_table_axes: Option<(String, String)>,
     pub cached_table_title: Option<String>,
     pub compare_data: Option<CompareData>,
+    pub compare_baseline: usize,
+    pub marked_experiment_ids: std::collections::HashSet<String>,
+    pub selection_cursor: usize,
+    pub run_picker: Option<RunPickerState>,
+    pub delete_confirm: Option<DeleteConfirmState>,
 }
 
 impl AppState {
@@ -169,6 +186,11 @@ impl AppState {
             cached_table_axes: None,
             cached_table_title: None,
             compare_data: None,
+            compare_baseline: 0,
+            marked_experiment_ids: std::collections::HashSet::new(),
+            selection_cursor: 0,
+            run_picker: None,
+            delete_confirm: None,
         })
     }
 
@@ -364,6 +386,7 @@ impl AppState {
 
             runs_data.push(CompareRunData {
                 run,
+                experiment_name: String::new(),
                 latest_metrics,
                 run_params,
                 config,
@@ -508,6 +531,29 @@ impl AppState {
             };
         }
 
+        Ok(())
+    }
+
+    pub fn refresh_marked_experiments(&mut self) {
+        self.marked_experiment_ids.clear();
+        for run_id in &self.selected_runs_for_compare {
+            if let Ok(Some(run)) = self.db.get_run(run_id) {
+                self.marked_experiment_ids.insert(run.experiment_id.clone());
+            }
+        }
+    }
+
+    pub fn load_run_preview(&mut self, run_idx: usize) -> Result<()> {
+        self.summary_scroll = 0;
+        let Some(run) = self.runs.get(run_idx) else {
+            return Ok(());
+        };
+        let run_id = run.id.clone();
+
+        self.load_all_metric_histories(&run_id)?;
+        self.run_params = self.db.list_run_params(&run_id)?;
+        self.artifacts = self.db.list_artifacts(&run_id)?;
+        self.load_first_table()?;
         Ok(())
     }
 }

@@ -51,6 +51,7 @@ impl AppLayout {
                 let action = self.detail.handle_event(event, state);
                 action
             }
+            Focus::Selection => Action::None,
         }
     }
 

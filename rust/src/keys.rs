@@ -18,6 +18,12 @@ pub const TOGGLE_SELECT: KeyCode = KeyCode::Char(' ');
 pub const SEARCH: KeyCode = KeyCode::Char('/');
 pub const HELP: KeyCode = KeyCode::Char('?');
 pub const TAB: KeyCode = KeyCode::Tab;
+pub const CYCLE_PREV: KeyCode = KeyCode::Char('[');
+pub const CYCLE_NEXT: KeyCode = KeyCode::Char(']');
+pub const DELETE: KeyCode = KeyCode::Char('x');
+pub const BASELINE: KeyCode = KeyCode::Char('b');
+pub const YES: KeyCode = KeyCode::Char('y');
+pub const NO: KeyCode = KeyCode::Char('n');
 
 /// Check if a key event matches a given key code (ignoring modifiers).
 pub fn matches(event: &KeyEvent, code: KeyCode) -> bool {
