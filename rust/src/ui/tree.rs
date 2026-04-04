@@ -171,7 +171,7 @@ impl TreePanel {
         }
 
         if keys::matches(key, keys::DIFF) {
-            if state.selected_runs_for_compare.len() == 2 {
+            if state.selected_runs_for_compare.len() >= 2 {
                 if state.load_compare_data().is_ok() {
                     state.current_view = View::Diff;
                     return Action::Navigate(View::Diff);

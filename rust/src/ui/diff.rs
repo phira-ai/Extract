@@ -81,11 +81,19 @@ impl DiffView {
             return;
         }
 
-        let title = format!(
-            " Diff: {} \u{2192} {} ",
-            data.runs[0].label(),
-            data.runs[1].label()
-        );
+        let baseline_idx = state.compare_baseline.min(data.runs.len().saturating_sub(1));
+
+        let title = {
+            let baseline_label = data.runs[baseline_idx].label();
+            let other_labels: Vec<String> = data
+                .runs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != baseline_idx)
+                .map(|(_, rd)| rd.label())
+                .collect();
+            format!(" Diff: {} vs {} ", baseline_label, other_labels.join(", "))
+        };
 
         let block = Block::bordered()
             .title(title)
@@ -98,9 +106,9 @@ impl DiffView {
             let scroll = data.scroll;
             let mut lines: Vec<Line<'static>> = Vec::new();
 
-            self.build_metric_deltas(&mut lines, data);
-            self.build_config_changes(&mut lines, data);
-            self.build_delta_tables(&mut lines, data, 0, inner.width);
+            self.build_metric_deltas(&mut lines, data, baseline_idx);
+            self.build_config_changes(&mut lines, data, baseline_idx);
+            self.build_delta_tables(&mut lines, data, baseline_idx, inner.width);
 
             lines.push(Line::from(""));
             let total_lines = lines.len();
@@ -136,28 +144,43 @@ impl DiffView {
         }
     }
 
-    fn build_metric_deltas(&self, lines: &mut Vec<Line<'static>>, data: &CompareData) {
+    fn build_metric_deltas(
+        &self,
+        lines: &mut Vec<Line<'static>>,
+        data: &CompareData,
+        baseline_idx: usize,
+    ) {
         if data.metric_names.is_empty() {
             return;
         }
 
+        let non_baseline: Vec<usize> = (0..data.runs.len())
+            .filter(|i| *i != baseline_idx)
+            .collect();
+
+        // Check if there are any differences
         let has_numeric_diffs = data.metric_names.iter().any(|name| {
-            let v1 = data.runs[0]
+            let v_base = data.runs[baseline_idx]
                 .latest_metrics
                 .iter()
                 .find(|m| m.name == *name)
                 .map(|m| m.value);
-            let v2 = data.runs[1]
-                .latest_metrics
-                .iter()
-                .find(|m| m.name == *name)
-                .map(|m| m.value);
-            v1 != v2
+            non_baseline.iter().any(|&i| {
+                let v_other = data.runs[i]
+                    .latest_metrics
+                    .iter()
+                    .find(|m| m.name == *name)
+                    .map(|m| m.value);
+                v_base != v_other
+            })
         });
 
         if !has_numeric_diffs {
             return;
         }
+
+        let label_width: usize = 14;
+        let col_width: usize = 28;
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
@@ -168,120 +191,151 @@ impl DiffView {
         )));
         lines.push(self.separator());
 
-        for metric_name in &data.metric_names {
-            let v1 = data.runs[0]
-                .latest_metrics
-                .iter()
-                .find(|m| m.name == *metric_name)
-                .map(|m| m.value);
-            let v2 = data.runs[1]
-                .latest_metrics
-                .iter()
-                .find(|m| m.name == *metric_name)
-                .map(|m| m.value);
-
-            match (v1, v2) {
-                (Some(a), Some(b)) => {
-                    let delta = b - a;
-                    let lower_better = is_lower_better(metric_name);
-                    let is_improvement = if lower_better {
-                        delta < 0.0
-                    } else {
-                        delta > 0.0
-                    };
-
-                    let (color, arrow) = if delta.abs() < f64::EPSILON {
-                        (self.theme.accent_dim, " ")
-                    } else if is_improvement {
-                        (self.theme.success, if delta > 0.0 { "\u{2191}" } else { "\u{2193}" })
-                    } else {
-                        (self.theme.error, if delta > 0.0 { "\u{2191}" } else { "\u{2193}" })
-                    };
-
-                    let delta_sign = if delta > 0.0 { "+" } else { "" };
-
-                    lines.push(Line::from(vec![
-                        Span::raw(format!("  {:<14}", metric_name)),
-                        Span::raw(format!("{:.4} \u{2192} {:.4}", a, b)),
-                        Span::styled(
-                            format!("    \u{0394} {delta_sign}{:.4}  {arrow}", delta),
-                            Style::default().fg(color),
-                        ),
-                    ]));
-                }
-                (Some(a), None) => {
-                    lines.push(Line::from(vec![
-                        Span::raw(format!("  {:<14}", metric_name)),
-                        Span::styled(
-                            format!("{:.4} \u{2192} -", a),
-                            Style::default().fg(self.theme.error),
-                        ),
-                    ]));
-                }
-                (None, Some(b)) => {
-                    lines.push(Line::from(vec![
-                        Span::raw(format!("  {:<14}", metric_name)),
-                        Span::styled(
-                            format!("- \u{2192} {:.4}", b),
-                            Style::default().fg(self.theme.success),
-                        ),
-                    ]));
-                }
-                (None, None) => {}
+        // Header row: metric label, baseline, then each non-baseline run
+        {
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            spans.push(Span::raw(format!("  {:<width$}", "", width = label_width)));
+            spans.push(Span::styled(
+                format!("{:<width$}", data.runs[baseline_idx].label(), width = col_width),
+                Style::default().add_modifier(Modifier::BOLD),
+            ));
+            for &i in &non_baseline {
+                let color = RUN_COLORS[i % RUN_COLORS.len()];
+                spans.push(Span::styled(
+                    format!("{:<width$}", data.runs[i].label(), width = col_width),
+                    Style::default().fg(color).add_modifier(Modifier::BOLD),
+                ));
             }
+            lines.push(Line::from(spans));
+        }
+
+        for metric_name in &data.metric_names {
+            let v_base = data.runs[baseline_idx]
+                .latest_metrics
+                .iter()
+                .find(|m| m.name == *metric_name)
+                .map(|m| m.value);
+
+            let lower_better = is_lower_better(metric_name);
+
+            let mut spans: Vec<Span<'static>> = Vec::new();
+            spans.push(Span::raw(format!("  {:<width$}", metric_name, width = label_width)));
+
+            // Baseline value
+            match v_base {
+                Some(base_val) => {
+                    spans.push(Span::raw(format!("{:<width$.4}", base_val, width = col_width)));
+                }
+                None => {
+                    spans.push(Span::raw(format!("{:<width$}", "-", width = col_width)));
+                }
+            }
+
+            // Each non-baseline run
+            for &i in &non_baseline {
+                let v_run = data.runs[i]
+                    .latest_metrics
+                    .iter()
+                    .find(|m| m.name == *metric_name)
+                    .map(|m| m.value);
+
+                match (v_base, v_run) {
+                    (Some(a), Some(b)) => {
+                        let delta = b - a;
+                        let is_improvement = if lower_better {
+                            delta < 0.0
+                        } else {
+                            delta > 0.0
+                        };
+
+                        let (color, arrow) = if delta.abs() < f64::EPSILON {
+                            (self.theme.accent_dim, " ")
+                        } else if is_improvement {
+                            (self.theme.success, if delta > 0.0 { "\u{2191}" } else { "\u{2193}" })
+                        } else {
+                            (self.theme.error, if delta > 0.0 { "\u{2191}" } else { "\u{2193}" })
+                        };
+
+                        let delta_sign = if delta > 0.0 { "+" } else { "" };
+
+                        spans.push(Span::styled(
+                            format!(
+                                "{:<width$}",
+                                format!("{:.4} \u{0394} {delta_sign}{:.4} {arrow}", b, delta),
+                                width = col_width
+                            ),
+                            Style::default().fg(color),
+                        ));
+                    }
+                    (Some(_), None) => {
+                        spans.push(Span::styled(
+                            format!("{:<width$}", "-", width = col_width),
+                            Style::default().fg(self.theme.error),
+                        ));
+                    }
+                    (None, Some(b)) => {
+                        spans.push(Span::styled(
+                            format!("{:<width$.4}", b, width = col_width),
+                            Style::default().fg(self.theme.success),
+                        ));
+                    }
+                    (None, None) => {
+                        spans.push(Span::raw(format!("{:<width$}", "-", width = col_width)));
+                    }
+                }
+            }
+
+            lines.push(Line::from(spans));
         }
     }
 
-    fn build_config_changes(&self, lines: &mut Vec<Line<'static>>, data: &CompareData) {
+    fn build_config_changes(
+        &self,
+        lines: &mut Vec<Line<'static>>,
+        data: &CompareData,
+        baseline_idx: usize,
+    ) {
         if data.config_keys.is_empty() {
             return;
         }
 
-        // Only show keys that differ
+        let non_baseline: Vec<usize> = (0..data.runs.len())
+            .filter(|i| *i != baseline_idx)
+            .collect();
+
+        // Only show keys that differ between baseline and at least one other run
         let mut has_changes = false;
         let mut change_lines: Vec<Line<'static>> = Vec::new();
 
         for key in &data.config_keys {
-            let v1 = data.runs[0]
-                .config
-                .as_ref()
-                .and_then(|c| c.get(key))
-                .map(format_json_value);
-            let v2 = data.runs[1]
+            let v_base = data.runs[baseline_idx]
                 .config
                 .as_ref()
                 .and_then(|c| c.get(key))
                 .map(format_json_value);
 
-            if v1 == v2 {
-                continue;
-            }
-            has_changes = true;
+            for &i in &non_baseline {
+                let v_run = data.runs[i]
+                    .config
+                    .as_ref()
+                    .and_then(|c| c.get(key))
+                    .map(format_json_value);
 
-            match (v1, v2) {
-                (Some(a), Some(b)) => {
-                    change_lines.push(Line::from(Span::styled(
-                        format!("  - {key}: {a}"),
-                        Style::default().fg(self.theme.error),
-                    )));
-                    change_lines.push(Line::from(Span::styled(
-                        format!("  + {key}: {b}"),
-                        Style::default().fg(self.theme.success),
-                    )));
+                if v_base == v_run {
+                    continue;
                 }
-                (Some(a), None) => {
-                    change_lines.push(Line::from(Span::styled(
-                        format!("  - {key}: {a}"),
-                        Style::default().fg(self.theme.error),
-                    )));
-                }
-                (None, Some(b)) => {
-                    change_lines.push(Line::from(Span::styled(
-                        format!("  + {key}: {b}"),
-                        Style::default().fg(self.theme.success),
-                    )));
-                }
-                (None, None) => {}
+                has_changes = true;
+
+                let run_label = data.runs[i].label();
+                let color = RUN_COLORS[i % RUN_COLORS.len()];
+
+                let base_str = v_base.as_deref().unwrap_or("-");
+                let run_str = v_run.as_deref().unwrap_or("-");
+
+                change_lines.push(Line::from(Span::styled(
+                    format!("  {run_label}: {key}: {base_str} \u{2192} {run_str}"),
+                    Style::default().fg(color),
+                )));
             }
         }
 
