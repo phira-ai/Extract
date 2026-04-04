@@ -110,6 +110,24 @@ impl TodoView {
             return Action::None;
         }
 
+        // x: delete selected todo
+        if keys::matches(key, keys::DELETE) {
+            if let Some(todo) = state.todos.get(state.todo_cursor) {
+                let todo_id = todo.id.clone();
+                let db_path = state.store_root.join("extract.db");
+                match crate::db::Db::delete_todo(&db_path, &todo_id) {
+                    Ok(()) => {
+                        state.notify(NotifyLevel::Success, "TODO deleted");
+                        let _ = state.load_todo_data();
+                    }
+                    Err(e) => {
+                        state.notify(NotifyLevel::Error, format!("Failed to delete: {e}"));
+                    }
+                }
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::ADD) {
             state.todo_input = Some(String::new());
             return Action::None;

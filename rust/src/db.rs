@@ -726,6 +726,14 @@ impl Db {
         Ok(())
     }
 
+    /// Delete a todo. Opens a writable connection.
+    pub fn delete_todo(db_path: &Path, todo_id: &str) -> Result<()> {
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute("DELETE FROM todos WHERE id = ?", params![todo_id])?;
+        Ok(())
+    }
+
     /// Add a new global todo. Opens a writable connection.
     pub fn add_todo(db_path: &Path, content: &str, priority: i64) -> Result<()> {
         let conn = Connection::open(db_path)?;

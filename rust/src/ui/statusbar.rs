@@ -83,6 +83,7 @@ impl StatusBar {
                 ("Esc", "back"),
                 ("j/k", "navigate"),
                 ("Space", "toggle"),
+                ("x", "delete"),
                 ("0/1/2", "priority"),
                 ("a", "add"),
                 ("Tab", "filter"),
