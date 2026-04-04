@@ -324,15 +324,34 @@ impl CompareView {
         lines: &mut Vec<Line<'static>>,
         data: &CompareData,
         tables_config: &crate::config::TablesConfig,
-        _available_width: u16,
+        available_width: u16,
     ) {
         if data.table_names.is_empty() {
             return;
         }
 
-        let cell_width = 6;
+        let cell_width: usize = 6;
+        let row_label_w: usize = 6; // "  R{r} "
+        let gap: usize = 3;
 
         for table_name in &data.table_names {
+            // Collect (run_index, &TableData) pairs for runs that have this artifact
+            let run_tables: Vec<(usize, &crate::artifact::TableData)> = data
+                .runs
+                .iter()
+                .enumerate()
+                .filter_map(|(i, rd)| {
+                    rd.tables
+                        .iter()
+                        .find(|(n, _, _)| n == table_name)
+                        .map(|(_, table, _)| (i, table))
+                })
+                .collect();
+
+            if run_tables.is_empty() {
+                continue;
+            }
+
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
                 format!("  {table_name}"),
@@ -342,36 +361,70 @@ impl CompareView {
             )));
             lines.push(self.separator());
 
-            for (i, rd) in data.runs.iter().enumerate() {
-                let color = RUN_COLORS[i % RUN_COLORS.len()];
-                if let Some((_, table, _)) = rd.tables.iter().find(|(n, _, _)| n == table_name) {
-                    lines.push(Line::from(Span::styled(
-                        format!("  {}:", rd.label()),
-                        Style::default().fg(color).add_modifier(Modifier::BOLD),
-                    )));
+            // Compute table width based on max cols across runs
+            let max_cols = run_tables.iter().map(|(_, t)| t.cols).max().unwrap_or(0);
+            let table_w = row_label_w + max_cols * cell_width;
 
-                    for r in 0..table.rows {
-                        let mut spans: Vec<Span<'static>> = vec![Span::styled(
-                            format!("  R{:<3} ", r + 1),
-                            Style::default().fg(self.theme.accent_dim),
-                        )];
-                        for c in 0..table.cols {
-                            let cell = &table.values[r][c];
-                            let color_name = match_highlight_rule(cell, &tables_config.highlight);
-                            if color_name == "transparent" {
-                                spans.push(Span::raw(" ".repeat(cell_width)));
-                            } else {
-                                let display = cell.display(cell_width);
-                                spans.push(Span::styled(
-                                    display,
-                                    Style::default().fg(parse_color(color_name)),
-                                ));
-                            }
-                        }
-                        lines.push(Line::from(spans));
+            // Compute tables_per_row
+            let avail = available_width as usize;
+            let tables_per_row = if table_w + gap <= avail {
+                ((avail + gap) / (table_w + gap)).min(run_tables.len()).max(1)
+            } else {
+                1
+            };
+
+            // Render in chunks
+            for chunk in run_tables.chunks(tables_per_row) {
+                // Run label headers side-by-side
+                let mut header_spans: Vec<Span<'static>> = Vec::new();
+                for (ci, &(run_idx, _)) in chunk.iter().enumerate() {
+                    if ci > 0 {
+                        header_spans.push(Span::raw(" ".repeat(gap)));
                     }
-                    lines.push(Line::from(""));
+                    let color = RUN_COLORS[run_idx % RUN_COLORS.len()];
+                    let label = data.runs[run_idx].label();
+                    header_spans.push(Span::styled(
+                        format!("  {:<width$}", label, width = table_w.saturating_sub(2)),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ));
                 }
+                lines.push(Line::from(header_spans));
+
+                // Row-by-row rendering
+                let max_rows = chunk.iter().map(|(_, t)| t.rows).max().unwrap_or(0);
+                for r in 0..max_rows {
+                    let mut spans: Vec<Span<'static>> = Vec::new();
+                    for (ci, &(_, table)) in chunk.iter().enumerate() {
+                        if ci > 0 {
+                            spans.push(Span::raw(" ".repeat(gap)));
+                        }
+                        if r < table.rows {
+                            spans.push(Span::styled(
+                                format!("  R{:<3}", r + 1),
+                                Style::default().fg(self.theme.accent_dim),
+                            ));
+                            for c in 0..table.cols {
+                                let cell = &table.values[r][c];
+                                let color_name =
+                                    match_highlight_rule(cell, &tables_config.highlight);
+                                if color_name == "transparent" {
+                                    spans.push(Span::raw(" ".repeat(cell_width)));
+                                } else {
+                                    let display = cell.display(cell_width);
+                                    spans.push(Span::styled(
+                                        display,
+                                        Style::default().fg(parse_color(color_name)),
+                                    ));
+                                }
+                            }
+                        } else {
+                            // Pad empty space for tables with fewer rows
+                            spans.push(Span::raw(" ".repeat(table_w)));
+                        }
+                    }
+                    lines.push(Line::from(spans));
+                }
+                lines.push(Line::from(""));
             }
         }
     }

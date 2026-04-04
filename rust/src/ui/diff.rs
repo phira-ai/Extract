@@ -1,6 +1,6 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
@@ -11,6 +11,15 @@ use crate::event::AppEvent;
 use crate::keys;
 use crate::model::is_lower_better;
 use crate::ui::theme::Theme;
+
+const RUN_COLORS: [Color; 6] = [
+    Color::Cyan,
+    Color::Magenta,
+    Color::Green,
+    Color::Yellow,
+    Color::Blue,
+    Color::Red,
+];
 
 pub struct DiffView {
     theme: Theme,
@@ -91,7 +100,7 @@ impl DiffView {
 
             self.build_metric_deltas(&mut lines, data);
             self.build_config_changes(&mut lines, data);
-            self.build_delta_tables(&mut lines, data);
+            self.build_delta_tables(&mut lines, data, 0, inner.width);
 
             lines.push(Line::from(""));
             let total_lines = lines.len();
@@ -291,28 +300,54 @@ impl DiffView {
         lines.extend(change_lines);
     }
 
-    fn build_delta_tables(&self, lines: &mut Vec<Line<'static>>, data: &CompareData) {
+    fn build_delta_tables(
+        &self,
+        lines: &mut Vec<Line<'static>>,
+        data: &CompareData,
+        baseline_idx: usize,
+        available_width: u16,
+    ) {
         if data.table_names.is_empty() {
             return;
         }
 
-        let cell_width = 8;
+        let cell_width: usize = 8;
+        let row_label_w: usize = 7; // "  R{r}  "
+        let gap: usize = 3;
 
         for table_name in &data.table_names {
-            let t1 = data.runs[0]
+            // Get baseline table
+            let baseline_table = data.runs[baseline_idx]
                 .tables
                 .iter()
-                .find(|(n, _, _)| n == table_name);
-            let t2 = data.runs[1]
-                .tables
-                .iter()
-                .find(|(n, _, _)| n == table_name);
+                .find(|(n, _, _)| n == table_name)
+                .map(|(_, t, _)| t);
 
-            let (Some((_, table1, _)), Some((_, table2, _))) = (t1, t2) else {
+            let Some(baseline) = baseline_table else {
                 continue;
             };
 
-            if table1.rows != table2.rows || table1.cols != table2.cols {
+            // Collect non-baseline runs with matching dimensions
+            let delta_runs: Vec<(usize, &crate::artifact::TableData)> = data
+                .runs
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != baseline_idx)
+                .filter_map(|(i, rd)| {
+                    rd.tables
+                        .iter()
+                        .find(|(n, _, _)| n == table_name)
+                        .and_then(|(_, t, _)| {
+                            if t.rows == baseline.rows && t.cols == baseline.cols {
+                                Some((i, t))
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .collect();
+
+            if delta_runs.is_empty() {
                 continue;
             }
 
@@ -325,56 +360,104 @@ impl DiffView {
             )));
             lines.push(self.separator());
 
-            // Column headers
-            let mut header_spans: Vec<Span<'static>> = vec![Span::raw("       ".to_string())];
-            for c in 0..table1.cols {
-                header_spans.push(Span::styled(
-                    format!("{:>width$}", format!("C{}", c + 1), width = cell_width),
-                    Style::default().fg(self.theme.accent_dim),
-                ));
-            }
-            lines.push(Line::from(header_spans));
+            let table_w = row_label_w + baseline.cols * cell_width;
+            let avail = available_width as usize;
+            let tables_per_row = if table_w + gap <= avail {
+                ((avail + gap) / (table_w + gap)).min(delta_runs.len()).max(1)
+            } else {
+                1
+            };
 
-            // Delta rows
-            for r in 0..table1.rows {
-                let mut spans: Vec<Span<'static>> = vec![Span::styled(
-                    format!("  R{:<3} ", r + 1),
-                    Style::default().fg(self.theme.accent_dim),
-                )];
+            let baseline_label = data.runs[baseline_idx].label();
 
-                for c in 0..table1.cols {
-                    let v1 = table1.values[r][c].as_f64();
-                    let v2 = table2.values[r][c].as_f64();
+            for chunk in delta_runs.chunks(tables_per_row) {
+                // Run label headers side-by-side
+                let mut header_spans: Vec<Span<'static>> = Vec::new();
+                for (ci, &(run_idx, _)) in chunk.iter().enumerate() {
+                    if ci > 0 {
+                        header_spans.push(Span::raw(" ".repeat(gap)));
+                    }
+                    let color = RUN_COLORS[run_idx % RUN_COLORS.len()];
+                    let label = format!(
+                        "{} - {}",
+                        data.runs[run_idx].label(),
+                        baseline_label,
+                    );
+                    header_spans.push(Span::styled(
+                        format!("  {:<width$}", label, width = table_w.saturating_sub(2)),
+                        Style::default().fg(color).add_modifier(Modifier::BOLD),
+                    ));
+                }
+                lines.push(Line::from(header_spans));
 
-                    match (v1, v2) {
-                        (Some(a), Some(b)) => {
-                            let delta = b - a;
-                            let color = if delta.abs() < f64::EPSILON {
-                                self.theme.accent_dim
-                            } else if delta > 0.0 {
-                                self.theme.success
-                            } else {
-                                self.theme.error
-                            };
-                            let sign = if delta > 0.0 { "+" } else { "" };
-                            spans.push(Span::styled(
-                                format!(
-                                    "{:>width$}",
-                                    format!("{sign}{:.2}", delta),
-                                    width = cell_width
-                                ),
-                                Style::default().fg(color),
-                            ));
-                        }
-                        _ => {
-                            spans.push(Span::styled(
-                                format!("{:>width$}", CellValue::Float(f64::NAN).display(cell_width), width = cell_width),
-                                Style::default().fg(self.theme.accent_dim),
-                            ));
-                        }
+                // Column headers side-by-side
+                let mut col_header_spans: Vec<Span<'static>> = Vec::new();
+                for (ci, _) in chunk.iter().enumerate() {
+                    if ci > 0 {
+                        col_header_spans.push(Span::raw(" ".repeat(gap)));
+                    }
+                    col_header_spans.push(Span::raw(" ".repeat(row_label_w)));
+                    for c in 0..baseline.cols {
+                        col_header_spans.push(Span::styled(
+                            format!("{:>width$}", format!("C{}", c + 1), width = cell_width),
+                            Style::default().fg(self.theme.accent_dim),
+                        ));
                     }
                 }
-                lines.push(Line::from(spans));
+                lines.push(Line::from(col_header_spans));
+
+                // Delta rows
+                for r in 0..baseline.rows {
+                    let mut spans: Vec<Span<'static>> = Vec::new();
+                    for (ci, &(_, table)) in chunk.iter().enumerate() {
+                        if ci > 0 {
+                            spans.push(Span::raw(" ".repeat(gap)));
+                        }
+                        spans.push(Span::styled(
+                            format!("  R{:<3} ", r + 1),
+                            Style::default().fg(self.theme.accent_dim),
+                        ));
+
+                        for c in 0..baseline.cols {
+                            let v_base = baseline.values[r][c].as_f64();
+                            let v_run = table.values[r][c].as_f64();
+
+                            match (v_base, v_run) {
+                                (Some(a), Some(b)) => {
+                                    let delta = b - a;
+                                    let color = if delta.abs() < f64::EPSILON {
+                                        self.theme.accent_dim
+                                    } else if delta > 0.0 {
+                                        self.theme.success
+                                    } else {
+                                        self.theme.error
+                                    };
+                                    let sign = if delta > 0.0 { "+" } else { "" };
+                                    spans.push(Span::styled(
+                                        format!(
+                                            "{:>width$}",
+                                            format!("{sign}{:.2}", delta),
+                                            width = cell_width
+                                        ),
+                                        Style::default().fg(color),
+                                    ));
+                                }
+                                _ => {
+                                    spans.push(Span::styled(
+                                        format!(
+                                            "{:>width$}",
+                                            CellValue::Float(f64::NAN).display(cell_width),
+                                            width = cell_width
+                                        ),
+                                        Style::default().fg(self.theme.accent_dim),
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                    lines.push(Line::from(spans));
+                }
+                lines.push(Line::from(""));
             }
         }
     }
