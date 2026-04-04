@@ -20,39 +20,49 @@ impl StatusBar {
 
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
         let n_marked = state.selected_runs_for_compare.len();
-        let bindings = match (state.current_view, state.focus) {
+        let bindings: Vec<(&str, &str)> = match (state.current_view, state.focus) {
             (View::Explorer, Focus::Tree) => {
                 let mut b = vec![
-                    ("q", "quit"),
                     ("j/k", "navigate"),
                     ("Enter", "select"),
                     ("Space", "mark"),
                 ];
                 if n_marked >= 2 {
                     b.push(("c", "compare"));
-                }
-                if n_marked == 2 {
                     b.push(("d", "diff"));
                 }
-                b.push(("Tab", "focus detail"));
-                b
-            }
-            (View::Detail, _) | (View::Explorer, Focus::Detail) => {
-                let mut b = vec![
-                    ("Esc", "back"),
-                    ("Tab", "switch tab"),
-                    ("j/k", "navigate"),
-                    ("Space", "mark"),
-                ];
-                if n_marked >= 2 {
-                    b.push(("c", "compare"));
-                }
-                if n_marked == 2 {
-                    b.push(("d", "diff"));
+                if n_marked > 0 {
+                    b.push(("Tab", "selection"));
+                } else {
+                    b.push(("Tab", "detail"));
                 }
                 b.push(("q", "quit"));
                 b
             }
+            (View::Explorer, Focus::Detail) | (View::Detail, _) => {
+                let mut b = vec![
+                    ("Esc", "back"),
+                    ("j/k", "scroll"),
+                    ("Space", "mark"),
+                    ("[/]", "cycle run"),
+                    ("x", "delete"),
+                ];
+                if n_marked >= 2 {
+                    b.push(("c", "compare"));
+                    b.push(("d", "diff"));
+                }
+                b.push(("Tab", "next"));
+                b.push(("q", "quit"));
+                b
+            }
+            (View::Explorer, Focus::Selection) => vec![
+                ("j/k", "navigate"),
+                ("Space", "deselect"),
+                ("b", "baseline"),
+                ("x", "delete"),
+                ("Tab/Esc", "back"),
+                ("q", "quit"),
+            ],
             (View::Compare, _) | (View::Diff, _) => vec![
                 ("Esc", "back"),
                 ("j/k", "scroll"),
@@ -86,6 +96,18 @@ impl StatusBar {
                 format!("  | {} marked", state.selected_runs_for_compare.len()),
                 Style::default().fg(self.theme.warning),
             ));
+        }
+
+        // Show run position in detail view
+        if matches!(state.focus, Focus::Detail) || matches!(state.current_view, View::Detail) {
+            if let Some(idx) = state.selected_run {
+                if state.runs.len() > 1 {
+                    spans.push(Span::styled(
+                        format!("  run {}/{}", idx + 1, state.runs.len()),
+                        Style::default().fg(self.theme.accent_dim),
+                    ));
+                }
+            }
         }
 
         let line = Line::from(spans);
