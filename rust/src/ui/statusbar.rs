@@ -31,6 +31,9 @@ impl StatusBar {
                     b.push(("c", "compare"));
                     b.push(("d", "diff"));
                 }
+                b.push(("R", "models"));
+                b.push(("T", "todos"));
+                b.push(("L", "lineage"));
                 b.push(("Tab", "detail"));
                 b.push(("q", "quit"));
                 b
@@ -69,7 +72,27 @@ impl StatusBar {
                 ("Tab", "selection"),
                 ("q", "quit"),
             ],
-            _ => vec![("q", "quit"), ("Esc", "back")],
+            (View::Registry, _) => vec![
+                ("Esc", "back"),
+                ("j/k", "navigate"),
+                ("Enter", "go to run"),
+                ("L", "lineage"),
+                ("q", "quit"),
+            ],
+            (View::Lineage, _) => vec![
+                ("Esc", "back"),
+                ("j/k", "navigate"),
+                ("Enter", "go to entity"),
+                ("q", "quit"),
+            ],
+            (View::TodoGlobal, _) => vec![
+                ("Esc", "back"),
+                ("j/k", "navigate"),
+                ("Space", "toggle"),
+                ("a", "add"),
+                ("Tab", "filter"),
+                ("q", "quit"),
+            ],
         };
 
         let mut spans = Vec::new();

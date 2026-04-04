@@ -11,10 +11,13 @@ use crate::ui::compare::CompareView;
 use crate::ui::dashboard::Dashboard;
 use crate::ui::detail::DetailPanel;
 use crate::ui::diff::DiffView;
+use crate::ui::lineage::LineageView;
 use crate::ui::popup::PopupRenderer;
+use crate::ui::registry::RegistryView;
 use crate::ui::selection::SelectionWindow;
 use crate::ui::statusbar::StatusBar;
 use crate::ui::theme::Theme;
+use crate::ui::todo::TodoView;
 use crate::ui::tree::TreePanel;
 
 pub struct AppLayout {
@@ -26,6 +29,9 @@ pub struct AppLayout {
     pub selection: SelectionWindow,
     pub statusbar: StatusBar,
     pub popup: PopupRenderer,
+    pub registry: RegistryView,
+    pub lineage: LineageView,
+    pub todo_view: TodoView,
     theme: Theme,
 }
 
@@ -40,6 +46,9 @@ impl AppLayout {
             selection: SelectionWindow::new(),
             statusbar: StatusBar::new(),
             popup: PopupRenderer::new(),
+            registry: RegistryView::new(),
+            lineage: LineageView::new(),
+            todo_view: TodoView::new(),
             theme: Theme::default(),
         }
     }
@@ -93,6 +102,23 @@ impl AppLayout {
                 }
                 return Action::None;
             }
+
+            // View shortcuts
+            if keys::matches_shift(key, keys::REGISTRY) {
+                let _ = state.load_registry_data();
+                state.current_view = View::Registry;
+                return Action::None;
+            }
+            if keys::matches_shift(key, keys::TODOS) {
+                let _ = state.load_todo_data();
+                state.current_view = View::TodoGlobal;
+                return Action::None;
+            }
+            if keys::matches_shift(key, keys::LINEAGE) {
+                let _ = state.load_lineage_data();
+                state.current_view = View::Lineage;
+                return Action::None;
+            }
         }
 
         // Selection window focus
@@ -113,6 +139,9 @@ impl AppLayout {
         match state.current_view {
             View::Compare => return self.compare.handle_event(event, state),
             View::Diff => return self.diff.handle_event(event, state),
+            View::Registry => return self.registry.handle_event(event, state),
+            View::Lineage => return self.lineage.handle_event(event, state),
+            View::TodoGlobal => return self.todo_view.handle_event(event, state),
             _ => {}
         }
 
@@ -149,6 +178,18 @@ impl AppLayout {
                 self.diff.render(frame, main_area, state);
                 self.statusbar.render(frame, status_area, state);
                 self.selection.render(frame, main_area, state);
+            }
+            View::Registry => {
+                self.registry.render(frame, main_area, state);
+                self.statusbar.render(frame, status_area, state);
+            }
+            View::Lineage => {
+                self.lineage.render(frame, main_area, state);
+                self.statusbar.render(frame, status_area, state);
+            }
+            View::TodoGlobal => {
+                self.todo_view.render(frame, main_area, state);
+                self.statusbar.render(frame, status_area, state);
             }
             _ => {
                 // Split main area: 30% tree, 70% detail

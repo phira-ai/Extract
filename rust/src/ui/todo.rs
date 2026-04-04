@@ -4,7 +4,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{Action, AppState, Focus, NotifyLevel, TodoFilter, View};
+use crate::app::{Action, AppState, NotifyLevel, TodoFilter, View};
 use crate::event::AppEvent;
 use crate::keys;
 use crate::ui::theme::Theme;
@@ -263,7 +263,7 @@ impl TodoView {
         }
 
         // Render input line if active
-        if let (Some(area), Some(ref input)) = (input_area, &state.todo_input) {
+        if let (Some(area), Some(input)) = (input_area, &state.todo_input) {
             let prompt = Span::styled(" > ", Style::default().fg(self.theme.accent));
             let text_span = Span::styled(
                 format!("{input}_"),

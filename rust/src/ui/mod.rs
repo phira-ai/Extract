@@ -5,11 +5,14 @@ pub mod detail;
 pub mod diff;
 pub mod heatmap;
 pub mod layout;
+pub mod lineage;
 pub mod popup;
+pub mod registry;
 pub mod selection;
 pub mod statusbar;
 pub mod summary;
 pub mod theme;
+pub mod todo;
 pub mod tree;
 
 use ratatui::layout::Rect;
