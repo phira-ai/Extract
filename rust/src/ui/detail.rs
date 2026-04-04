@@ -41,19 +41,12 @@ impl DetailPanel {
     }
 
     fn handle_key(&mut self, key: &KeyEvent, state: &mut AppState) -> Action {
-        if keys::matches(key, keys::TAB) {
-            self.active_tab = match self.active_tab {
-                DetailTab::Summary => DetailTab::Info,
-                DetailTab::Info => DetailTab::Summary,
-            };
-            return Action::None;
-        }
-
-        if keys::matches_shift(key, keys::TAB) {
-            self.active_tab = match self.active_tab {
-                DetailTab::Summary => DetailTab::Info,
-                DetailTab::Info => DetailTab::Summary,
-            };
+        if keys::matches(key, keys::TAB) || keys::matches_shift(key, keys::TAB) {
+            if !state.selected_runs_for_compare.is_empty() {
+                state.focus = Focus::Selection;
+            } else {
+                state.focus = Focus::Tree;
+            }
             return Action::None;
         }
 

@@ -5,11 +5,13 @@ use ratatui::Frame;
 
 use crate::app::{Action, AppState, Focus, View};
 use crate::event::AppEvent;
+use crate::keys;
 use crate::ui::compare::CompareView;
 use crate::ui::dashboard::Dashboard;
 use crate::ui::detail::DetailPanel;
 use crate::ui::diff::DiffView;
 use crate::ui::popup::PopupRenderer;
+use crate::ui::selection::SelectionWindow;
 use crate::ui::statusbar::StatusBar;
 use crate::ui::theme::Theme;
 use crate::ui::tree::TreePanel;
@@ -20,6 +22,7 @@ pub struct AppLayout {
     pub dashboard: Dashboard,
     pub compare: CompareView,
     pub diff: DiffView,
+    pub selection: SelectionWindow,
     pub statusbar: StatusBar,
     pub popup: PopupRenderer,
     theme: Theme,
@@ -33,6 +36,7 @@ impl AppLayout {
             dashboard: Dashboard::new(),
             compare: CompareView::new(),
             diff: DiffView::new(),
+            selection: SelectionWindow::new(),
             statusbar: StatusBar::new(),
             popup: PopupRenderer::new(),
             theme: Theme::default(),
@@ -52,6 +56,17 @@ impl AppLayout {
             }
             if state.run_picker.is_some() {
                 self.popup.handle_run_picker_key(key, state);
+                return Action::None;
+            }
+        }
+
+        // Selection window focus
+        if state.focus == Focus::Selection {
+            if let AppEvent::Key(key) = event {
+                if keys::matches(key, keys::QUIT) {
+                    return Action::Quit;
+                }
+                self.selection.handle_event(key, state);
                 return Action::None;
             }
         }
@@ -95,6 +110,7 @@ impl AppLayout {
             View::Compare => {
                 self.compare.render(frame, main_area, state);
                 self.statusbar.render(frame, status_area, state);
+                self.selection.render(frame, main_area, state);
                 // Popup overlays
                 if let Some(ref picker) = state.run_picker {
                     self.popup.render_run_picker(frame, area, picker);
@@ -107,6 +123,7 @@ impl AppLayout {
             View::Diff => {
                 self.diff.render(frame, main_area, state);
                 self.statusbar.render(frame, status_area, state);
+                self.selection.render(frame, main_area, state);
                 // Popup overlays
                 if let Some(ref picker) = state.run_picker {
                     self.popup.render_run_picker(frame, area, picker);
@@ -157,6 +174,9 @@ impl AppLayout {
 
         // Render status bar
         self.statusbar.render(frame, status_area, state);
+
+        // Selection window overlay
+        self.selection.render(frame, main_area, state);
 
         // Popup overlays (rendered last, on top)
         if let Some(ref picker) = state.run_picker {
