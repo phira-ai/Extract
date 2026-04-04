@@ -14,13 +14,19 @@ use crate::keys;
 use crate::ui::summary::match_highlight_rule;
 use crate::ui::theme::Theme;
 
-const RUN_COLORS: [Color; 6] = [
+const RUN_COLORS: [Color; 12] = [
     Color::Cyan,
     Color::Magenta,
     Color::Green,
     Color::Yellow,
     Color::Blue,
     Color::Red,
+    Color::LightCyan,
+    Color::LightMagenta,
+    Color::LightGreen,
+    Color::LightYellow,
+    Color::LightBlue,
+    Color::LightRed,
 ];
 
 pub struct CompareView {
@@ -141,24 +147,26 @@ impl CompareView {
             let mut lines: Vec<Line<'static>> = Vec::new();
 
             let sections = state.config.compare.sections.clone();
+            let w = inner.width;
             for section in &sections {
                 match section {
-                    CompareSection::Pivot => self.build_pivot_table(&mut lines, data),
-                    CompareSection::Config => self.build_config_section(&mut lines, data),
+                    CompareSection::Pivot => self.build_pivot_table(&mut lines, data, w),
+                    CompareSection::Config => self.build_config_section(&mut lines, data, w),
                     CompareSection::Tables => self.build_tables_section(
                         &mut lines,
                         data,
                         &state.config.tables,
-                        inner.width,
+                        w,
                     ),
                     CompareSection::Curves => {
-                        let chart_width = ((inner.width as f32)
+                        let chart_width = ((w as f32)
                             * (state.config.summary.curve_width.min(100) as f32 / 100.0))
                             as u16;
                         self.build_overlay_charts(
                             &mut lines,
                             data,
                             chart_width.max(20),
+                            w,
                         )
                     }
                 }
@@ -200,7 +208,7 @@ impl CompareView {
         }
     }
 
-    fn build_pivot_table(&self, lines: &mut Vec<Line<'static>>, data: &CompareData) {
+    fn build_pivot_table(&self, lines: &mut Vec<Line<'static>>, data: &CompareData, available_width: u16) {
         if data.metric_names.is_empty() && data.param_names.is_empty() {
             return;
         }
@@ -214,90 +222,99 @@ impl CompareView {
         )));
         lines.push(self.separator());
 
-        let label_width = 16;
-        let col_width = 14;
+        let label_width: usize = 16;
+        let col_width: usize = 14;
+        let indent: usize = 2;
 
-        // Column headers
-        let mut header_spans = vec![Span::raw(format!("  {:<label_width$}", ""))];
-        for (i, rd) in data.runs.iter().enumerate() {
-            let color = RUN_COLORS[i % RUN_COLORS.len()];
-            header_spans.push(Span::styled(
-                format!("{:<col_width$}", rd.label()),
-                Style::default()
-                    .fg(color)
-                    .add_modifier(Modifier::BOLD),
-            ));
-        }
-        lines.push(Line::from(header_spans));
+        let runs_per_row = ((available_width as usize).saturating_sub(indent + label_width) / col_width).max(1);
+        let run_indices: Vec<usize> = (0..data.runs.len()).collect();
 
-        // Numeric metrics
-        for metric_name in &data.metric_names {
-            let mut spans = vec![Span::raw(format!("  {:<label_width$}", metric_name))];
-            let values: Vec<Option<f64>> = data
-                .runs
-                .iter()
-                .map(|rd| {
-                    rd.latest_metrics
-                        .iter()
-                        .find(|m| m.name == *metric_name)
-                        .map(|m| m.value)
-                })
-                .collect();
-
-            // Check if values differ
-            let all_same = values.windows(2).all(|w| match (w[0], w[1]) {
-                (Some(a), Some(b)) => (a - b).abs() < f64::EPSILON,
-                (None, None) => true,
-                _ => false,
-            });
-
-            for (i, val) in values.iter().enumerate() {
-                let text = match val {
-                    Some(v) => format!("{:<col_width$.4}", v),
-                    None => format!("{:<col_width$}", "-"),
-                };
-                let style = if !all_same {
-                    Style::default().fg(self.theme.warning)
-                } else {
+        for chunk in run_indices.chunks(runs_per_row) {
+            // Column headers
+            let mut header_spans = vec![Span::raw(format!("  {:<label_width$}", ""))];
+            for &i in chunk {
+                let color = RUN_COLORS[i % RUN_COLORS.len()];
+                header_spans.push(Span::styled(
+                    Self::truncate_label(&data.runs[i].label(), col_width),
                     Style::default()
-                };
-                let _ = i;
-                spans.push(Span::styled(text, style));
+                        .fg(color)
+                        .add_modifier(Modifier::BOLD),
+                ));
             }
-            lines.push(Line::from(spans));
-        }
+            lines.push(Line::from(header_spans));
 
-        // Categorical params
-        for param_name in &data.param_names {
-            let mut spans = vec![Span::raw(format!("  {:<label_width$}", param_name))];
-            let values: Vec<String> = data
-                .runs
-                .iter()
-                .map(|rd| {
-                    rd.run_params
-                        .iter()
-                        .find(|p| p.name == *param_name)
-                        .map(|p| p.value.clone())
-                        .unwrap_or_else(|| "-".to_string())
-                })
-                .collect();
+            // Numeric metrics
+            for metric_name in &data.metric_names {
+                let mut spans = vec![Span::raw(format!("  {:<label_width$}", metric_name))];
+                let all_values: Vec<Option<f64>> = data
+                    .runs
+                    .iter()
+                    .map(|rd| {
+                        rd.latest_metrics
+                            .iter()
+                            .find(|m| m.name == *metric_name)
+                            .map(|m| m.value)
+                    })
+                    .collect();
 
-            let all_same = values.windows(2).all(|w| w[0] == w[1]);
+                let all_same = all_values.windows(2).all(|w| match (w[0], w[1]) {
+                    (Some(a), Some(b)) => (a - b).abs() < f64::EPSILON,
+                    (None, None) => true,
+                    _ => false,
+                });
 
-            for val in &values {
-                let text = format!("{:<col_width$}", val);
-                let style = if !all_same {
-                    Style::default().fg(self.theme.accent)
-                } else {
-                    Style::default().fg(self.theme.accent_dim)
-                };
-                spans.push(Span::styled(text, style));
+                for &i in chunk {
+                    let text = match all_values[i] {
+                        Some(v) => format!("{:<col_width$.4}", v),
+                        None => format!("{:<col_width$}", "-"),
+                    };
+                    let style = if !all_same {
+                        Style::default().fg(self.theme.warning)
+                    } else {
+                        Style::default()
+                    };
+                    spans.push(Span::styled(text, style));
+                }
+                lines.push(Line::from(spans));
             }
-            lines.push(Line::from(spans));
+
+            // Categorical params
+            for param_name in &data.param_names {
+                let mut spans = vec![Span::raw(format!("  {:<label_width$}", param_name))];
+                let all_values: Vec<String> = data
+                    .runs
+                    .iter()
+                    .map(|rd| {
+                        rd.run_params
+                            .iter()
+                            .find(|p| p.name == *param_name)
+                            .map(|p| p.value.clone())
+                            .unwrap_or_else(|| "-".to_string())
+                    })
+                    .collect();
+
+                let all_same = all_values.windows(2).all(|w| w[0] == w[1]);
+
+                for &i in chunk {
+                    let text = format!("{:<col_width$}", all_values[i]);
+                    let style = if !all_same {
+                        Style::default().fg(self.theme.accent)
+                    } else {
+                        Style::default().fg(self.theme.accent_dim)
+                    };
+                    spans.push(Span::styled(text, style));
+                }
+                lines.push(Line::from(spans));
+            }
+
+            // Blank line between chunks
+            if chunk.last() != run_indices.last() {
+                lines.push(Line::from(""));
+            }
         }
     }
 
-    fn build_config_section(&self, lines: &mut Vec<Line<'static>>, data: &CompareData) {
+    fn build_config_section(&self, lines: &mut Vec<Line<'static>>, data: &CompareData, available_width: u16) {
         if data.config_keys.is_empty() {
             return;
         }
@@ -311,49 +328,59 @@ impl CompareView {
         )));
         lines.push(self.separator());
 
-        let label_width = 16;
-        let col_width = 14;
+        let label_width: usize = 16;
+        let col_width: usize = 14;
+        let indent: usize = 2;
 
-        // Column headers
-        let mut header_spans = vec![Span::raw(format!("  {:<label_width$}", ""))];
-        for (i, rd) in data.runs.iter().enumerate() {
-            let color = RUN_COLORS[i % RUN_COLORS.len()];
-            header_spans.push(Span::styled(
-                format!("{:<col_width$}", rd.label()),
-                Style::default()
-                    .fg(color)
-                    .add_modifier(Modifier::BOLD),
-            ));
-        }
-        lines.push(Line::from(header_spans));
+        let runs_per_row = ((available_width as usize).saturating_sub(indent + label_width) / col_width).max(1);
+        let run_indices: Vec<usize> = (0..data.runs.len()).collect();
 
-        for key in &data.config_keys {
-            let mut spans = vec![Span::raw(format!("  {:<label_width$}", key))];
-
-            let values: Vec<String> = data
-                .runs
-                .iter()
-                .map(|rd| {
-                    rd.config
-                        .as_ref()
-                        .and_then(|c| c.get(key))
-                        .map(|v| format_json_value(v))
-                        .unwrap_or_else(|| "-".to_string())
-                })
-                .collect();
-
-            let all_same = values.windows(2).all(|w| w[0] == w[1]);
-
-            for val in &values {
-                let text = format!("{:<col_width$}", val);
-                let style = if !all_same {
-                    Style::default().fg(self.theme.warning)
-                } else {
+        for chunk in run_indices.chunks(runs_per_row) {
+            // Column headers
+            let mut header_spans = vec![Span::raw(format!("  {:<label_width$}", ""))];
+            for &i in chunk {
+                let color = RUN_COLORS[i % RUN_COLORS.len()];
+                header_spans.push(Span::styled(
+                    Self::truncate_label(&data.runs[i].label(), col_width),
                     Style::default()
-                };
-                spans.push(Span::styled(text, style));
+                        .fg(color)
+                        .add_modifier(Modifier::BOLD),
+                ));
             }
-            lines.push(Line::from(spans));
+            lines.push(Line::from(header_spans));
+
+            for key in &data.config_keys {
+                let mut spans = vec![Span::raw(format!("  {:<label_width$}", key))];
+
+                let all_values: Vec<String> = data
+                    .runs
+                    .iter()
+                    .map(|rd| {
+                        rd.config
+                            .as_ref()
+                            .and_then(|c| c.get(key))
+                            .map(|v| format_json_value(v))
+                            .unwrap_or_else(|| "-".to_string())
+                    })
+                    .collect();
+
+                let all_same = all_values.windows(2).all(|w| w[0] == w[1]);
+
+                for &i in chunk {
+                    let text = format!("{:<col_width$}", all_values[i]);
+                    let style = if !all_same {
+                        Style::default().fg(self.theme.warning)
+                    } else {
+                        Style::default()
+                    };
+                    spans.push(Span::styled(text, style));
+                }
+                lines.push(Line::from(spans));
+            }
+
+            if chunk.last() != run_indices.last() {
+                lines.push(Line::from(""));
+            }
         }
     }
 
@@ -471,7 +498,8 @@ impl CompareView {
         &self,
         lines: &mut Vec<Line<'static>>,
         data: &CompareData,
-        width: u16,
+        chart_width: u16,
+        available_width: u16,
     ) {
         if data.metric_names.is_empty() {
             return;
@@ -486,20 +514,34 @@ impl CompareView {
         )));
         lines.push(self.separator());
 
-        // Legend
-        let mut legend_spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
+        // All legends first, wrapped into rows that fit the width
+        let avail = available_width as usize;
+        let mut row_spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
+        let mut row_len: usize = 2;
+
         for (i, rd) in data.runs.iter().enumerate() {
             let color = RUN_COLORS[i % RUN_COLORS.len()];
-            if i > 0 {
-                legend_spans.push(Span::raw("  ".to_string()));
-            }
-            legend_spans.push(Span::styled(
-                format!("\u{2500}\u{2500} {}", rd.label()),
-                Style::default().fg(color),
-            ));
-        }
-        lines.push(Line::from(legend_spans));
+            let entry = format!("\u{2500}\u{2500} {}", rd.label());
+            let entry_len = entry.len() + 2; // +2 for gap
 
+            if i > 0 && row_len + entry_len > avail {
+                // Wrap to next line
+                lines.push(Line::from(row_spans));
+                row_spans = vec![Span::raw("  ".to_string())];
+                row_len = 2;
+            } else if i > 0 {
+                row_spans.push(Span::raw("  ".to_string()));
+                row_len += 2;
+            }
+
+            row_spans.push(Span::styled(entry.clone(), Style::default().fg(color)));
+            row_len += entry.len();
+        }
+        if row_spans.len() > 1 {
+            lines.push(Line::from(row_spans));
+        }
+
+        // Then one chart per metric with ALL runs overlaid
         let chart_height: u16 = match data.metric_names.len() {
             1 => 12,
             2 => 10,
@@ -508,7 +550,6 @@ impl CompareView {
         };
 
         for metric_name in &data.metric_names {
-            // Collect data points for each run
             let mut all_points: Vec<(Vec<(f64, f64)>, Color)> = Vec::new();
             let mut has_data = false;
 
@@ -541,7 +582,7 @@ impl CompareView {
             )));
 
             let chart_lines =
-                self.render_overlay_chart_to_lines(&all_points, width.max(20), chart_height);
+                self.render_overlay_chart_to_lines(&all_points, chart_width.max(20), chart_height);
             lines.extend(chart_lines);
         }
     }
@@ -639,6 +680,14 @@ impl CompareView {
         }
 
         result
+    }
+
+    fn truncate_label(label: &str, width: usize) -> String {
+        if label.len() <= width {
+            format!("{:<width$}", label)
+        } else {
+            format!("{:.width$}", label, width = width)
+        }
     }
 
     fn separator(&self) -> Line<'static> {

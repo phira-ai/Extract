@@ -13,6 +13,8 @@ use crate::keys;
 use crate::model::Experiment;
 use crate::ui::theme::Theme;
 
+pub const MAX_COMPARE_RUNS: usize = 6;
+
 pub struct TreePanel {
     pub tree_state: TreeState<String>,
     theme: Theme,
@@ -132,8 +134,13 @@ impl TreePanel {
                     let run_id = runs[0].id.clone();
                     if state.selected_runs_for_compare.contains(&run_id) {
                         state.selected_runs_for_compare.retain(|id| id != &run_id);
-                    } else {
+                    } else if state.selected_runs_for_compare.len() < MAX_COMPARE_RUNS {
                         state.selected_runs_for_compare.push(run_id);
+                    } else {
+                        state.notify(
+                            crate::app::NotifyLevel::Warn,
+                            format!("Max {} runs for compare", MAX_COMPARE_RUNS),
+                        );
                     }
                     state.refresh_marked_experiments();
                 } else {
@@ -162,9 +169,17 @@ impl TreePanel {
 
         if keys::matches(key, keys::COMPARE) {
             if state.selected_runs_for_compare.len() >= 2 {
-                if state.load_compare_data().is_ok() {
-                    state.current_view = View::Compare;
-                    return Action::Navigate(View::Compare);
+                match state.load_compare_data() {
+                    Ok(()) => {
+                        state.current_view = View::Compare;
+                        return Action::Navigate(View::Compare);
+                    }
+                    Err(e) => {
+                        state.notify(
+                            crate::app::NotifyLevel::Error,
+                            format!("Compare failed: {e}"),
+                        );
+                    }
                 }
             }
             return Action::None;
@@ -172,9 +187,17 @@ impl TreePanel {
 
         if keys::matches(key, keys::DIFF) {
             if state.selected_runs_for_compare.len() >= 2 {
-                if state.load_compare_data().is_ok() {
-                    state.current_view = View::Diff;
-                    return Action::Navigate(View::Diff);
+                match state.load_compare_data() {
+                    Ok(()) => {
+                        state.current_view = View::Diff;
+                        return Action::Navigate(View::Diff);
+                    }
+                    Err(e) => {
+                        state.notify(
+                            crate::app::NotifyLevel::Error,
+                            format!("Diff failed: {e}"),
+                        );
+                    }
                 }
             }
             return Action::None;

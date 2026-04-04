@@ -1,9 +1,10 @@
-use ratatui::layout::{Constraint, Layout};
-use ratatui::style::Style;
-use ratatui::widgets::Block;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{Action, AppState, Focus, View};
+use crate::app::{Action, AppState, Focus, NotifyLevel, View};
 use crate::event::AppEvent;
 use crate::keys;
 use crate::ui::compare::CompareView;
@@ -48,8 +49,19 @@ impl AppLayout {
             if state.delete_confirm.is_some() {
                 if let Some(confirmed) = self.popup.handle_delete_confirm_key(key) {
                     if confirmed {
-                        let run_id = state.delete_confirm.as_ref().unwrap().run_id.clone();
-                        let _ = state.delete_run(&run_id);
+                        let confirm = state.delete_confirm.as_ref().unwrap();
+                        let run_id = confirm.run_id.clone();
+                        let label = confirm.label.clone();
+                        match state.delete_run(&run_id) {
+                            Ok(()) => state.notify(
+                                crate::app::NotifyLevel::Success,
+                                format!("Deleted {label}"),
+                            ),
+                            Err(e) => state.notify(
+                                crate::app::NotifyLevel::Error,
+                                format!("Delete failed: {e}"),
+                            ),
+                        }
                     }
                     state.delete_confirm = None;
                 }
@@ -132,79 +144,113 @@ impl AppLayout {
                 self.compare.render(frame, main_area, state);
                 self.statusbar.render(frame, status_area, state);
                 self.selection.render(frame, main_area, state);
-                // Popup overlays
-                if let Some(ref picker) = state.run_picker {
-                    self.popup.render_run_picker(frame, area, picker);
-                }
-                if let Some(ref confirm) = state.delete_confirm {
-                    self.popup.render_delete_confirm(frame, area, confirm);
-                }
-                return;
             }
             View::Diff => {
                 self.diff.render(frame, main_area, state);
                 self.statusbar.render(frame, status_area, state);
                 self.selection.render(frame, main_area, state);
-                // Popup overlays
-                if let Some(ref picker) = state.run_picker {
-                    self.popup.render_run_picker(frame, area, picker);
-                }
-                if let Some(ref confirm) = state.delete_confirm {
-                    self.popup.render_delete_confirm(frame, area, confirm);
-                }
-                return;
             }
-            _ => {}
+            _ => {
+                // Split main area: 30% tree, 70% detail
+                let horizontal = Layout::horizontal([
+                    Constraint::Percentage(30),
+                    Constraint::Percentage(70),
+                ])
+                .split(main_area);
+
+                let tree_area = horizontal[0];
+                let detail_area = horizontal[1];
+
+                // Render tree (always visible)
+                self.tree.render(frame, tree_area, state);
+
+                // Render right panel: detail if a run is selected, dashboard otherwise
+                if state.selected_run.is_some() && !state.runs.is_empty() {
+                    self.detail.render(frame, detail_area, state);
+                } else {
+                    let focused = state.focus == Focus::Detail;
+                    let border_style = if focused {
+                        Style::default().fg(self.theme.border_focused)
+                    } else {
+                        Style::default().fg(self.theme.border)
+                    };
+                    let title = match &state.selection_summary {
+                        crate::app::SelectionSummary::Root { .. } => " 2 Overview ".to_string(),
+                        crate::app::SelectionSummary::Branch { path, .. } => {
+                            format!(" 2 {path} ")
+                        }
+                        crate::app::SelectionSummary::Leaf { name, .. } => {
+                            format!(" 2 {name} ")
+                        }
+                    };
+                    let block = Block::bordered()
+                        .title(title)
+                        .border_style(border_style);
+                    let inner_detail = block.inner(detail_area);
+                    frame.render_widget(block, detail_area);
+                    self.dashboard.render(frame, inner_detail, state);
+                }
+
+                // Render status bar
+                self.statusbar.render(frame, status_area, state);
+
+                // Selection window overlay
+                self.selection.render(frame, main_area, state);
+            }
         }
 
-        // Split main area: 30% tree, 70% detail
-        let horizontal = Layout::horizontal([
-            Constraint::Percentage(30),
-            Constraint::Percentage(70),
-        ])
-        .split(main_area);
-
-        let tree_area = horizontal[0];
-        let detail_area = horizontal[1];
-
-        // Render tree (always visible)
-        self.tree.render(frame, tree_area, state);
-
-        // Render right panel: detail if a run is selected, dashboard otherwise
-        if state.selected_run.is_some() && !state.runs.is_empty() {
-            self.detail.render(frame, detail_area, state);
-        } else {
-            let focused = state.focus == Focus::Detail;
-            let border_style = if focused {
-                Style::default().fg(self.theme.border_focused)
-            } else {
-                Style::default().fg(self.theme.border)
-            };
-            let title = match &state.selection_summary {
-                crate::app::SelectionSummary::Root { .. } => " 2 Overview ".to_string(),
-                crate::app::SelectionSummary::Branch { path, .. } => format!(" 2 {path} "),
-                crate::app::SelectionSummary::Leaf { name, .. } => format!(" 2 {name} "),
-            };
-            let block = Block::bordered()
-                .title(title)
-                .border_style(border_style);
-            let inner_detail = block.inner(detail_area);
-            frame.render_widget(block, detail_area);
-            self.dashboard.render(frame, inner_detail, state);
-        }
-
-        // Render status bar
-        self.statusbar.render(frame, status_area, state);
-
-        // Selection window overlay
-        self.selection.render(frame, main_area, state);
-
-        // Popup overlays (rendered last, on top)
+        // Popup overlays (rendered on top of everything)
         if let Some(ref picker) = state.run_picker {
             self.popup.render_run_picker(frame, area, picker);
         }
         if let Some(ref confirm) = state.delete_confirm {
             self.popup.render_delete_confirm(frame, area, confirm);
         }
+
+        // Notification toast (rendered last, top-right)
+        if let Some(ref notif) = state.notification {
+            self.render_notification(frame, area, notif);
+        }
+    }
+
+    fn render_notification(&self, frame: &mut Frame, area: Rect, notif: &crate::app::Notification) {
+        let msg = &notif.message;
+        let width = (msg.len() as u16 + 4).min(area.width.saturating_sub(2)); // +4 for border + padding
+        let height = 3u16;
+
+        let x = area.x + area.width.saturating_sub(width + 1);
+        let y = area.y + 1;
+        let toast_area = Rect::new(x, y, width, height);
+
+        let border_color = match notif.level {
+            NotifyLevel::Info => self.theme.accent,
+            NotifyLevel::Success => self.theme.success,
+            NotifyLevel::Warn => self.theme.warning,
+            NotifyLevel::Error => self.theme.error,
+        };
+
+        let label = match notif.level {
+            NotifyLevel::Info => " info ",
+            NotifyLevel::Success => " ok ",
+            NotifyLevel::Warn => " warn ",
+            NotifyLevel::Error => " error ",
+        };
+
+        frame.render_widget(Clear, toast_area);
+
+        let block = Block::bordered()
+            .title(Span::styled(
+                label,
+                Style::default()
+                    .fg(border_color)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .border_style(Style::default().fg(border_color));
+
+        let inner = block.inner(toast_area);
+        frame.render_widget(block, toast_area);
+
+        let text = Paragraph::new(Line::from(Span::raw(msg.clone())));
+        frame.render_widget(text, inner);
     }
 }

@@ -127,12 +127,22 @@ def main():
     import sqlite3
     conn = sqlite3.connect(str(STORE_ROOT / "extract.db"))
     conn.row_factory = sqlite3.Row
-    exps = conn.execute("SELECT path, node_type FROM experiments ORDER BY path").fetchall()
-    print(f"  Experiments: {len(exps)}")
-    for e in exps:
-        print(f"    {e['path']:<40} {e['node_type'] or ''}")
+
+    # Leaf experiments = nodes with no children (i.e. not referenced as parent_id)
+    leaves = conn.execute(
+        "SELECT e.path, e.node_type FROM experiments e "
+        "WHERE NOT EXISTS (SELECT 1 FROM experiments c WHERE c.parent_id = e.id) "
+        "ORDER BY e.path"
+    ).fetchall()
     runs = conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
-    print(f"  Runs: {runs}")
+
+    print(f"  Experiments: {len(leaves)}, Runs: {runs}")
+    for e in leaves:
+        run_count = conn.execute(
+            "SELECT COUNT(*) FROM runs r JOIN experiments x ON r.experiment_id = x.id "
+            "WHERE x.path = ?", (e['path'],)
+        ).fetchone()[0]
+        print(f"    {e['path']:<45} [{run_count} runs]")
     conn.close()
 
 

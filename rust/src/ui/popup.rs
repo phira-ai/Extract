@@ -46,7 +46,19 @@ impl PopupRenderer {
             if picker.selected.contains(&run_id) {
                 picker.selected.retain(|id| id != &run_id);
             } else {
-                picker.selected.push(run_id);
+                // Count: already selected from other experiments + this picker's selections
+                let other_count = state.selected_runs_for_compare.len()
+                    - state.selected_runs_for_compare.iter()
+                        .filter(|id| picker.runs.iter().any(|r| r.id == **id))
+                        .count();
+                if other_count + picker.selected.len() < crate::ui::tree::MAX_COMPARE_RUNS {
+                    picker.selected.push(run_id);
+                } else {
+                    state.notify(
+                        crate::app::NotifyLevel::Warn,
+                        format!("Max {} runs for compare", crate::ui::tree::MAX_COMPARE_RUNS),
+                    );
+                }
             }
             return false;
         }

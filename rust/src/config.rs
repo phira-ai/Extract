@@ -108,6 +108,24 @@ impl Default for CompareConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct NotificationsConfig {
+    #[serde(default = "default_notification_timeout")]
+    pub timeout: u64,
+}
+
+fn default_notification_timeout() -> u64 {
+    3
+}
+
+impl Default for NotificationsConfig {
+    fn default() -> Self {
+        Self {
+            timeout: default_notification_timeout(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -116,6 +134,8 @@ pub struct Config {
     pub tables: TablesConfig,
     #[serde(default)]
     pub compare: CompareConfig,
+    #[serde(default)]
+    pub notifications: NotificationsConfig,
 }
 
 /// Parse a color name string into a ratatui Color.

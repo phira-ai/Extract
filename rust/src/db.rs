@@ -340,6 +340,16 @@ impl Db {
         Ok(count)
     }
 
+    pub fn count_leaf_experiments(&self) -> Result<usize> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM experiments e \
+             WHERE NOT EXISTS (SELECT 1 FROM experiments c WHERE c.parent_id = e.id)",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
     pub fn recent_runs(&self, limit: i64) -> Result<Vec<Run>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, experiment_id, name, config, started_at, ended_at, status, \
@@ -368,7 +378,8 @@ impl Db {
     pub fn count_descendant_experiments(&self, path_prefix: &str) -> Result<i64> {
         let pattern = format!("{path_prefix}/%");
         let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM experiments WHERE path LIKE ?",
+            "SELECT COUNT(*) FROM experiments e WHERE e.path LIKE ? \
+             AND NOT EXISTS (SELECT 1 FROM experiments c WHERE c.parent_id = e.id)",
             params![pattern],
             |row| row.get(0),
         )?;
@@ -692,7 +703,8 @@ mod tests {
     #[test]
     fn test_count_descendant_experiments() {
         let db = test_db();
-        assert_eq!(db.count_descendant_experiments("a").unwrap(), 4);
+        // Leaves only: b, c, e (d has child e, so it's not a leaf)
+        assert_eq!(db.count_descendant_experiments("a").unwrap(), 3);
         assert_eq!(db.count_descendant_experiments("a/d").unwrap(), 1);
         assert_eq!(db.count_descendant_experiments("a/b").unwrap(), 0);
     }

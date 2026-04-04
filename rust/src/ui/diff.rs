@@ -12,13 +12,19 @@ use crate::keys;
 use crate::model::is_lower_better;
 use crate::ui::theme::Theme;
 
-const RUN_COLORS: [Color; 6] = [
+const RUN_COLORS: [Color; 12] = [
     Color::Cyan,
     Color::Magenta,
     Color::Green,
     Color::Yellow,
     Color::Blue,
     Color::Red,
+    Color::LightCyan,
+    Color::LightMagenta,
+    Color::LightGreen,
+    Color::LightYellow,
+    Color::LightBlue,
+    Color::LightRed,
 ];
 
 pub struct DiffView {
@@ -141,7 +147,7 @@ impl DiffView {
             let scroll = data.scroll;
             let mut lines: Vec<Line<'static>> = Vec::new();
 
-            self.build_metric_deltas(&mut lines, data, baseline_idx);
+            self.build_metric_deltas(&mut lines, data, baseline_idx, inner.width);
             self.build_config_changes(&mut lines, data, baseline_idx);
             self.build_delta_tables(&mut lines, data, baseline_idx, inner.width);
 
@@ -184,6 +190,7 @@ impl DiffView {
         lines: &mut Vec<Line<'static>>,
         data: &CompareData,
         baseline_idx: usize,
+        available_width: u16,
     ) {
         if data.metric_names.is_empty() {
             return;
@@ -216,6 +223,9 @@ impl DiffView {
 
         let label_width: usize = 14;
         let col_width: usize = 28;
+        let indent: usize = 2;
+        // baseline col + non-baseline cols; baseline always shown
+        let cols_for_others = ((available_width as usize).saturating_sub(indent + label_width + col_width) / col_width).max(1);
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
@@ -226,101 +236,111 @@ impl DiffView {
         )));
         lines.push(self.separator());
 
-        // Header row: metric label, baseline, then each non-baseline run
-        {
+        let truncate = |s: &str| -> String {
+            if s.len() <= col_width {
+                format!("{:<width$}", s, width = col_width)
+            } else {
+                format!("{:.width$}", s, width = col_width)
+            }
+        };
+
+        for chunk in non_baseline.chunks(cols_for_others) {
+            // Header: baseline + this chunk
             let mut spans: Vec<Span<'static>> = Vec::new();
             spans.push(Span::raw(format!("  {:<width$}", "", width = label_width)));
             spans.push(Span::styled(
-                format!("{:<width$}", data.runs[baseline_idx].label(), width = col_width),
+                truncate(&data.runs[baseline_idx].label()),
                 Style::default().add_modifier(Modifier::BOLD),
             ));
-            for &i in &non_baseline {
+            for &i in chunk {
                 let color = RUN_COLORS[i % RUN_COLORS.len()];
                 spans.push(Span::styled(
-                    format!("{:<width$}", data.runs[i].label(), width = col_width),
+                    truncate(&data.runs[i].label()),
                     Style::default().fg(color).add_modifier(Modifier::BOLD),
                 ));
             }
             lines.push(Line::from(spans));
-        }
 
-        for metric_name in &data.metric_names {
-            let v_base = data.runs[baseline_idx]
-                .latest_metrics
-                .iter()
-                .find(|m| m.name == *metric_name)
-                .map(|m| m.value);
-
-            let lower_better = is_lower_better(metric_name);
-
-            let mut spans: Vec<Span<'static>> = Vec::new();
-            spans.push(Span::raw(format!("  {:<width$}", metric_name, width = label_width)));
-
-            // Baseline value
-            match v_base {
-                Some(base_val) => {
-                    spans.push(Span::raw(format!("{:<width$.4}", base_val, width = col_width)));
-                }
-                None => {
-                    spans.push(Span::raw(format!("{:<width$}", "-", width = col_width)));
-                }
-            }
-
-            // Each non-baseline run
-            for &i in &non_baseline {
-                let v_run = data.runs[i]
+            for metric_name in &data.metric_names {
+                let v_base = data.runs[baseline_idx]
                     .latest_metrics
                     .iter()
                     .find(|m| m.name == *metric_name)
                     .map(|m| m.value);
 
-                match (v_base, v_run) {
-                    (Some(a), Some(b)) => {
-                        let delta = b - a;
-                        let is_improvement = if lower_better {
-                            delta < 0.0
-                        } else {
-                            delta > 0.0
-                        };
+                let lower_better = is_lower_better(metric_name);
 
-                        let (color, arrow) = if delta.abs() < f64::EPSILON {
-                            (self.theme.accent_dim, " ")
-                        } else if is_improvement {
-                            (self.theme.success, if delta > 0.0 { "\u{2191}" } else { "\u{2193}" })
-                        } else {
-                            (self.theme.error, if delta > 0.0 { "\u{2191}" } else { "\u{2193}" })
-                        };
+                let mut spans: Vec<Span<'static>> = Vec::new();
+                spans.push(Span::raw(format!("  {:<width$}", metric_name, width = label_width)));
 
-                        let delta_sign = if delta > 0.0 { "+" } else { "" };
-
-                        spans.push(Span::styled(
-                            format!(
-                                "{:<width$}",
-                                format!("{:.4} \u{0394} {delta_sign}{:.4} {arrow}", b, delta),
-                                width = col_width
-                            ),
-                            Style::default().fg(color),
-                        ));
+                match v_base {
+                    Some(base_val) => {
+                        spans.push(Span::raw(format!("{:<width$.4}", base_val, width = col_width)));
                     }
-                    (Some(_), None) => {
-                        spans.push(Span::styled(
-                            format!("{:<width$}", "-", width = col_width),
-                            Style::default().fg(self.theme.error),
-                        ));
-                    }
-                    (None, Some(b)) => {
-                        spans.push(Span::styled(
-                            format!("{:<width$.4}", b, width = col_width),
-                            Style::default().fg(self.theme.success),
-                        ));
-                    }
-                    (None, None) => {
+                    None => {
                         spans.push(Span::raw(format!("{:<width$}", "-", width = col_width)));
                     }
                 }
+
+                for &i in chunk {
+                    let v_run = data.runs[i]
+                        .latest_metrics
+                        .iter()
+                        .find(|m| m.name == *metric_name)
+                        .map(|m| m.value);
+
+                    match (v_base, v_run) {
+                        (Some(a), Some(b)) => {
+                            let delta = b - a;
+                            let is_improvement = if lower_better {
+                                delta < 0.0
+                            } else {
+                                delta > 0.0
+                            };
+
+                            let (color, arrow) = if delta.abs() < f64::EPSILON {
+                                (self.theme.accent_dim, " ")
+                            } else if is_improvement {
+                                (self.theme.success, if delta > 0.0 { "\u{2191}" } else { "\u{2193}" })
+                            } else {
+                                (self.theme.error, if delta > 0.0 { "\u{2191}" } else { "\u{2193}" })
+                            };
+
+                            let delta_sign = if delta > 0.0 { "+" } else { "" };
+
+                            spans.push(Span::styled(
+                                format!(
+                                    "{:<width$}",
+                                    format!("{:.4} \u{0394} {delta_sign}{:.4} {arrow}", b, delta),
+                                    width = col_width
+                                ),
+                                Style::default().fg(color),
+                            ));
+                        }
+                        (Some(_), None) => {
+                            spans.push(Span::styled(
+                                format!("{:<width$}", "-", width = col_width),
+                                Style::default().fg(self.theme.error),
+                            ));
+                        }
+                        (None, Some(b)) => {
+                            spans.push(Span::styled(
+                                format!("{:<width$.4}", b, width = col_width),
+                                Style::default().fg(self.theme.success),
+                            ));
+                        }
+                        (None, None) => {
+                            spans.push(Span::raw(format!("{:<width$}", "-", width = col_width)));
+                        }
+                    }
+                }
+
+                lines.push(Line::from(spans));
             }
 
-            lines.push(Line::from(spans));
+            if chunk.last() != non_baseline.last() {
+                lines.push(Line::from(""));
+            }
         }
     }
 

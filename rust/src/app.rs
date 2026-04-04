@@ -1,4 +1,5 @@
 use std::path::PathBuf;
+use std::time::Instant;
 
 use color_eyre::Result;
 use serde_json::Value as JsonValue;
@@ -117,6 +118,20 @@ pub struct DeleteConfirmState {
     pub label: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotifyLevel {
+    Info,
+    Success,
+    Warn,
+    Error,
+}
+
+pub struct Notification {
+    pub message: String,
+    pub level: NotifyLevel,
+    pub created_at: Instant,
+}
+
 pub struct AppState {
     pub db: Db,
     pub store_root: PathBuf,
@@ -147,6 +162,7 @@ pub struct AppState {
     pub selection_cursor: usize,
     pub run_picker: Option<RunPickerState>,
     pub delete_confirm: Option<DeleteConfirmState>,
+    pub notification: Option<Notification>,
 }
 
 impl AppState {
@@ -154,7 +170,7 @@ impl AppState {
         let experiments = db.list_experiments()?;
         let total_runs = db.count_all_runs()?;
         let recent_runs = db.recent_runs(5)?;
-        let total_experiments = experiments.len();
+        let total_experiments = db.count_leaf_experiments()?;
         let hierarchy = db.list_hierarchy()?;
         let config = config::load_config(&store_root);
         Ok(Self {
@@ -191,7 +207,24 @@ impl AppState {
             selection_cursor: 0,
             run_picker: None,
             delete_confirm: None,
+            notification: None,
         })
+    }
+
+    pub fn notify(&mut self, level: NotifyLevel, message: impl Into<String>) {
+        self.notification = Some(Notification {
+            message: message.into(),
+            level,
+            created_at: Instant::now(),
+        });
+    }
+
+    pub fn clear_expired_notification(&mut self, timeout_secs: u64) {
+        if let Some(ref notif) = self.notification {
+            if notif.created_at.elapsed().as_secs() >= timeout_secs {
+                self.notification = None;
+            }
+        }
     }
 
     pub fn refresh_experiments(&mut self) -> Result<()> {
@@ -473,7 +506,7 @@ impl AppState {
     pub fn refresh_selection_summary(&mut self) -> Result<()> {
         let Some(idx) = self.selected_experiment else {
             self.selection_summary = SelectionSummary::Root {
-                total_experiments: self.experiments.len(),
+                total_experiments: self.db.count_leaf_experiments()?,
                 total_runs: self.db.count_all_runs()?,
                 recent_runs: self.db.recent_runs(5)?,
             };
