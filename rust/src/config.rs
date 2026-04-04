@@ -18,6 +18,9 @@ pub struct SummaryConfig {
     /// Chart width as percentage of panel width (1-100, default 80).
     #[serde(default = "default_curve_width")]
     pub curve_width: u8,
+    /// Smooth curves with Catmull-Rom interpolation (default false).
+    #[serde(default)]
+    pub curve_smooth: bool,
 }
 
 fn default_curve_width() -> u8 {
@@ -34,6 +37,7 @@ impl Default for SummaryConfig {
                 SummarySection::Curves,
             ],
             curve_width: default_curve_width(),
+            curve_smooth: false,
         }
     }
 }
@@ -42,13 +46,16 @@ impl Default for SummaryConfig {
 /// Rules are evaluated in order; first match wins.
 #[derive(Debug, Clone, Deserialize)]
 pub struct HighlightRule {
+    /// Exact value match. Takes precedence over min/max.
+    pub eq: Option<f64>,
     /// Minimum value (inclusive). Applies to float and int cells.
     pub min: Option<f64>,
     /// Maximum value (exclusive). Applies to float and int cells.
     pub max: Option<f64>,
     /// Substring match for string cells.
     pub pattern: Option<String>,
-    /// Color name: "red", "green", "yellow", "blue", "cyan", "magenta", "white", "darkgray".
+    /// Color name: "red", "green", "yellow", "blue", "cyan", "magenta", "white", "darkgray",
+    /// or "none"/"reset" for default terminal color (effectively hides highlighting).
     pub color: String,
 }
 
@@ -70,6 +77,8 @@ pub struct Config {
 /// Parse a color name string into a ratatui Color.
 pub fn parse_color(name: &str) -> Color {
     match name.to_lowercase().as_str() {
+        "none" | "reset" | "default" => Color::Reset,
+        "orange" => Color::LightRed,
         "red" => Color::Red,
         "green" => Color::Green,
         "yellow" => Color::Yellow,

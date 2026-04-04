@@ -44,6 +44,7 @@ impl SummaryRenderer {
         sections: &[SummarySection],
         scroll_offset: u16,
         curve_width_pct: u8,
+        curve_smooth: bool,
         tables_config: &TablesConfig,
     ) -> usize {
         let mut lines: Vec<Line<'static>> = Vec::new();
@@ -57,7 +58,7 @@ impl SummaryRenderer {
                 SummarySection::Curves => {
                     let chart_width =
                         ((area.width as f32) * (curve_width_pct.min(100) as f32 / 100.0)) as u16;
-                    self.build_curves(&mut lines, data, chart_width.max(20));
+                    self.build_curves(&mut lines, data, chart_width.max(20), curve_smooth);
                 }
                 SummarySection::Tables => {
                     self.build_tables(&mut lines, data, tables_config);
@@ -192,7 +193,13 @@ impl SummaryRenderer {
         }
     }
 
-    fn build_curves(&self, lines: &mut Vec<Line<'static>>, data: &SummaryData, width: u16) {
+    fn build_curves(
+        &self,
+        lines: &mut Vec<Line<'static>>,
+        data: &SummaryData,
+        width: u16,
+        smooth: bool,
+    ) {
         if data.metric_histories.is_empty() {
             return;
         }
@@ -218,7 +225,7 @@ impl SummaryRenderer {
                     .add_modifier(Modifier::BOLD),
             )));
 
-            let chart_lines = self.render_chart_to_lines(history, width, chart_height);
+            let chart_lines = self.render_chart_to_lines(history, width, chart_height, smooth);
             lines.extend(chart_lines);
         }
     }
@@ -228,11 +235,18 @@ impl SummaryRenderer {
         history: &[ScalarMetric],
         width: u16,
         height: u16,
+        smooth: bool,
     ) -> Vec<Line<'static>> {
-        let points: Vec<(f64, f64)> = history
+        let raw_points: Vec<(f64, f64)> = history
             .iter()
             .map(|m| (m.step as f64, m.value))
             .collect();
+
+        let points = if smooth && raw_points.len() >= 3 {
+            catmull_rom_interpolate(&raw_points, (raw_points.len() * 4).max(100))
+        } else {
+            raw_points
+        };
 
         let (x_min, x_max) = points
             .iter()
@@ -393,6 +407,75 @@ impl SummaryRenderer {
     }
 }
 
+/// Catmull-Rom spline interpolation.
+/// Generates `num_points` evenly spaced points along the spline that passes
+/// through all input points. Requires at least 3 input points.
+fn catmull_rom_interpolate(points: &[(f64, f64)], num_points: usize) -> Vec<(f64, f64)> {
+    let n = points.len();
+    if n < 3 {
+        return points.to_vec();
+    }
+
+    let x_min = points.first().unwrap().0;
+    let x_max = points.last().unwrap().0;
+    let x_range = x_max - x_min;
+    if x_range == 0.0 {
+        return points.to_vec();
+    }
+
+    let mut result = Vec::with_capacity(num_points);
+
+    for i in 0..num_points {
+        let t_global = i as f64 / (num_points - 1) as f64;
+        let x = x_min + t_global * x_range;
+
+        // Find the segment this x falls into
+        let mut seg = 0;
+        for j in 0..n - 1 {
+            if x >= points[j].0 && x <= points[j + 1].0 {
+                seg = j;
+                break;
+            }
+        }
+        // Clamp to last segment
+        if x > points[n - 1].0 {
+            seg = n - 2;
+        }
+
+        // Four control points: p0, p1, p2, p3
+        let p0 = if seg > 0 { points[seg - 1] } else { points[seg] };
+        let p1 = points[seg];
+        let p2 = points[seg + 1];
+        let p3 = if seg + 2 < n {
+            points[seg + 2]
+        } else {
+            points[seg + 1]
+        };
+
+        // Local t within segment [p1, p2]
+        let seg_range = p2.0 - p1.0;
+        let t = if seg_range > 0.0 {
+            ((x - p1.0) / seg_range).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+
+        let t2 = t * t;
+        let t3 = t2 * t;
+
+        // Catmull-Rom basis (tau=0.5)
+        let y = 0.5
+            * ((2.0 * p1.1)
+                + (-p0.1 + p2.1) * t
+                + (2.0 * p0.1 - 5.0 * p1.1 + 4.0 * p2.1 - p3.1) * t2
+                + (-p0.1 + 3.0 * p1.1 - 3.0 * p2.1 + p3.1) * t3);
+
+        result.push((x, y));
+    }
+
+    result
+}
+
 /// Match a cell value against highlight rules. Returns the color to use.
 fn match_highlight_rule(cell: &CellValue, rules: &[HighlightRule]) -> Color {
     if rules.is_empty() {
@@ -404,6 +487,13 @@ fn match_highlight_rule(cell: &CellValue, rules: &[HighlightRule]) -> Color {
     for rule in rules {
         // Numeric matching
         if let Some(val) = numeric {
+            // Exact match takes precedence
+            if let Some(eq) = rule.eq {
+                if (val - eq).abs() < f64::EPSILON {
+                    return parse_color(&rule.color);
+                }
+                continue;
+            }
             let min_ok = rule.min.map_or(true, |min| val >= min);
             let max_ok = rule.max.map_or(true, |max| val < max);
             if min_ok && max_ok && rule.pattern.is_none() {
