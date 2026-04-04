@@ -15,9 +15,14 @@ import extract
 STORE_ROOT = Path(__file__).parent.parent / ".extract"
 
 def main():
-    # Clean existing data
+    # Clean existing data but preserve config.toml
+    config_path = STORE_ROOT / "config.toml"
+    saved_config = config_path.read_text() if config_path.exists() else None
     if STORE_ROOT.exists():
         shutil.rmtree(STORE_ROOT)
+    if saved_config is not None:
+        STORE_ROOT.mkdir(parents=True, exist_ok=True)
+        config_path.write_text(saved_config)
 
     store = extract.Store(root=STORE_ROOT, hierarchy="benchmark > method > variant")
 
