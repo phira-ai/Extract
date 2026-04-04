@@ -387,15 +387,13 @@ impl SummaryRenderer {
 
             for c in 0..table.cols {
                 let cell = &table.values[r][c];
-                let display = cell.display(cell_width);
                 let color_name = match_highlight_rule(cell, &tables_config.highlight);
-                let style = if color_name == "transparent" {
-                    // Render text in background color so it visually disappears
-                    Style::default().fg(self.theme.bg)
+                if color_name == "transparent" {
+                    spans.push(Span::raw(" ".repeat(cell_width)));
                 } else {
-                    Style::default().fg(parse_color(color_name))
-                };
-                spans.push(Span::styled(display, style));
+                    let display = cell.display(cell_width);
+                    spans.push(Span::styled(display, Style::default().fg(parse_color(color_name))));
+                }
             }
 
             lines.push(Line::from(spans));
