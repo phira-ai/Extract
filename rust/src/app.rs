@@ -34,7 +34,6 @@ pub enum Action {
     None,
     Navigate(View),
     Quit,
-    Refresh,
 }
 
 pub enum SelectionSummary {
@@ -120,7 +119,6 @@ pub struct DeleteConfirmState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotifyLevel {
-    Info,
     Success,
     Warn,
     Error,
@@ -139,7 +137,6 @@ pub struct LineageNode {
     pub label: String,
     pub layer: usize,
     pub x: f64,
-    pub y: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -153,11 +150,9 @@ pub enum TodoFilter {
 pub struct AppState {
     pub db: Db,
     pub store_root: PathBuf,
-    pub hierarchy: Vec<String>,
     pub config: Config,
     pub current_view: View,
     pub focus: Focus,
-    pub should_quit: bool,
     pub experiments: Vec<Experiment>,
     pub selected_experiment: Option<usize>,
     pub runs: Vec<Run>,
@@ -211,16 +206,13 @@ impl AppState {
         let total_runs = db.count_all_runs()?;
         let recent_runs = db.recent_runs(5)?;
         let total_experiments = db.count_leaf_experiments()?;
-        let hierarchy = db.list_hierarchy()?;
         let config = config::load_config(&store_root);
         Ok(Self {
             db,
             store_root,
-            hierarchy,
             config,
             current_view: View::Explorer,
             focus: Focus::Tree,
-            should_quit: false,
             experiments,
             selected_experiment: None,
             runs: Vec::new(),
@@ -289,15 +281,6 @@ impl AppState {
             if let Some(exp) = self.experiments.get(idx) {
                 self.runs = self.db.list_runs(&exp.id)?;
             }
-        }
-        Ok(())
-    }
-
-    pub fn refresh_artifacts(&mut self) -> Result<()> {
-        if let Some(run) = self.selected_run.and_then(|i| self.runs.get(i)) {
-            self.artifacts = self.db.list_artifacts(&run.id)?;
-        } else {
-            self.artifacts.clear();
         }
         Ok(())
     }
@@ -830,7 +813,6 @@ impl AppState {
                 label,
                 layer: l,
                 x: x_pos,
-                y: l as f64,
             });
         }
 

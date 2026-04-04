@@ -7,7 +7,7 @@ use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Block;
 use ratatui::Frame;
-use tui_tree_widget::{Scrollbar, Tree, TreeItem, TreeState};
+use tui_tree_widget::{Tree, TreeItem, TreeState};
 
 use crate::app::{Action, AppState, Focus, View};
 use crate::event::AppEvent;
@@ -295,7 +295,6 @@ impl TreePanel {
         if let Ok(tree_widget) = Tree::new(&tree_items) {
             let tree_widget = tree_widget
                 .block(block)
-                .experimental_scrollbar(Some(Scrollbar::new(ratatui::widgets::ScrollbarOrientation::VerticalRight)))
                 .highlight_style(self.theme.selected)
                 .highlight_symbol(">> ")
                 .node_closed_symbol("")

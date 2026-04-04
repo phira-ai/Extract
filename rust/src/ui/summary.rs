@@ -1,6 +1,6 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Chart, Dataset, GraphType, Paragraph, Widget};

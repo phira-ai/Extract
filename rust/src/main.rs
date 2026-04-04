@@ -60,7 +60,7 @@ async fn main() -> color_eyre::Result<()> {
                 // Clear expired notifications
                 app.clear_expired_notification(app.config.notifications.timeout);
             }
-            AppEvent::Resize(_, _) => {
+            AppEvent::Resize((), ()) => {
                 // Terminal will re-render on next loop iteration
             }
             AppEvent::Key(_) => {}
@@ -72,10 +72,6 @@ async fn main() -> color_eyre::Result<()> {
             Action::Quit => break,
             Action::Navigate(view) => {
                 app.current_view = view;
-            }
-            Action::Refresh => {
-                let _ = app.refresh_experiments();
-                let _ = app.refresh_runs();
             }
             Action::None => {}
         }

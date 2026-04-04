@@ -267,14 +267,12 @@ impl AppLayout {
         let toast_area = Rect::new(x, y, width, height);
 
         let border_color = match notif.level {
-            NotifyLevel::Info => self.theme.accent,
             NotifyLevel::Success => self.theme.success,
             NotifyLevel::Warn => self.theme.warning,
             NotifyLevel::Error => self.theme.error,
         };
 
         let label = match notif.level {
-            NotifyLevel::Info => " info ",
             NotifyLevel::Success => " ok ",
             NotifyLevel::Warn => " warn ",
             NotifyLevel::Error => " error ",

@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 pub enum AppEvent {
     Key(KeyEvent),
     Tick,
-    Resize(u16, u16),
+    Resize((), ()),
 }
 
 pub struct EventHandler {
@@ -29,8 +29,8 @@ impl EventHandler {
                                 return;
                             }
                         }
-                        Ok(Event::Resize(w, h)) => {
-                            if tx.send(AppEvent::Resize(w, h)).is_err() {
+                        Ok(Event::Resize(_, _)) => {
+                            if tx.send(AppEvent::Resize((), ())).is_err() {
                                 return;
                             }
                         }

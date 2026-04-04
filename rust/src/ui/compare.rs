@@ -4,7 +4,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget};
+use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Widget};
 use ratatui::Frame;
 
 use crate::app::{format_json_value, Action, AppState, CompareData, Focus, View};
@@ -180,15 +180,6 @@ impl CompareView {
         // Render with scroll
         let paragraph = Paragraph::new(lines).scroll((scroll, 0));
         frame.render_widget(paragraph, inner);
-
-        // Scrollbar
-        let visible_height = inner.height as usize;
-        if total_lines > visible_height {
-            let mut scrollbar_state = ScrollbarState::new(total_lines.saturating_sub(visible_height))
-                .position(scroll as usize);
-            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
-            frame.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
-        }
 
         // Update total_lines
         if let Some(data) = &mut state.compare_data {

@@ -1,7 +1,7 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Clear, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
+use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
 use crate::app::{Action, AppState, NotifyLevel, TodoFilter, TodoScopePicker, View};
@@ -370,15 +370,6 @@ impl TodoView {
                 .map(|(i, todo)| self.render_todo_line(i, todo, state))
                 .collect();
             frame.render_widget(Paragraph::new(lines), inner);
-
-            // Scrollbar
-            let visible_height = inner.height as usize;
-            if state.todos.len() > visible_height {
-                let mut scrollbar_state = ScrollbarState::new(state.todos.len().saturating_sub(visible_height))
-                    .position(state.todo_cursor);
-                let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
-                frame.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
-            }
         }
 
         // Scope picker popup

@@ -7,10 +7,12 @@ use ratatui::Frame;
 
 use crate::ui::theme::Theme;
 
+#[allow(dead_code)]
 pub struct HeatmapView {
     theme: Theme,
 }
 
+#[allow(dead_code)]
 impl HeatmapView {
     pub fn new() -> Self {
         Self {

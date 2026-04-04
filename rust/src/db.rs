@@ -63,43 +63,7 @@ impl Db {
         }
     }
 
-    pub fn get_children(&self, parent_id: Option<&str>) -> Result<Vec<Experiment>> {
-        let row_mapper = |row: &rusqlite::Row| {
-            Ok(Experiment {
-                id: row.get(0)?,
-                path: row.get(1)?,
-                name: row.get(2)?,
-                parent_id: row.get(3)?,
-                created_at: row.get(4)?,
-                metadata: row.get(5)?,
-                status: row.get(6)?,
-                node_type: row.get(7)?,
-            })
-        };
-
-        let mut experiments = Vec::new();
-
-        if let Some(pid) = parent_id {
-            let mut stmt = self.conn.prepare(
-                "SELECT id, path, name, parent_id, created_at, metadata, status, node_type FROM experiments WHERE parent_id = ? ORDER BY created_at",
-            )?;
-            let rows = stmt.query_map(params![pid], row_mapper)?;
-            for row in rows {
-                experiments.push(row?);
-            }
-        } else {
-            let mut stmt = self.conn.prepare(
-                "SELECT id, path, name, parent_id, created_at, metadata, status, node_type FROM experiments WHERE parent_id IS NULL ORDER BY created_at",
-            )?;
-            let rows = stmt.query_map([], row_mapper)?;
-            for row in rows {
-                experiments.push(row?);
-            }
-        }
-
-        Ok(experiments)
-    }
-
+    #[allow(dead_code)]
     pub fn list_hierarchy(&self) -> Result<Vec<String>> {
         let mut stmt = self.conn.prepare(
             "SELECT level_name FROM hierarchy ORDER BY level_order",
@@ -328,32 +292,6 @@ impl Db {
 
     // Lineage
 
-    pub fn get_lineage(&self, entity_type: &str, entity_id: &str) -> Result<Vec<LineageEdge>> {
-        let mut stmt = self.conn.prepare(
-            "SELECT id, parent_type, parent_id, child_type, child_id, relation, metadata, created_at \
-             FROM lineage \
-             WHERE (parent_type = ? AND parent_id = ?) OR (child_type = ? AND child_id = ?) \
-             ORDER BY created_at",
-        )?;
-        let rows = stmt.query_map(params![entity_type, entity_id, entity_type, entity_id], |row| {
-            Ok(LineageEdge {
-                id: row.get(0)?,
-                parent_type: row.get(1)?,
-                parent_id: row.get(2)?,
-                child_type: row.get(3)?,
-                child_id: row.get(4)?,
-                relation: row.get(5)?,
-                metadata: row.get(6)?,
-                created_at: row.get(7)?,
-            })
-        })?;
-        let mut edges = Vec::new();
-        for row in rows {
-            edges.push(row?);
-        }
-        Ok(edges)
-    }
-
     pub fn list_all_lineage(&self) -> Result<Vec<LineageEdge>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, parent_type, parent_id, child_type, child_id, relation, metadata, created_at \
@@ -500,46 +438,6 @@ impl Db {
              GROUP BY sm.name ORDER BY sm.name",
         )?;
         let rows = stmt.query_map(params![experiment_id], |row| {
-            let variance: f64 = row.get(2)?;
-            Ok(MetricAggregate {
-                name: row.get(0)?,
-                mean: row.get(1)?,
-                std_dev: variance.max(0.0).sqrt(),
-                min: row.get(3)?,
-                max: row.get(4)?,
-                count: row.get(5)?,
-            })
-        })?;
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
-    }
-
-    pub fn aggregate_final_metrics_for_subtree(
-        &self,
-        path_prefix: &str,
-    ) -> Result<Vec<MetricAggregate>> {
-        let pattern = format!("{path_prefix}/%");
-        let mut stmt = self.conn.prepare(
-            "SELECT sm.name, \
-                    AVG(sm.value), \
-                    CASE WHEN COUNT(*) > 1 \
-                        THEN AVG(sm.value * sm.value) - AVG(sm.value) * AVG(sm.value) \
-                        ELSE 0.0 END, \
-                    MIN(sm.value), MAX(sm.value), COUNT(*) \
-             FROM scalar_metrics sm \
-             INNER JOIN ( \
-                 SELECT sm2.run_id, sm2.name, MAX(sm2.step) as max_step \
-                 FROM scalar_metrics sm2 \
-                 INNER JOIN runs r ON sm2.run_id = r.id \
-                 INNER JOIN experiments e ON r.experiment_id = e.id \
-                 WHERE e.path = ? OR e.path LIKE ? \
-                 GROUP BY sm2.run_id, sm2.name \
-             ) latest ON sm.run_id = latest.run_id \
-                     AND sm.name = latest.name \
-                     AND sm.step = latest.max_step \
-             GROUP BY sm.name ORDER BY sm.name",
-        )?;
-        let rows = stmt.query_map(params![path_prefix, pattern], |row| {
             let variance: f64 = row.get(2)?;
             Ok(MetricAggregate {
                 name: row.get(0)?,
@@ -862,18 +760,6 @@ mod tests {
         assert!((loss.mean - 0.45).abs() < 0.001);
         // std_dev for loss: values [0.3, 0.6], mean=0.45, std=0.15
         assert!((loss.std_dev - 0.15).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_aggregate_final_metrics_for_subtree() {
-        let db = test_db();
-        let agg = db.aggregate_final_metrics_for_subtree("a").unwrap();
-        assert_eq!(agg.len(), 2);
-        let loss = agg.iter().find(|m| m.name == "loss").unwrap();
-        assert!((loss.mean - 0.55).abs() < 0.001);
-        assert!((loss.min - 0.3).abs() < 0.001);
-        assert!((loss.max - 0.9).abs() < 0.001);
-        assert_eq!(loss.count, 4);
     }
 
     #[test]

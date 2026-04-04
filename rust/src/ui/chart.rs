@@ -7,10 +7,12 @@ use ratatui::Frame;
 use crate::model::ScalarMetric;
 use crate::ui::theme::Theme;
 
+#[allow(dead_code)]
 pub struct ChartView {
     theme: Theme,
 }
 
+#[allow(dead_code)]
 impl ChartView {
     pub fn new() -> Self {
         Self {
