@@ -734,14 +734,14 @@ impl Db {
         Ok(())
     }
 
-    /// Add a new global todo. Opens a writable connection.
-    pub fn add_todo(db_path: &Path, content: &str, priority: i64) -> Result<()> {
+    /// Add a new todo. Opens a writable connection.
+    pub fn add_todo(db_path: &Path, content: &str, priority: i64, scope_type: &str, scope_id: Option<&str>) -> Result<()> {
         let conn = Connection::open(db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
         let id = format!("{}", ulid::Ulid::new());
         conn.execute(
-            "INSERT INTO todos (id, scope_type, content, done, priority) VALUES (?, 'global', ?, 0, ?)",
-            params![id, content, priority],
+            "INSERT INTO todos (id, scope_type, scope_id, content, done, priority) VALUES (?, ?, ?, ?, 0, ?)",
+            params![id, scope_type, scope_id, content, priority],
         )?;
         Ok(())
     }

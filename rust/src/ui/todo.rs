@@ -20,6 +20,25 @@ impl TodoView {
         }
     }
 
+    /// Resolve the scope (type + id) for a new TODO based on the active filter.
+    fn resolve_scope(state: &AppState) -> (String, Option<String>) {
+        match state.todo_filter {
+            TodoFilter::All | TodoFilter::Global => ("global".to_string(), None),
+            TodoFilter::Experiment => {
+                let id = state.selected_experiment
+                    .and_then(|i| state.experiments.get(i))
+                    .map(|e| e.id.clone());
+                ("experiment".to_string(), id)
+            }
+            TodoFilter::Run => {
+                let id = state.selected_run
+                    .and_then(|i| state.runs.get(i))
+                    .map(|r| r.id.clone());
+                ("run".to_string(), id)
+            }
+        }
+    }
+
     pub fn handle_event(&mut self, event: &AppEvent, state: &mut AppState) -> Action {
         let AppEvent::Key(key) = event else {
             return Action::None;
@@ -32,9 +51,10 @@ impl TodoView {
                     let content = state.todo_input.take().unwrap_or_default();
                     if !content.trim().is_empty() {
                         let db_path = state.store_root.join("extract.db");
-                        match crate::db::Db::add_todo(&db_path, &content, 0) {
+                        let (scope_type, scope_id) = Self::resolve_scope(state);
+                        match crate::db::Db::add_todo(&db_path, &content, 0, &scope_type, scope_id.as_deref()) {
                             Ok(()) => {
-                                state.notify(NotifyLevel::Success, "TODO added");
+                                state.notify(NotifyLevel::Success, format!("TODO added ({scope_type})"));
                                 let _ = state.load_todo_data();
                             }
                             Err(e) => {
@@ -127,6 +147,22 @@ impl TodoView {
         }
 
         if keys::matches(key, keys::ADD) {
+            // For experiment/run scopes, require a selection
+            match state.todo_filter {
+                TodoFilter::Experiment => {
+                    if state.selected_experiment.is_none() {
+                        state.notify(NotifyLevel::Warn, "Select an experiment first");
+                        return Action::None;
+                    }
+                }
+                TodoFilter::Run => {
+                    if state.selected_run.is_none() || state.runs.is_empty() {
+                        state.notify(NotifyLevel::Warn, "Select a run first");
+                        return Action::None;
+                    }
+                }
+                _ => {}
+            }
             state.todo_input = Some(String::new());
             return Action::None;
         }
@@ -325,6 +361,24 @@ impl TodoView {
 
         // Centered input popup
         if let Some(ref input) = state.todo_input {
+            let scope_label = match state.todo_filter {
+                TodoFilter::All | TodoFilter::Global => " New TODO (global) ".to_string(),
+                TodoFilter::Experiment => {
+                    let name = state.selected_experiment
+                        .and_then(|i| state.experiments.get(i))
+                        .map(|e| e.name.as_str())
+                        .unwrap_or("?");
+                    format!(" New TODO (exp:{name}) ")
+                }
+                TodoFilter::Run => {
+                    let name = state.selected_run
+                        .and_then(|i| state.runs.get(i))
+                        .and_then(|r| r.name.as_deref())
+                        .unwrap_or("?");
+                    format!(" New TODO (run:{name}) ")
+                }
+            };
+
             let popup_width = 50u16.min(area.width.saturating_sub(4));
             let popup_height = 3u16;
             let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
@@ -334,7 +388,7 @@ impl TodoView {
             frame.render_widget(Clear, popup_area);
 
             let popup_block = Block::bordered()
-                .title(" New TODO ")
+                .title(scope_label)
                 .border_style(Style::default().fg(self.theme.accent));
             let popup_inner = popup_block.inner(popup_area);
             frame.render_widget(popup_block, popup_area);
