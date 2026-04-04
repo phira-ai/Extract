@@ -132,6 +132,24 @@ pub struct Notification {
     pub created_at: Instant,
 }
 
+#[derive(Debug, Clone)]
+pub struct LineageNode {
+    pub entity_type: String,
+    pub entity_id: String,
+    pub label: String,
+    pub layer: usize,
+    pub x: f64,
+    pub y: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TodoFilter {
+    All,
+    Global,
+    Experiment,
+    Run,
+}
+
 pub struct AppState {
     pub db: Db,
     pub store_root: PathBuf,
@@ -163,6 +181,16 @@ pub struct AppState {
     pub run_picker: Option<RunPickerState>,
     pub delete_confirm: Option<DeleteConfirmState>,
     pub notification: Option<Notification>,
+    // Phase 5: Registry, Lineage, TODOs
+    pub models: Vec<crate::model::Model>,
+    pub registry_cursor: usize,
+    pub lineage_edges: Vec<crate::model::LineageEdge>,
+    pub lineage_nodes: Vec<LineageNode>,
+    pub lineage_cursor: usize,
+    pub todos: Vec<crate::model::Todo>,
+    pub todo_cursor: usize,
+    pub todo_input: Option<String>,
+    pub todo_filter: TodoFilter,
 }
 
 impl AppState {
@@ -208,6 +236,15 @@ impl AppState {
             run_picker: None,
             delete_confirm: None,
             notification: None,
+            models: Vec::new(),
+            registry_cursor: 0,
+            lineage_edges: Vec::new(),
+            lineage_nodes: Vec::new(),
+            lineage_cursor: 0,
+            todos: Vec::new(),
+            todo_cursor: 0,
+            todo_input: None,
+            todo_filter: TodoFilter::All,
         })
     }
 
@@ -644,5 +681,141 @@ impl AppState {
         self.artifacts = self.db.list_artifacts(&run_id)?;
         self.load_first_table()?;
         Ok(())
+    }
+
+    pub fn load_registry_data(&mut self) -> Result<()> {
+        self.models = self.db.list_models()?;
+        self.registry_cursor = 0;
+        Ok(())
+    }
+
+    pub fn load_lineage_data(&mut self) -> Result<()> {
+        self.lineage_edges = self.db.list_all_lineage()?;
+        self.build_lineage_graph();
+        self.lineage_cursor = 0;
+        Ok(())
+    }
+
+    pub fn load_todo_data(&mut self) -> Result<()> {
+        let (scope_type, scope_id): (Option<&str>, Option<&str>) = match self.todo_filter {
+            TodoFilter::All => (None, None),
+            TodoFilter::Global => (Some("global"), None),
+            TodoFilter::Experiment => (Some("experiment"), None),
+            TodoFilter::Run => (Some("run"), None),
+        };
+        self.todos = self.db.list_todos(scope_type, scope_id)?;
+        if !self.todos.is_empty() && self.todo_cursor >= self.todos.len() {
+            self.todo_cursor = self.todos.len() - 1;
+        }
+        Ok(())
+    }
+
+    fn build_lineage_graph(&mut self) {
+        use std::collections::{HashMap, HashSet, VecDeque};
+
+        let mut node_set: Vec<(String, String)> = Vec::new();
+        let mut seen: HashSet<(String, String)> = HashSet::new();
+        for edge in &self.lineage_edges {
+            let parent = (edge.parent_type.clone(), edge.parent_id.clone());
+            let child = (edge.child_type.clone(), edge.child_id.clone());
+            if seen.insert(parent.clone()) {
+                node_set.push(parent);
+            }
+            if seen.insert(child.clone()) {
+                node_set.push(child);
+            }
+        }
+
+        if node_set.is_empty() {
+            self.lineage_nodes.clear();
+            return;
+        }
+
+        let node_idx: HashMap<(String, String), usize> = node_set
+            .iter()
+            .enumerate()
+            .map(|(i, n)| (n.clone(), i))
+            .collect();
+        let n = node_set.len();
+        let mut children_of: Vec<Vec<usize>> = vec![vec![]; n];
+        let mut in_degree: Vec<usize> = vec![0; n];
+
+        for edge in &self.lineage_edges {
+            let pi = node_idx[&(edge.parent_type.clone(), edge.parent_id.clone())];
+            let ci = node_idx[&(edge.child_type.clone(), edge.child_id.clone())];
+            children_of[pi].push(ci);
+            in_degree[ci] += 1;
+        }
+
+        let mut queue: VecDeque<usize> = VecDeque::new();
+        let mut layer: Vec<usize> = vec![0; n];
+        for i in 0..n {
+            if in_degree[i] == 0 {
+                queue.push_back(i);
+            }
+        }
+        while let Some(u) = queue.pop_front() {
+            for &v in &children_of[u] {
+                layer[v] = layer[v].max(layer[u] + 1);
+                in_degree[v] -= 1;
+                if in_degree[v] == 0 {
+                    queue.push_back(v);
+                }
+            }
+        }
+
+        let max_layer = *layer.iter().max().unwrap_or(&0);
+        let mut layer_counts: Vec<usize> = vec![0; max_layer + 1];
+
+        let mut nodes: Vec<LineageNode> = Vec::new();
+        for (i, (etype, eid)) in node_set.iter().enumerate() {
+            let label = match etype.as_str() {
+                "model" => {
+                    self.db.get_model(eid).ok().flatten()
+                        .map(|m| format!("{} v{}", m.name, m.version))
+                        .unwrap_or_else(|| format!("model:{}", &eid[eid.len().saturating_sub(8)..]))
+                }
+                "run" => {
+                    self.db.get_run(eid).ok().flatten()
+                        .and_then(|r| r.name.or_else(|| {
+                            self.db.get_experiment(&r.experiment_id).ok().flatten()
+                                .map(|e| e.name)
+                        }))
+                        .unwrap_or_else(|| format!("run:{}", &eid[eid.len().saturating_sub(8)..]))
+                }
+                "experiment" => {
+                    self.db.get_experiment(eid).ok().flatten()
+                        .map(|e| e.name)
+                        .unwrap_or_else(|| format!("exp:{}", &eid[eid.len().saturating_sub(8)..]))
+                }
+                _ => format!("{}:{}", etype, &eid[eid.len().saturating_sub(8)..]),
+            };
+
+            let l = layer[i];
+            let x_pos = layer_counts[l] as f64;
+            layer_counts[l] += 1;
+
+            nodes.push(LineageNode {
+                entity_type: etype.clone(),
+                entity_id: eid.clone(),
+                label,
+                layer: l,
+                x: x_pos,
+                y: l as f64,
+            });
+        }
+
+        for l in 0..=max_layer {
+            let count = layer_counts[l];
+            if count == 0 { continue; }
+            let offset = -(count as f64 - 1.0) / 2.0;
+            for node in &mut nodes {
+                if node.layer == l {
+                    node.x += offset;
+                }
+            }
+        }
+
+        self.lineage_nodes = nodes;
     }
 }
