@@ -294,9 +294,9 @@ impl TreePanel {
                 .block(block)
                 .highlight_style(self.theme.selected)
                 .highlight_symbol(">> ")
-                .node_closed_symbol("\u{25b6} ")
-                .node_open_symbol("\u{25bc} ")
-                .node_no_children_symbol("  ");
+                .node_closed_symbol("\u{251c}\u{2500} ")
+                .node_open_symbol("\u{251c}\u{2500} ")
+                .node_no_children_symbol("\u{2514}\u{2500} ");
 
             frame.render_stateful_widget(tree_widget, area, &mut self.tree_state);
         }
@@ -354,11 +354,11 @@ fn build_tree_items<'a>(
 /// Map node_type to a Nerd Font icon prefix. Leaf nodes get the variant/run icon.
 fn node_icon(node_type: Option<&str>, is_leaf: bool) -> &'static str {
     if is_leaf {
-        return "\u{f0668} "; // 󰙨 code-branch — leaf/variant/run level
+        return "\u{f0668} "; // 󰙨 code-branch
     }
     match node_type {
-        Some("benchmark") | Some("dataset") => "\u{f0130} ", //  target
-        Some("method") | Some("model") => "\u{f0a95} ",      // 󰊕 flask
-        _ => "\u{f0130} ",                                    //  default branch
+        Some("benchmark") | Some("dataset") => "\u{e706} ", //  benchmark
+        Some("method") | Some("model") => "\u{f0295} ",     // 󰊕 method/flask
+        _ => "\u{e706} ",                                    //  default branch
     }
 }
