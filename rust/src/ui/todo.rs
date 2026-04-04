@@ -21,20 +21,21 @@ impl TodoView {
     }
 
     /// Resolve the scope (type + id) for a new TODO based on the active filter.
+    /// Falls back to global if no experiment/run is selected.
     fn resolve_scope(state: &AppState) -> (String, Option<String>) {
         match state.todo_filter {
             TodoFilter::All | TodoFilter::Global => ("global".to_string(), None),
             TodoFilter::Experiment => {
-                let id = state.selected_experiment
-                    .and_then(|i| state.experiments.get(i))
-                    .map(|e| e.id.clone());
-                ("experiment".to_string(), id)
+                match state.selected_experiment.and_then(|i| state.experiments.get(i)) {
+                    Some(exp) => ("experiment".to_string(), Some(exp.id.clone())),
+                    None => ("global".to_string(), None),
+                }
             }
             TodoFilter::Run => {
-                let id = state.selected_run
-                    .and_then(|i| state.runs.get(i))
-                    .map(|r| r.id.clone());
-                ("run".to_string(), id)
+                match state.selected_run.and_then(|i| state.runs.get(i)) {
+                    Some(run) => ("run".to_string(), Some(run.id.clone())),
+                    None => ("global".to_string(), None),
+                }
             }
         }
     }
@@ -147,22 +148,6 @@ impl TodoView {
         }
 
         if keys::matches(key, keys::ADD) {
-            // For experiment/run scopes, require a selection
-            match state.todo_filter {
-                TodoFilter::Experiment => {
-                    if state.selected_experiment.is_none() {
-                        state.notify(NotifyLevel::Warn, "Select an experiment first");
-                        return Action::None;
-                    }
-                }
-                TodoFilter::Run => {
-                    if state.selected_run.is_none() || state.runs.is_empty() {
-                        state.notify(NotifyLevel::Warn, "Select a run first");
-                        return Action::None;
-                    }
-                }
-                _ => {}
-            }
             state.todo_input = Some(String::new());
             return Action::None;
         }
@@ -361,22 +346,23 @@ impl TodoView {
 
         // Centered input popup
         if let Some(ref input) = state.todo_input {
-            let scope_label = match state.todo_filter {
-                TodoFilter::All | TodoFilter::Global => " New TODO (global) ".to_string(),
-                TodoFilter::Experiment => {
+            let (scope_type, _) = Self::resolve_scope(state);
+            let scope_label = match scope_type.as_str() {
+                "experiment" => {
                     let name = state.selected_experiment
                         .and_then(|i| state.experiments.get(i))
                         .map(|e| e.name.as_str())
                         .unwrap_or("?");
                     format!(" New TODO (exp:{name}) ")
                 }
-                TodoFilter::Run => {
+                "run" => {
                     let name = state.selected_run
                         .and_then(|i| state.runs.get(i))
                         .and_then(|r| r.name.as_deref())
                         .unwrap_or("?");
                     format!(" New TODO (run:{name}) ")
                 }
+                _ => " New TODO (global) ".to_string(),
             };
 
             let popup_width = 50u16.min(area.width.saturating_sub(4));
