@@ -184,12 +184,8 @@ impl TreePanel {
             return Action::Quit;
         }
 
-        if keys::matches(key, keys::TAB) {
-            if !state.selected_runs_for_compare.is_empty() {
-                state.focus = Focus::Selection;
-            } else {
-                state.focus = Focus::Detail;
-            }
+        if keys::matches(key, keys::TAB) || keys::matches_shift(key, keys::TAB) {
+            state.focus = Focus::Detail;
             return Action::None;
         }
 

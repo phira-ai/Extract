@@ -41,7 +41,17 @@ impl DetailPanel {
     }
 
     fn handle_key(&mut self, key: &KeyEvent, state: &mut AppState) -> Action {
-        if keys::matches(key, keys::TAB) || keys::matches_shift(key, keys::TAB) {
+        // Tab switches between Summary/Info tabs
+        if keys::matches(key, keys::TAB) {
+            self.active_tab = match self.active_tab {
+                DetailTab::Summary => DetailTab::Info,
+                DetailTab::Info => DetailTab::Summary,
+            };
+            return Action::None;
+        }
+
+        // Shift-Tab cycles focus: Detail → Selection (if runs marked) → Tree
+        if keys::matches_shift(key, keys::TAB) {
             if !state.selected_runs_for_compare.is_empty() {
                 state.focus = Focus::Selection;
             } else {

@@ -31,11 +31,7 @@ impl StatusBar {
                     b.push(("c", "compare"));
                     b.push(("d", "diff"));
                 }
-                if n_marked > 0 {
-                    b.push(("Tab", "selection"));
-                } else {
-                    b.push(("Tab", "detail"));
-                }
+                b.push(("Tab", "detail"));
                 b.push(("q", "quit"));
                 b
             }
@@ -51,7 +47,10 @@ impl StatusBar {
                     b.push(("c", "compare"));
                     b.push(("d", "diff"));
                 }
-                b.push(("Tab", "next"));
+                b.push(("Tab", "switch tab"));
+                if n_marked > 0 {
+                    b.push(("S-Tab", "selection"));
+                }
                 b.push(("q", "quit"));
                 b
             }

@@ -553,11 +553,13 @@ impl Db {
         let conn = Connection::open(db_path)?;
         conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
 
-        conn.execute("DELETE FROM scalar_metrics WHERE run_id = ?", params![run_id])?;
-        conn.execute("DELETE FROM run_params WHERE run_id = ?", params![run_id])?;
-        conn.execute("DELETE FROM artifacts WHERE run_id = ?", params![run_id])?;
-        conn.execute("DELETE FROM lineage WHERE (parent_type = 'run' AND parent_id = ?) OR (child_type = 'run' AND child_id = ?)", params![run_id, run_id])?;
-        conn.execute("DELETE FROM runs WHERE id = ?", params![run_id])?;
+        let tx = conn.unchecked_transaction()?;
+        tx.execute("DELETE FROM scalar_metrics WHERE run_id = ?", params![run_id])?;
+        tx.execute("DELETE FROM run_params WHERE run_id = ?", params![run_id])?;
+        tx.execute("DELETE FROM artifacts WHERE run_id = ?", params![run_id])?;
+        tx.execute("DELETE FROM lineage WHERE (parent_type = 'run' AND parent_id = ?) OR (child_type = 'run' AND child_id = ?)", params![run_id, run_id])?;
+        tx.execute("DELETE FROM runs WHERE id = ?", params![run_id])?;
+        tx.commit()?;
 
         Ok(())
     }
