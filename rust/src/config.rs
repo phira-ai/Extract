@@ -76,12 +76,46 @@ pub struct TablesConfig {
     pub highlight: Vec<HighlightRule>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CompareSection {
+    Pivot,
+    Config,
+    Tables,
+    Curves,
+}
+
+fn default_compare_sections() -> Vec<CompareSection> {
+    vec![
+        CompareSection::Pivot,
+        CompareSection::Config,
+        CompareSection::Tables,
+        CompareSection::Curves,
+    ]
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CompareConfig {
+    #[serde(default = "default_compare_sections")]
+    pub sections: Vec<CompareSection>,
+}
+
+impl Default for CompareConfig {
+    fn default() -> Self {
+        Self {
+            sections: default_compare_sections(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub summary: SummaryConfig,
     #[serde(default)]
     pub tables: TablesConfig,
+    #[serde(default)]
+    pub compare: CompareConfig,
 }
 
 /// Parse a color name string into a ratatui Color.
@@ -158,6 +192,30 @@ color = "white"
         assert_eq!(parse_color("red"), Color::Red);
         assert_eq!(parse_color("orange"), Color::Rgb(255, 165, 0));
         assert_eq!(parse_color("none"), Color::Reset);
+
+        // Default compare config
+        assert_eq!(
+            config.compare.sections,
+            vec![
+                CompareSection::Pivot,
+                CompareSection::Config,
+                CompareSection::Tables,
+                CompareSection::Curves,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_compare_config() {
+        let content = r#"
+[compare]
+sections = ["pivot", "curves"]
+"#;
+        let config: Config = toml::from_str(content).expect("Failed to parse config");
+        assert_eq!(
+            config.compare.sections,
+            vec![CompareSection::Pivot, CompareSection::Curves]
+        );
     }
 }
 

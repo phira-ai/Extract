@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use color_eyre::Result;
+use serde_json::Value as JsonValue;
 
 use crate::artifact::TableData;
 use crate::config::{self, Config};
@@ -59,6 +60,51 @@ pub enum SelectionSummary {
     },
 }
 
+/// Per-run data loaded for comparison.
+pub struct CompareRunData {
+    pub run: Run,
+    pub latest_metrics: Vec<ScalarMetric>,
+    pub run_params: Vec<RunParam>,
+    pub config: Option<JsonValue>,
+    pub metric_histories: Vec<(String, Vec<ScalarMetric>)>,
+    pub tables: Vec<(String, TableData, Option<(String, String)>)>,
+}
+
+pub fn format_json_value(v: &JsonValue) -> String {
+    match v {
+        JsonValue::Null => "null".to_string(),
+        JsonValue::Bool(b) => b.to_string(),
+        JsonValue::Number(n) => n.to_string(),
+        JsonValue::String(s) => s.clone(),
+        JsonValue::Array(a) => format!("[{}]", a.len()),
+        JsonValue::Object(o) => format!("{{{}}}", o.len()),
+    }
+}
+
+impl CompareRunData {
+    pub fn label(&self) -> String {
+        self.run.name.clone().unwrap_or_else(|| {
+            let id = &self.run.id;
+            if id.len() > 8 {
+                id[id.len() - 8..].to_string()
+            } else {
+                id.clone()
+            }
+        })
+    }
+}
+
+/// All data needed for Compare/Diff views.
+pub struct CompareData {
+    pub runs: Vec<CompareRunData>,
+    pub metric_names: Vec<String>,
+    pub param_names: Vec<String>,
+    pub config_keys: Vec<String>,
+    pub table_names: Vec<String>,
+    pub scroll: u16,
+    pub total_lines: usize,
+}
+
 pub struct AppState {
     pub db: Db,
     pub store_root: PathBuf,
@@ -83,6 +129,7 @@ pub struct AppState {
     pub cached_table_artifact_id: Option<String>,
     pub cached_table_axes: Option<(String, String)>,
     pub cached_table_title: Option<String>,
+    pub compare_data: Option<CompareData>,
 }
 
 impl AppState {
@@ -121,6 +168,7 @@ impl AppState {
             cached_table_artifact_id: None,
             cached_table_axes: None,
             cached_table_title: None,
+            compare_data: None,
         })
     }
 
@@ -242,6 +290,135 @@ impl AppState {
                 self.cached_table_artifact_id = None;
             }
         }
+
+        Ok(())
+    }
+
+    pub fn load_compare_data(&mut self) -> Result<()> {
+        let ids = self.selected_runs_for_compare.clone();
+        let mut runs_data = Vec::new();
+        let mut seen_run_ids = Vec::new();
+
+        for id in &ids {
+            // Try as run ID first, then as experiment ID
+            let run = if let Some(run) = self.db.get_run(id)? {
+                run
+            } else {
+                let runs = self.db.list_runs(id)?;
+                match runs
+                    .iter()
+                    .rev()
+                    .find(|r| r.status == "completed")
+                    .or(runs.last())
+                {
+                    Some(r) => r.clone(),
+                    None => continue,
+                }
+            };
+
+            if seen_run_ids.contains(&run.id) {
+                continue;
+            }
+            seen_run_ids.push(run.id.clone());
+
+            let latest_metrics = self.db.get_latest_metrics(&run.id)?;
+            let run_params = self.db.list_run_params(&run.id)?;
+            let config: Option<JsonValue> =
+                run.config.as_ref().and_then(|c| serde_json::from_str(c).ok());
+
+            // Load metric histories
+            let all = self.db.get_scalar_metrics(&run.id, None)?;
+            let mut names: Vec<String> = Vec::new();
+            for m in &all {
+                if !names.contains(&m.name) {
+                    names.push(m.name.clone());
+                }
+            }
+            let metric_histories: Vec<(String, Vec<ScalarMetric>)> = names
+                .into_iter()
+                .map(|name| {
+                    let history = self
+                        .db
+                        .get_scalar_metrics(&run.id, Some(&name))
+                        .unwrap_or_default();
+                    (name, history)
+                })
+                .collect();
+
+            // Load table artifacts
+            let artifacts = self.db.list_artifacts(&run.id)?;
+            let mut tables = Vec::new();
+            for artifact in artifacts.iter().filter(|a| a.kind == "matrix") {
+                let path = self.store_root.join(&artifact.rel_path);
+                if let Ok(table) = crate::artifact::load_table(&path) {
+                    let axes = artifact.metadata.as_ref().and_then(|m| {
+                        let parsed: serde_json::Value = serde_json::from_str(m).ok()?;
+                        let axes_obj = parsed.get("axes")?;
+                        let rows = axes_obj.get("rows")?.as_str()?.to_string();
+                        let cols = axes_obj.get("cols")?.as_str()?.to_string();
+                        Some((rows, cols))
+                    });
+                    tables.push((artifact.name.clone(), table, axes));
+                }
+            }
+
+            runs_data.push(CompareRunData {
+                run,
+                latest_metrics,
+                run_params,
+                config,
+                metric_histories,
+                tables,
+            });
+        }
+
+        // Compute union of names
+        let mut metric_names = Vec::new();
+        let mut param_names = Vec::new();
+        let mut config_keys = Vec::new();
+        let mut table_names = Vec::new();
+
+        for rd in &runs_data {
+            for m in &rd.latest_metrics {
+                if !metric_names.contains(&m.name) {
+                    metric_names.push(m.name.clone());
+                }
+            }
+            for p in &rd.run_params {
+                if !param_names.contains(&p.name) {
+                    param_names.push(p.name.clone());
+                }
+            }
+            if let Some(config) = &rd.config {
+                if let Some(obj) = config.as_object() {
+                    for key in obj.keys() {
+                        if !config_keys.contains(key) {
+                            config_keys.push(key.clone());
+                        }
+                    }
+                }
+            }
+            for (name, _, _) in &rd.tables {
+                if !table_names.contains(name) {
+                    table_names.push(name.clone());
+                }
+            }
+        }
+
+        metric_names.sort();
+        param_names.sort();
+        config_keys.sort();
+        table_names.sort();
+
+        self.compare_data = Some(CompareData {
+            runs: runs_data,
+            metric_names,
+            param_names,
+            config_keys,
+            table_names,
+            scroll: 0,
+            total_lines: 0,
+        });
 
         Ok(())
     }

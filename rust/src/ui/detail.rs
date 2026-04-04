@@ -111,6 +111,26 @@ impl DetailPanel {
             return Action::None;
         }
 
+        if keys::matches(key, keys::COMPARE) {
+            if state.selected_runs_for_compare.len() >= 2 {
+                if state.load_compare_data().is_ok() {
+                    state.current_view = View::Compare;
+                    return Action::Navigate(View::Compare);
+                }
+            }
+            return Action::None;
+        }
+
+        if keys::matches(key, keys::DIFF) {
+            if state.selected_runs_for_compare.len() == 2 {
+                if state.load_compare_data().is_ok() {
+                    state.current_view = View::Diff;
+                    return Action::Navigate(View::Diff);
+                }
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::QUIT) {
             return Action::Quit;
         }

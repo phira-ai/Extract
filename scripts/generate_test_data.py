@@ -53,6 +53,24 @@ def main():
         loss_values = [1.0 / (s + 1) for s in steps_list]
         run.log_timeseries("loss_curve", steps_list, loss_values)
 
+    # Second run for lambda_1.0 with different hyperparams (for comparison testing)
+    with store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"}).run(
+        config={"lr": 0.0005, "lambda": 1.0}
+    ) as run:
+        run.log(step=0, arch="resnet18", fisher_label="diagonal")
+        for step in range(50):
+            run.log(step=step, loss=0.95 / (step + 1), accuracy=0.5 + 0.38 * (step / 49))
+
+        acc_matrix = np.array([
+            [0.94, 0.00, 0.00, 0.00, 0.00],
+            [0.87, 0.91, 0.00, 0.00, 0.00],
+            [0.80, 0.84, 0.92, 0.00, 0.00],
+            [0.74, 0.78, 0.85, 0.89, 0.00],
+            [0.68, 0.73, 0.80, 0.84, 0.88],
+        ])
+        run.log_table("accuracy_matrix", acc_matrix, step=49,
+                       axes={"rows": "evaluated_on", "cols": "trained_up_to"})
+
     with store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "online_ewc"}).run(
         config={"lr": 0.001, "lambda": 1.0, "online": True}
     ) as run:

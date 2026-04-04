@@ -1,6 +1,8 @@
 pub mod chart;
+pub mod compare;
 pub mod dashboard;
 pub mod detail;
+pub mod diff;
 pub mod heatmap;
 pub mod layout;
 pub mod statusbar;

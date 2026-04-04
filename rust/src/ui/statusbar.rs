@@ -19,20 +19,43 @@ impl StatusBar {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
+        let n_marked = state.selected_runs_for_compare.len();
         let bindings = match (state.current_view, state.focus) {
-            (View::Explorer, Focus::Tree) => vec![
-                ("q", "quit"),
-                ("j/k", "navigate"),
-                ("Enter", "select"),
-                ("Space", "mark compare"),
-                ("Tab", "focus detail"),
-                ("?", "help"),
-            ],
-            (View::Detail, _) | (View::Explorer, Focus::Detail) => vec![
+            (View::Explorer, Focus::Tree) => {
+                let mut b = vec![
+                    ("q", "quit"),
+                    ("j/k", "navigate"),
+                    ("Enter", "select"),
+                    ("Space", "mark"),
+                ];
+                if n_marked >= 2 {
+                    b.push(("c", "compare"));
+                }
+                if n_marked == 2 {
+                    b.push(("d", "diff"));
+                }
+                b.push(("Tab", "focus detail"));
+                b
+            }
+            (View::Detail, _) | (View::Explorer, Focus::Detail) => {
+                let mut b = vec![
+                    ("Esc", "back"),
+                    ("Tab", "switch tab"),
+                    ("j/k", "navigate"),
+                    ("Space", "mark"),
+                ];
+                if n_marked >= 2 {
+                    b.push(("c", "compare"));
+                }
+                if n_marked == 2 {
+                    b.push(("d", "diff"));
+                }
+                b.push(("q", "quit"));
+                b
+            }
+            (View::Compare, _) | (View::Diff, _) => vec![
                 ("Esc", "back"),
-                ("Tab", "switch tab"),
-                ("j/k", "navigate"),
-                ("Space", "mark compare"),
+                ("j/k", "scroll"),
                 ("q", "quit"),
             ],
             _ => vec![("q", "quit"), ("Esc", "back")],
