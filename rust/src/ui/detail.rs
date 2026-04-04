@@ -122,6 +122,7 @@ impl DetailPanel {
                 } else {
                     state.selected_runs_for_compare.push(run_id);
                 }
+                state.refresh_marked_experiments();
             }
             return Action::None;
         }

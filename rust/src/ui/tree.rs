@@ -236,7 +236,7 @@ impl TreePanel {
             .border_style(border_style);
 
         // Build tree items from experiments
-        let tree_items = build_tree_items(&state.experiments);
+        let tree_items = build_tree_items(&state.experiments, &state.marked_experiment_ids);
 
         if let Ok(tree_widget) = Tree::new(&tree_items) {
             let tree_widget = tree_widget
@@ -253,7 +253,10 @@ impl TreePanel {
 }
 
 /// Build a hierarchical tree of TreeItems from the flat list of experiments.
-fn build_tree_items<'a>(experiments: &[Experiment]) -> Vec<TreeItem<'a, String>> {
+fn build_tree_items<'a>(
+    experiments: &[Experiment],
+    marked_experiment_ids: &std::collections::HashSet<String>,
+) -> Vec<TreeItem<'a, String>> {
     // Group experiments by parent_id
     let mut children_map: HashMap<Option<String>, Vec<&Experiment>> = HashMap::new();
     for exp in experiments {
@@ -263,11 +266,10 @@ fn build_tree_items<'a>(experiments: &[Experiment]) -> Vec<TreeItem<'a, String>>
             .push(exp);
     }
 
-    // Count runs per experiment (we show this in the label)
-    // Since we don't have run counts in experiments, show just the name
     fn build_children<'a>(
         parent_id: Option<&str>,
         children_map: &HashMap<Option<String>, Vec<&Experiment>>,
+        marked: &std::collections::HashSet<String>,
     ) -> Vec<TreeItem<'a, String>> {
         let key = parent_id.map(String::from);
         let Some(children) = children_map.get(&key) else {
@@ -277,11 +279,12 @@ fn build_tree_items<'a>(experiments: &[Experiment]) -> Vec<TreeItem<'a, String>>
         children
             .iter()
             .filter_map(|exp| {
-                let sub_children = build_children(Some(&exp.id), children_map);
+                let sub_children = build_children(Some(&exp.id), children_map, marked);
+                let marker = if marked.contains(&exp.id) { "\u{25cf} " } else { "" };
                 let label = if sub_children.is_empty() {
-                    exp.name.clone()
+                    format!("{marker}{}", exp.name)
                 } else {
-                    format!("{} [{}]", exp.name, sub_children.len())
+                    format!("{marker}{} [{}]", exp.name, sub_children.len())
                 };
 
                 if sub_children.is_empty() {
@@ -293,5 +296,5 @@ fn build_tree_items<'a>(experiments: &[Experiment]) -> Vec<TreeItem<'a, String>>
             .collect()
     }
 
-    build_children(None, &children_map)
+    build_children(None, &children_map, marked_experiment_ids)
 }
