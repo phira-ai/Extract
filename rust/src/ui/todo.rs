@@ -235,7 +235,7 @@ impl TodoView {
 
         let block = Block::bordered()
             .title(Line::from(
-                std::iter::once(Span::raw(" T "))
+                std::iter::once(Span::raw(" TODO "))
                     .chain(tab_spans)
                     .chain(std::iter::once(Span::raw(" ")))
                     .collect::<Vec<_>>(),
