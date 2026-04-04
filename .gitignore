@@ -13,3 +13,4 @@ rust/target/
 
 # Extract store
 .extract/
+.worktrees/
