@@ -567,6 +567,38 @@ impl AppState {
         }
     }
 
+    pub fn delete_run(&mut self, run_id: &str) -> Result<()> {
+        let db_path = self.store_root.join("extract.db");
+        crate::db::Db::delete_run(&db_path, run_id)?;
+
+        // Remove artifact files
+        let artifacts_dir = self.store_root.join("artifacts").join(run_id);
+        if artifacts_dir.exists() {
+            let _ = std::fs::remove_dir_all(&artifacts_dir);
+        }
+
+        // Remove from compare selection
+        self.selected_runs_for_compare.retain(|id| id != run_id);
+        if self.compare_baseline >= self.selected_runs_for_compare.len()
+            && !self.selected_runs_for_compare.is_empty()
+        {
+            self.compare_baseline = 0;
+        }
+        self.refresh_marked_experiments();
+
+        // Refresh runs list
+        let _ = self.refresh_runs();
+        if self.runs.is_empty() {
+            self.selected_run = None;
+        } else if let Some(idx) = self.selected_run {
+            if idx >= self.runs.len() {
+                self.selected_run = Some(self.runs.len() - 1);
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn load_run_preview(&mut self, run_idx: usize) -> Result<()> {
         self.summary_scroll = 0;
         let Some(run) = self.runs.get(run_idx) else {

@@ -547,6 +547,21 @@ impl Db {
         Ok(count)
     }
 
+    /// Delete a run and all its associated data.
+    /// Opens a separate writable connection since the main one is read-only.
+    pub fn delete_run(db_path: &std::path::Path, run_id: &str) -> Result<()> {
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+
+        conn.execute("DELETE FROM scalar_metrics WHERE run_id = ?", params![run_id])?;
+        conn.execute("DELETE FROM run_params WHERE run_id = ?", params![run_id])?;
+        conn.execute("DELETE FROM artifacts WHERE run_id = ?", params![run_id])?;
+        conn.execute("DELETE FROM lineage WHERE (parent_type = 'run' AND parent_id = ?) OR (child_type = 'run' AND child_id = ?)", params![run_id, run_id])?;
+        conn.execute("DELETE FROM runs WHERE id = ?", params![run_id])?;
+
+        Ok(())
+    }
+
     // Todos
 
     pub fn list_todos(&self, scope_type: Option<&str>, scope_id: Option<&str>) -> Result<Vec<Todo>> {

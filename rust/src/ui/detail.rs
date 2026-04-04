@@ -147,6 +147,21 @@ impl DetailPanel {
             return Action::None;
         }
 
+        if keys::matches(key, keys::DELETE) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                let run_id = run.id.clone();
+                let label = run.name.clone().unwrap_or_else(|| {
+                    if run_id.len() > 8 {
+                        run_id[run_id.len() - 8..].to_string()
+                    } else {
+                        run_id.clone()
+                    }
+                });
+                state.delete_confirm = Some(crate::app::DeleteConfirmState { run_id, label });
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::QUIT) {
             return Action::Quit;
         }

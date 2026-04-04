@@ -48,7 +48,8 @@ impl AppLayout {
             if state.delete_confirm.is_some() {
                 if let Some(confirmed) = self.popup.handle_delete_confirm_key(key) {
                     if confirmed {
-                        // Delete will be wired in Task 10
+                        let run_id = state.delete_confirm.as_ref().unwrap().run_id.clone();
+                        let _ = state.delete_run(&run_id);
                     }
                     state.delete_confirm = None;
                 }
