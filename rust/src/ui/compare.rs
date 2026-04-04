@@ -8,9 +8,10 @@ use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Widget
 use ratatui::Frame;
 
 use crate::app::{format_json_value, Action, AppState, CompareData, Focus, View};
-use crate::config::CompareSection;
+use crate::config::{parse_color, CompareSection};
 use crate::event::AppEvent;
 use crate::keys;
+use crate::ui::summary::match_highlight_rule;
 use crate::ui::theme::Theme;
 
 const RUN_COLORS: [Color; 6] = [
@@ -106,9 +107,21 @@ impl CompareView {
                 match section {
                     CompareSection::Pivot => self.build_pivot_table(&mut lines, data),
                     CompareSection::Config => self.build_config_section(&mut lines, data),
-                    CompareSection::Tables => self.build_tables_section(&mut lines, data),
+                    CompareSection::Tables => self.build_tables_section(
+                        &mut lines,
+                        data,
+                        &state.config.tables,
+                        inner.width,
+                    ),
                     CompareSection::Curves => {
-                        self.build_overlay_charts(&mut lines, data, inner.width.saturating_sub(4))
+                        let chart_width = ((inner.width as f32)
+                            * (state.config.summary.curve_width.min(100) as f32 / 100.0))
+                            as u16;
+                        self.build_overlay_charts(
+                            &mut lines,
+                            data,
+                            chart_width.max(20),
+                        )
                     }
                 }
             }
@@ -306,7 +319,13 @@ impl CompareView {
         }
     }
 
-    fn build_tables_section(&self, lines: &mut Vec<Line<'static>>, data: &CompareData) {
+    fn build_tables_section(
+        &self,
+        lines: &mut Vec<Line<'static>>,
+        data: &CompareData,
+        tables_config: &crate::config::TablesConfig,
+        _available_width: u16,
+    ) {
         if data.table_names.is_empty() {
             return;
         }
@@ -337,8 +356,17 @@ impl CompareView {
                             Style::default().fg(self.theme.accent_dim),
                         )];
                         for c in 0..table.cols {
-                            let display = table.values[r][c].display(cell_width);
-                            spans.push(Span::raw(display));
+                            let cell = &table.values[r][c];
+                            let color_name = match_highlight_rule(cell, &tables_config.highlight);
+                            if color_name == "transparent" {
+                                spans.push(Span::raw(" ".repeat(cell_width)));
+                            } else {
+                                let display = cell.display(cell_width);
+                                spans.push(Span::styled(
+                                    display,
+                                    Style::default().fg(parse_color(color_name)),
+                                ));
+                            }
                         }
                         lines.push(Line::from(spans));
                     }

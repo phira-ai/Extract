@@ -497,7 +497,7 @@ fn catmull_rom_interpolate(points: &[(f64, f64)], num_points: usize) -> Vec<(f64
 
 /// Match a cell value against highlight rules. Returns the color name string.
 /// Special values: "transparent" (render invisible), "none"/"reset" (default terminal color).
-fn match_highlight_rule<'a>(cell: &CellValue, rules: &'a [HighlightRule]) -> &'a str {
+pub(crate) fn match_highlight_rule<'a>(cell: &CellValue, rules: &'a [HighlightRule]) -> &'a str {
     if rules.is_empty() {
         return "reset";
     }
