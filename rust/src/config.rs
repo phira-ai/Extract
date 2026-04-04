@@ -14,6 +14,7 @@ pub enum SummarySection {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct SummaryConfig {
+    #[serde(default = "default_sections")]
     pub sections: Vec<SummarySection>,
     /// Chart width as percentage of panel width (1-100, default 80).
     #[serde(default = "default_curve_width")]
@@ -21,6 +22,15 @@ pub struct SummaryConfig {
     /// Smooth curves with Catmull-Rom interpolation (default false).
     #[serde(default)]
     pub curve_smooth: bool,
+}
+
+fn default_sections() -> Vec<SummarySection> {
+    vec![
+        SummarySection::Runs,
+        SummarySection::Metrics,
+        SummarySection::Tables,
+        SummarySection::Curves,
+    ]
 }
 
 fn default_curve_width() -> u8 {
@@ -102,8 +112,9 @@ pub fn load_config(store_root: &Path) -> Config {
     let config_path = store_root.join("config.toml");
     if config_path.exists() {
         if let Ok(content) = std::fs::read_to_string(&config_path) {
-            if let Ok(config) = toml::from_str(&content) {
-                return config;
+            match toml::from_str::<Config>(&content) {
+                Ok(config) => return config,
+                Err(e) => eprintln!("Warning: failed to parse {}: {e}", config_path.display()),
             }
         }
     }
