@@ -1,9 +1,7 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::symbols::Marker;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::canvas::{Canvas, Line as CanvasLine, Points};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
@@ -12,11 +10,8 @@ use crate::event::AppEvent;
 use crate::keys;
 use crate::ui::theme::Theme;
 
-const NODE_SPACING_X: f64 = 30.0;
-const NODE_SPACING_Y: f64 = 12.0;
-
 pub struct LineageView {
-    pub theme: Theme,
+    theme: Theme,
 }
 
 impl LineageView {
@@ -54,9 +49,7 @@ impl LineageView {
         }
 
         if keys::matches(key, keys::NAV_UP_K) || keys::matches(key, keys::NAV_UP) {
-            if state.lineage_cursor > 0 {
-                state.lineage_cursor = state.lineage_cursor.saturating_sub(1);
-            }
+            state.lineage_cursor = state.lineage_cursor.saturating_sub(1);
             return Action::None;
         }
 
@@ -64,9 +57,7 @@ impl LineageView {
             if let Some(node) = state.lineage_nodes.get(state.lineage_cursor).cloned() {
                 match node.entity_type.as_str() {
                     "run" => {
-                        // Find the run, then its experiment, and navigate to Explorer/Detail
                         if let Ok(Some(run)) = state.db.get_run(&node.entity_id) {
-                            // Find and select the experiment
                             if let Some(exp_idx) = state
                                 .experiments
                                 .iter()
@@ -74,8 +65,6 @@ impl LineageView {
                             {
                                 state.selected_experiment = Some(exp_idx);
                                 let _ = state.refresh_runs();
-
-                                // Find and select the run
                                 if let Some(run_idx) =
                                     state.runs.iter().position(|r| r.id == node.entity_id)
                                 {
@@ -83,15 +72,12 @@ impl LineageView {
                                     let _ = state.load_run_preview(run_idx);
                                 }
                             }
-
                             state.current_view = View::Explorer;
                             state.focus = Focus::Detail;
                         }
                     }
                     "model" => {
-                        // Load registry data and navigate to the model
                         let _ = state.load_registry_data();
-
                         if let Some(idx) = state
                             .models
                             .iter()
@@ -99,7 +85,6 @@ impl LineageView {
                         {
                             state.registry_cursor = idx;
                         }
-
                         state.current_view = View::Registry;
                     }
                     _ => {}
@@ -111,24 +96,6 @@ impl LineageView {
         Action::None
     }
 
-    fn compute_bounds(&self, state: &AppState) -> (f64, f64, f64, f64) {
-        let mut min_x = f64::MAX;
-        let mut max_x = f64::MIN;
-        let mut min_y = f64::MAX;
-        let mut max_y = f64::MIN;
-
-        for node in &state.lineage_nodes {
-            let px = node.x * NODE_SPACING_X;
-            let py = -(node.y * NODE_SPACING_Y);
-            min_x = min_x.min(px);
-            max_x = max_x.max(px);
-            min_y = min_y.min(py);
-            max_y = max_y.max(py);
-        }
-
-        (min_x, max_x, min_y, max_y)
-    }
-
     fn node_color(&self, entity_type: &str) -> Color {
         match entity_type {
             "experiment" => Color::Blue,
@@ -138,12 +105,82 @@ impl LineageView {
         }
     }
 
-    fn truncate_label(label: &str, max_len: usize) -> String {
-        if label.len() <= max_len {
-            label.to_string()
-        } else {
-            format!("{}...", &label[..max_len.saturating_sub(3)])
+    /// Build a top-down tree representation of the lineage DAG.
+    /// Returns a list of (indent_level, node_index, connector_prefix) tuples
+    /// representing the tree in display order.
+    fn build_tree_lines(&self, state: &AppState) -> Vec<(usize, usize, String)> {
+        if state.lineage_nodes.is_empty() {
+            return Vec::new();
         }
+
+        // Build adjacency: parent_idx → Vec<child_idx>
+        let mut children_of: Vec<Vec<usize>> = vec![vec![]; state.lineage_nodes.len()];
+        let mut has_parent = vec![false; state.lineage_nodes.len()];
+
+        for edge in &state.lineage_edges {
+            let parent_pos = state.lineage_nodes.iter().position(|n| {
+                n.entity_type == edge.parent_type && n.entity_id == edge.parent_id
+            });
+            let child_pos = state.lineage_nodes.iter().position(|n| {
+                n.entity_type == edge.child_type && n.entity_id == edge.child_id
+            });
+            if let (Some(pi), Some(ci)) = (parent_pos, child_pos) {
+                if !children_of[pi].contains(&ci) {
+                    children_of[pi].push(ci);
+                }
+                has_parent[ci] = true;
+            }
+        }
+
+        // Roots: nodes with no incoming edges
+        let roots: Vec<usize> = (0..state.lineage_nodes.len())
+            .filter(|i| !has_parent[*i])
+            .collect();
+
+        let mut lines = Vec::new();
+
+        fn walk(
+            node_idx: usize,
+            depth: usize,
+            prefix: &str,
+            is_last: bool,
+            children_of: &[Vec<usize>],
+            lines: &mut Vec<(usize, usize, String)>,
+        ) {
+            let connector = if depth == 0 {
+                String::new()
+            } else if is_last {
+                format!("{prefix}└── ")
+            } else {
+                format!("{prefix}├── ")
+            };
+
+            lines.push((depth, node_idx, connector));
+
+            let children = &children_of[node_idx];
+            let child_prefix = if depth == 0 {
+                String::new()
+            } else if is_last {
+                format!("{prefix}    ")
+            } else {
+                format!("{prefix}│   ")
+            };
+
+            for (i, &child) in children.iter().enumerate() {
+                let child_is_last = i == children.len() - 1;
+                walk(child, depth + 1, &child_prefix, child_is_last, children_of, lines);
+            }
+        }
+
+        for (i, &root) in roots.iter().enumerate() {
+            if i > 0 {
+                // Empty line between root trees
+                lines.push((0, usize::MAX, String::new()));
+            }
+            walk(root, 0, "", i == roots.len() - 1, &children_of, &mut lines);
+        }
+
+        lines
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
@@ -163,11 +200,12 @@ impl LineageView {
             return;
         }
 
-        // Reserve 1 line at bottom for info bar
         if block_inner.height < 2 {
             return;
         }
-        let canvas_area = Rect::new(
+
+        // Reserve 1 line for info bar
+        let tree_area = Rect::new(
             block_inner.x,
             block_inner.y,
             block_inner.width,
@@ -180,89 +218,97 @@ impl LineageView {
             1,
         );
 
-        // Compute canvas bounds
-        let (min_x, max_x, min_y, max_y) = self.compute_bounds(state);
-        let x_lo = min_x - NODE_SPACING_X;
-        let x_hi = max_x + NODE_SPACING_X;
-        let y_lo = min_y - NODE_SPACING_Y;
-        let y_hi = max_y + NODE_SPACING_Y;
+        let tree_lines = self.build_tree_lines(state);
 
-        // Build a lookup from (entity_type, entity_id) -> (px, py) for edge drawing
-        let node_positions: Vec<(f64, f64)> = state
-            .lineage_nodes
+        // Map lineage_cursor to the display line index
+        let cursor_line = tree_lines
             .iter()
-            .map(|n| (n.x * NODE_SPACING_X, -(n.y * NODE_SPACING_Y)))
+            .position(|(_, ni, _)| *ni == state.lineage_cursor)
+            .unwrap_or(0);
+
+        // Compute scroll offset to keep cursor visible
+        let visible_height = tree_area.height as usize;
+        let scroll = if cursor_line >= visible_height {
+            cursor_line - visible_height + 1
+        } else {
+            0
+        };
+
+        let display_lines: Vec<Line> = tree_lines
+            .iter()
+            .skip(scroll)
+            .take(visible_height)
+            .map(|(_, node_idx, connector)| {
+                if *node_idx == usize::MAX {
+                    // Separator line
+                    return Line::from("");
+                }
+
+                let node = &state.lineage_nodes[*node_idx];
+                let is_selected = *node_idx == state.lineage_cursor;
+                let color = if is_selected {
+                    Color::White
+                } else {
+                    self.node_color(&node.entity_type)
+                };
+
+                let type_tag = match node.entity_type.as_str() {
+                    "model" => "mod",
+                    "run" => "run",
+                    "experiment" => "exp",
+                    other => other,
+                };
+
+                // Find the relation label for this edge (from parent to this node)
+                let relation = state.lineage_edges.iter()
+                    .find(|e| e.child_type == node.entity_type && e.child_id == node.entity_id)
+                    .map(|e| e.relation.as_str())
+                    .unwrap_or("");
+
+                let base_style = if is_selected {
+                    self.theme.selected
+                } else {
+                    Style::default()
+                };
+
+                let mut spans = Vec::new();
+
+                // Tree connector (dim)
+                if !connector.is_empty() {
+                    spans.push(Span::styled(
+                        connector.clone(),
+                        if is_selected { base_style } else { Style::default().fg(self.theme.accent_dim) },
+                    ));
+                }
+
+                // Type tag
+                spans.push(Span::styled(
+                    format!("[{type_tag}] "),
+                    if is_selected { base_style } else { Style::default().fg(color).add_modifier(Modifier::BOLD) },
+                ));
+
+                // Label
+                spans.push(Span::styled(
+                    node.label.clone(),
+                    if is_selected { base_style } else { Style::default().fg(color) },
+                ));
+
+                // Relation (if any)
+                if !relation.is_empty() {
+                    spans.push(Span::styled(
+                        format!("  ({relation})"),
+                        if is_selected { base_style } else { Style::default().fg(self.theme.accent_dim) },
+                    ));
+                }
+
+                Line::from(spans)
+            })
             .collect();
 
-        let selected_cursor = state.lineage_cursor;
+        frame.render_widget(Paragraph::new(display_lines), tree_area);
 
-        let canvas = Canvas::default()
-            .marker(Marker::Braille)
-            .x_bounds([x_lo, x_hi])
-            .y_bounds([y_lo, y_hi])
-            .paint(|ctx| {
-                // Draw edges
-                for edge in &state.lineage_edges {
-                    let parent_pos = state
-                        .lineage_nodes
-                        .iter()
-                        .enumerate()
-                        .find(|(_, n)| {
-                            n.entity_type == edge.parent_type && n.entity_id == edge.parent_id
-                        })
-                        .map(|(i, _)| node_positions[i]);
-
-                    let child_pos = state
-                        .lineage_nodes
-                        .iter()
-                        .enumerate()
-                        .find(|(_, n)| {
-                            n.entity_type == edge.child_type && n.entity_id == edge.child_id
-                        })
-                        .map(|(i, _)| node_positions[i]);
-
-                    if let (Some((px, py)), Some((cx, cy))) = (parent_pos, child_pos) {
-                        ctx.draw(&CanvasLine {
-                            x1: px,
-                            y1: py,
-                            x2: cx,
-                            y2: cy,
-                            color: Color::DarkGray,
-                        });
-                    }
-                }
-
-                // Draw nodes as points
-                for (i, node) in state.lineage_nodes.iter().enumerate() {
-                    let (px, py) = node_positions[i];
-                    let color = if i == selected_cursor {
-                        Color::White
-                    } else {
-                        self.node_color(&node.entity_type)
-                    };
-                    ctx.draw(&Points {
-                        coords: &[(px, py)],
-                        color,
-                    });
-                }
-
-                // Draw labels next to nodes
-                for (i, node) in state.lineage_nodes.iter().enumerate() {
-                    let (px, py) = node_positions[i];
-                    let color = if i == selected_cursor {
-                        Color::White
-                    } else {
-                        self.node_color(&node.entity_type)
-                    };
-                    let label = Self::truncate_label(&node.label, 20);
-                    ctx.print(px + 1.5, py, Line::from(Span::styled(label, Style::default().fg(color))));
-                }
-            });
-
-        frame.render_widget(canvas, canvas_area);
-
-        // Info bar: show selected node details
-        if let Some(node) = state.lineage_nodes.get(selected_cursor) {
+        // Info bar
+        if let Some(node) = state.lineage_nodes.get(state.lineage_cursor) {
             let info = Line::from(vec![
                 Span::styled(
                     format!(" [{}] ", node.entity_type),
@@ -271,16 +317,14 @@ impl LineageView {
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("{} ", node.label),
+                    node.label.clone(),
                     Style::default()
                         .fg(self.theme.accent)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(
-                    format!("({})", node.entity_id),
-                    Style::default()
-                        .fg(self.theme.accent)
-                        .add_modifier(Modifier::BOLD),
+                    format!("  {}", node.entity_id),
+                    Style::default().fg(self.theme.accent_dim),
                 ),
             ]);
             frame.render_widget(Paragraph::new(info), info_area);

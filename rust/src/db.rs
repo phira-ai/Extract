@@ -715,6 +715,17 @@ impl Db {
         Ok(new_done == 1)
     }
 
+    /// Set a todo's priority. Opens a writable connection.
+    pub fn set_todo_priority(db_path: &Path, todo_id: &str, priority: i64) -> Result<()> {
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute(
+            "UPDATE todos SET priority = ? WHERE id = ?",
+            params![priority, todo_id],
+        )?;
+        Ok(())
+    }
+
     /// Add a new global todo. Opens a writable connection.
     pub fn add_todo(db_path: &Path, content: &str, priority: i64) -> Result<()> {
         let conn = Connection::open(db_path)?;

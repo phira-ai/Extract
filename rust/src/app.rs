@@ -191,6 +191,8 @@ pub struct AppState {
     pub todo_cursor: usize,
     pub todo_input: Option<String>,
     pub todo_filter: TodoFilter,
+    /// When set, tree panel should open ancestors and select this experiment path.
+    pub pending_tree_select: Option<String>,
 }
 
 impl AppState {
@@ -245,6 +247,7 @@ impl AppState {
             todo_cursor: 0,
             todo_input: None,
             todo_filter: TodoFilter::All,
+            pending_tree_select: None,
         })
     }
 
@@ -681,6 +684,20 @@ impl AppState {
         self.artifacts = self.db.list_artifacts(&run_id)?;
         self.load_first_table()?;
         Ok(())
+    }
+
+    /// Build the path of experiment IDs from root to the given experiment.
+    pub fn experiment_id_path(&self, experiment_id: &str) -> Vec<String> {
+        let mut path = Vec::new();
+        let mut current_id = Some(experiment_id.to_string());
+        while let Some(id) = current_id {
+            path.push(id.clone());
+            current_id = self.experiments.iter()
+                .find(|e| e.id == id)
+                .and_then(|e| e.parent_id.clone());
+        }
+        path.reverse();
+        path
     }
 
     pub fn load_registry_data(&mut self) -> Result<()> {

@@ -261,6 +261,19 @@ impl TreePanel {
         }
     }
 
+    /// Process a pending tree select: open ancestors and select the target experiment.
+    pub fn apply_pending_select(&mut self, state: &mut AppState) {
+        if let Some(exp_id) = state.pending_tree_select.take() {
+            let id_path = state.experiment_id_path(&exp_id);
+            // Open each ancestor (all but the last, which is the leaf)
+            for i in 0..id_path.len().saturating_sub(1) {
+                self.tree_state.open(id_path[..=i].to_vec());
+            }
+            // Select the full path (the leaf)
+            self.tree_state.select(id_path);
+        }
+    }
+
     pub fn render(&mut self, frame: &mut Frame, area: Rect, state: &AppState) {
         let focused = state.focus == Focus::Tree;
         let border_style = if focused {

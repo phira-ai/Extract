@@ -157,6 +157,9 @@ impl AppLayout {
     }
 
     pub fn render(&mut self, frame: &mut Frame, state: &mut AppState) {
+        // Process pending tree select (e.g., from registry Enter)
+        self.tree.apply_pending_select(state);
+
         let area = frame.area();
 
         let inner = area;

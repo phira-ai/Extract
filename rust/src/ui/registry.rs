@@ -58,22 +58,25 @@ impl RegistryView {
             if let Some(model) = state.models.get(state.registry_cursor).cloned() {
                 if let Some(run_id) = &model.run_id {
                     if let Ok(Some(run)) = state.db.get_run(run_id) {
+                        let exp_id = run.experiment_id.clone();
+
                         // Find the experiment index
-                        let exp_idx = state
+                        if let Some(exp_idx) = state
                             .experiments
                             .iter()
-                            .position(|e| e.id == run.experiment_id);
-
-                        if let Some(exp_idx) = exp_idx {
+                            .position(|e| e.id == exp_id)
+                        {
                             state.selected_experiment = Some(exp_idx);
                             let _ = state.refresh_runs();
 
                             // Find the run index within the refreshed runs list
-                            let run_idx = state.runs.iter().position(|r| r.id == run.id);
-                            if let Some(run_idx) = run_idx {
+                            if let Some(run_idx) = state.runs.iter().position(|r| r.id == run.id) {
                                 state.selected_run = Some(run_idx);
                                 let _ = state.load_run_preview(run_idx);
                             }
+
+                            // Tell tree panel to expand and select this experiment
+                            state.pending_tree_select = Some(exp_id);
                         }
 
                         state.current_view = View::Explorer;
@@ -97,7 +100,7 @@ impl RegistryView {
         let border_style = Style::default().fg(self.theme.border_focused);
 
         let block = Block::bordered()
-            .title(" R Models ")
+            .title(" M Models ")
             .border_style(border_style);
         let inner = block.inner(area);
         frame.render_widget(block, area);

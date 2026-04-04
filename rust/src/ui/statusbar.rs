@@ -31,7 +31,7 @@ impl StatusBar {
                     b.push(("c", "compare"));
                     b.push(("d", "diff"));
                 }
-                b.push(("R", "models"));
+                b.push(("M", "models"));
                 b.push(("T", "todos"));
                 b.push(("L", "lineage"));
                 b.push(("Tab", "detail"));
@@ -79,18 +79,19 @@ impl StatusBar {
                 ("L", "lineage"),
                 ("q", "quit"),
             ],
-            (View::Lineage, _) => vec![
-                ("Esc", "back"),
-                ("j/k", "navigate"),
-                ("Enter", "go to entity"),
-                ("q", "quit"),
-            ],
             (View::TodoGlobal, _) => vec![
                 ("Esc", "back"),
                 ("j/k", "navigate"),
                 ("Space", "toggle"),
+                ("0/1/2", "priority"),
                 ("a", "add"),
                 ("Tab", "filter"),
+                ("q", "quit"),
+            ],
+            (View::Lineage, _) => vec![
+                ("Esc", "back"),
+                ("j/k", "navigate"),
+                ("Enter", "go to entity"),
                 ("q", "quit"),
             ],
         };

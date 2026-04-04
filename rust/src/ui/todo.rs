@@ -115,6 +115,32 @@ impl TodoView {
             return Action::None;
         }
 
+        // Priority keys: 0/1/2 set priority on selected todo
+        if keys::matches(key, keys::PRIORITY_0)
+            || keys::matches(key, keys::PRIORITY_1)
+            || keys::matches(key, keys::PRIORITY_2)
+        {
+            let priority = match key.code {
+                crossterm::event::KeyCode::Char('0') => 0,
+                crossterm::event::KeyCode::Char('1') => 1,
+                crossterm::event::KeyCode::Char('2') => 2,
+                _ => 0,
+            };
+            if let Some(todo) = state.todos.get(state.todo_cursor) {
+                let todo_id = todo.id.clone();
+                let db_path = state.store_root.join("extract.db");
+                match crate::db::Db::set_todo_priority(&db_path, &todo_id, priority) {
+                    Ok(()) => {
+                        let _ = state.load_todo_data();
+                    }
+                    Err(e) => {
+                        state.notify(NotifyLevel::Error, format!("Failed to set priority: {e}"));
+                    }
+                }
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::TAB) {
             state.todo_filter = match state.todo_filter {
                 TodoFilter::All => TodoFilter::Global,
