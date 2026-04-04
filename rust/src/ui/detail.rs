@@ -41,22 +41,29 @@ impl DetailPanel {
     }
 
     fn handle_key(&mut self, key: &KeyEvent, state: &mut AppState) -> Action {
-        // Tab switches between Summary/Info tabs
-        if keys::matches(key, keys::TAB) {
-            self.active_tab = match self.active_tab {
-                DetailTab::Summary => DetailTab::Info,
-                DetailTab::Info => DetailTab::Summary,
-            };
+        // S/I switch detail tabs
+        if keys::matches_shift(key, keys::SUMMARY_TAB) {
+            self.active_tab = DetailTab::Summary;
+            return Action::None;
+        }
+        if keys::matches_shift(key, keys::INFO_TAB) {
+            self.active_tab = DetailTab::Info;
             return Action::None;
         }
 
-        // Shift-Tab cycles focus: Detail → Selection (if runs marked) → Tree
-        if keys::matches_shift(key, keys::TAB) {
+        // Tab → next panel: Selection (if marked) or Tree
+        if keys::matches(key, keys::TAB) {
             if !state.selected_runs_for_compare.is_empty() {
                 state.focus = Focus::Selection;
             } else {
                 state.focus = Focus::Tree;
             }
+            return Action::None;
+        }
+
+        // Shift-Tab → previous panel: Tree
+        if keys::matches_shift(key, keys::TAB) {
+            state.focus = Focus::Tree;
             return Action::None;
         }
 
@@ -209,7 +216,7 @@ impl DetailPanel {
         };
 
         let block = Block::bordered()
-            .title(format!(" Detail{run_indicator}"))
+            .title(format!(" 2 Detail{run_indicator}"))
             .border_style(border_style);
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -235,25 +242,25 @@ impl DetailPanel {
     }
 
     fn render_tab_bar(&self, frame: &mut Frame, area: Rect) {
-        let tabs = [
-            ("Summary", DetailTab::Summary),
-            ("Info", DetailTab::Info),
-        ];
+        let mut spans: Vec<Span> = Vec::new();
 
-        let spans: Vec<Span> = tabs
-            .iter()
-            .flat_map(|(label, tab)| {
-                let style = if *tab == self.active_tab {
-                    self.theme.tab_active
-                } else {
-                    self.theme.tab_inactive
-                };
-                vec![
-                    Span::raw(" "),
-                    Span::styled(format!("[{label}]"), style),
-                ]
-            })
-            .collect();
+        // Summary tab
+        let sum_active = self.active_tab == DetailTab::Summary;
+        let sum_style = if sum_active { self.theme.tab_active } else { self.theme.tab_inactive };
+        let s_style = sum_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+        spans.push(Span::raw(" ["));
+        spans.push(Span::styled("S", s_style));
+        spans.push(Span::styled("ummary", sum_style));
+        spans.push(Span::styled("]", sum_style));
+
+        // Info tab
+        let info_active = self.active_tab == DetailTab::Info;
+        let info_style = if info_active { self.theme.tab_active } else { self.theme.tab_inactive };
+        let i_style = info_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+        spans.push(Span::raw(" ["));
+        spans.push(Span::styled("I", i_style));
+        spans.push(Span::styled("nfo", info_style));
+        spans.push(Span::styled("]", info_style));
 
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
@@ -379,13 +386,27 @@ impl DetailPanel {
         if let Some(ref config) = run.config {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "Config: ",
+                "Config",
                 Style::default().add_modifier(Modifier::BOLD),
             )));
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(config) {
-                if let Ok(pretty) = serde_json::to_string_pretty(&parsed) {
-                    for line in pretty.lines() {
-                        lines.push(Line::from(format!("  {line}")));
+                if let Some(obj) = parsed.as_object() {
+                    let key_width = obj.keys().map(|k| k.len()).max().unwrap_or(8).max(4);
+                    for (k, v) in obj {
+                        let val_str = match v {
+                            serde_json::Value::String(s) => s.clone(),
+                            serde_json::Value::Null => "null".to_string(),
+                            serde_json::Value::Bool(b) => b.to_string(),
+                            serde_json::Value::Number(n) => n.to_string(),
+                            other => other.to_string(),
+                        };
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                format!("  {:<width$}  ", k, width = key_width),
+                                Style::default().fg(self.theme.accent_dim),
+                            ),
+                            Span::raw(val_str),
+                        ]));
                     }
                 } else {
                     lines.push(Line::from(format!("  {config}")));

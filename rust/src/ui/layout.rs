@@ -61,6 +61,28 @@ impl AppLayout {
             }
         }
 
+        // Global panel shortcuts (1, 2, 3)
+        if let AppEvent::Key(key) = event {
+            if keys::matches(key, keys::PANEL_1) {
+                state.focus = Focus::Tree;
+                return Action::None;
+            }
+            if keys::matches(key, keys::PANEL_2) {
+                if state.selected_run.is_none() && !state.runs.is_empty() {
+                    state.selected_run = Some(state.runs.len() - 1);
+                    let _ = state.load_run_preview(state.runs.len() - 1);
+                }
+                state.focus = Focus::Detail;
+                return Action::None;
+            }
+            if keys::matches(key, keys::PANEL_3) {
+                if !state.selected_runs_for_compare.is_empty() {
+                    state.focus = Focus::Selection;
+                }
+                return Action::None;
+            }
+        }
+
         // Selection window focus
         if state.focus == Focus::Selection {
             if let AppEvent::Key(key) = event {
@@ -93,12 +115,7 @@ impl AppLayout {
     pub fn render(&mut self, frame: &mut Frame, state: &mut AppState) {
         let area = frame.area();
 
-        // Outer block with title
-        let outer_block = Block::bordered()
-            .title(" Extract ")
-            .border_style(Style::default().fg(self.theme.border));
-        let inner = outer_block.inner(area);
-        frame.render_widget(outer_block, area);
+        let inner = area;
 
         // Split: main content + status bar
         let vertical = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(inner);
@@ -161,9 +178,9 @@ impl AppLayout {
                 Style::default().fg(self.theme.border)
             };
             let title = match &state.selection_summary {
-                crate::app::SelectionSummary::Root { .. } => " Overview ".to_string(),
-                crate::app::SelectionSummary::Branch { path, .. } => format!(" {path} "),
-                crate::app::SelectionSummary::Leaf { name, .. } => format!(" {name} "),
+                crate::app::SelectionSummary::Root { .. } => " 2 Overview ".to_string(),
+                crate::app::SelectionSummary::Branch { path, .. } => format!(" 2 {path} "),
+                crate::app::SelectionSummary::Leaf { name, .. } => format!(" 2 {name} "),
             };
             let block = Block::bordered()
                 .title(title)

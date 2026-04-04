@@ -21,7 +21,15 @@ impl SelectionWindow {
     }
 
     pub fn handle_event(&mut self, key: &KeyEvent, state: &mut AppState) {
-        if keys::matches(key, keys::BACK_ESC) || keys::matches(key, keys::TAB) {
+        if keys::matches(key, keys::TAB) {
+            state.focus = Focus::Tree;
+            return;
+        }
+        if keys::matches_shift(key, keys::TAB) {
+            state.focus = Focus::Detail;
+            return;
+        }
+        if keys::matches(key, keys::BACK_ESC) {
             state.focus = Focus::Tree;
             return;
         }
@@ -107,7 +115,7 @@ impl SelectionWindow {
         };
 
         let block = Block::bordered()
-            .title(" Selected ")
+            .title(" 3 Selected ")
             .border_style(Style::default().fg(border_color));
 
         let inner = block.inner(rect);

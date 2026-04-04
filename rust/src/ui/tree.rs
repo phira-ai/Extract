@@ -184,8 +184,27 @@ impl TreePanel {
             return Action::Quit;
         }
 
-        if keys::matches(key, keys::TAB) || keys::matches_shift(key, keys::TAB) {
+        if keys::matches(key, keys::TAB) {
+            // If on a leaf with runs, select newest run
+            if state.selected_run.is_none() && !state.runs.is_empty() {
+                state.selected_run = Some(state.runs.len() - 1);
+                let _ = state.load_run_preview(state.runs.len() - 1);
+            }
             state.focus = Focus::Detail;
+            return Action::None;
+        }
+
+        if keys::matches_shift(key, keys::TAB) {
+            if !state.selected_runs_for_compare.is_empty() {
+                state.focus = Focus::Selection;
+            } else {
+                // Wrap to Detail
+                if state.selected_run.is_none() && !state.runs.is_empty() {
+                    state.selected_run = Some(state.runs.len() - 1);
+                    let _ = state.load_run_preview(state.runs.len() - 1);
+                }
+                state.focus = Focus::Detail;
+            }
             return Action::None;
         }
 
@@ -228,7 +247,7 @@ impl TreePanel {
         };
 
         let block = Block::bordered()
-            .title(" Experiments ")
+            .title(" 1 Experiments ")
             .border_style(border_style);
 
         // Build tree items from experiments

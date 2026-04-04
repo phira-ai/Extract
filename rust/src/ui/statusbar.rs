@@ -36,21 +36,22 @@ impl StatusBar {
                 b
             }
             (View::Explorer, Focus::Detail) | (View::Detail, _) => {
+                let has_runs = !state.runs.is_empty();
                 let mut b = vec![
                     ("Esc", "back"),
                     ("j/k", "scroll"),
-                    ("Space", "mark"),
-                    ("[/]", "cycle run"),
-                    ("x", "delete"),
                 ];
+                if has_runs {
+                    b.push(("Space", "mark"));
+                    b.push(("h/l", "cycle run"));
+                    b.push(("S/I", "tabs"));
+                    b.push(("x", "delete"));
+                }
                 if n_marked >= 2 {
                     b.push(("c", "compare"));
                     b.push(("d", "diff"));
                 }
-                b.push(("Tab", "switch tab"));
-                if n_marked > 0 {
-                    b.push(("S-Tab", "selection"));
-                }
+                b.push(("Tab", "next"));
                 b.push(("q", "quit"));
                 b
             }
@@ -87,14 +88,6 @@ impl StatusBar {
                     .add_modifier(Modifier::BOLD),
             ));
             spans.push(Span::raw(format!(" {desc}")));
-        }
-
-        // Show compare count if any runs are selected
-        if !state.selected_runs_for_compare.is_empty() {
-            spans.push(Span::styled(
-                format!("  | {} marked", state.selected_runs_for_compare.len()),
-                Style::default().fg(self.theme.warning),
-            ));
         }
 
         // Show run position in detail view
