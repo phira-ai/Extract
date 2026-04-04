@@ -294,9 +294,9 @@ impl TreePanel {
                 .block(block)
                 .highlight_style(self.theme.selected)
                 .highlight_symbol(">> ")
-                .node_closed_symbol("\u{2514}\u{2500}\u{2500} ")
-                .node_open_symbol("\u{2514}\u{2500}\u{2500} ")
-                .node_no_children_symbol("\u{2514}\u{2500}\u{2500} ");
+                .node_closed_symbol("\u{2514}\u{2500} ")
+                .node_open_symbol("\u{2514}\u{2500} ")
+                .node_no_children_symbol("\u{2514}\u{2500} ");
 
             frame.render_stateful_widget(tree_widget, area, &mut self.tree_state);
         }
