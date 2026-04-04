@@ -1,9 +1,10 @@
 pub mod chart;
-pub mod heatmap;
 pub mod dashboard;
 pub mod detail;
+pub mod heatmap;
 pub mod layout;
 pub mod statusbar;
+pub mod summary;
 pub mod theme;
 pub mod tree;
 

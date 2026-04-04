@@ -5,21 +5,24 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{AppState, SelectionSummary};
-use crate::model::{MetricAggregate, MetricRanking, Run, ScalarMetric};
+use crate::model::{MetricRanking, Run};
+use crate::ui::summary::{SummaryData, SummaryRenderer};
 use crate::ui::theme::Theme;
 
 pub struct Dashboard {
     theme: Theme,
+    summary: SummaryRenderer,
 }
 
 impl Dashboard {
     pub fn new() -> Self {
         Self {
             theme: Theme::default(),
+            summary: SummaryRenderer::new(),
         }
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
+    pub fn render(&self, frame: &mut Frame, area: Rect, state: &mut AppState) {
         match &state.selection_summary {
             SelectionSummary::Root {
                 total_experiments,
@@ -53,7 +56,31 @@ impl Dashboard {
                 run_metrics,
                 aggregate_metrics,
                 unique_configs,
-            } => self.render_leaf(frame, area, name, runs, run_metrics, aggregate_metrics, *unique_configs),
+            } => {
+                let data = SummaryData {
+                    name,
+                    runs,
+                    run_metrics,
+                    aggregate_metrics,
+                    unique_configs: *unique_configs,
+                    metric_history: &state.metric_history,
+                    metric_name: state.available_metric_names.first().map(|s| s.as_str()),
+                    matrix: state.cached_matrix.as_ref(),
+                    matrix_title: state.cached_matrix_title.as_deref(),
+                    matrix_axes: state
+                        .cached_matrix_axes
+                        .as_ref()
+                        .map(|(r, c)| (r.as_str(), c.as_str())),
+                };
+                let total = self.summary.render(
+                    frame,
+                    area,
+                    &data,
+                    &state.config.summary.sections,
+                    state.summary_scroll,
+                );
+                state.summary_total_lines = total;
+            }
         }
     }
 
@@ -212,113 +239,6 @@ impl Dashboard {
         }
 
         frame.render_widget(Paragraph::new(lines), area);
-    }
-
-    fn render_leaf(
-        &self,
-        frame: &mut Frame,
-        area: Rect,
-        name: &str,
-        runs: &[Run],
-        run_metrics: &[Vec<ScalarMetric>],
-        aggregate_metrics: &[MetricAggregate],
-        unique_configs: i64,
-    ) {
-        let run_count = runs.len();
-        let config_hint = if unique_configs > 0 {
-            format!(" \u{00b7} {unique_configs} unique configs")
-        } else {
-            String::new()
-        };
-
-        let mut lines = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                format!("  {name}"),
-                self.theme.header,
-            )),
-            Line::from(format!(
-                "  {run_count} {}{config_hint}",
-                if run_count == 1 { "run" } else { "runs" }
-            )),
-        ];
-
-        if !runs.is_empty() {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "  Runs",
-                Style::default()
-                    .fg(self.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            lines.push(self.separator());
-
-            for (i, run) in runs.iter().enumerate() {
-                let status_style = self.status_style(&run.status);
-                let date = run.started_at.get(..10).unwrap_or(&run.started_at);
-
-                let mut spans = vec![
-                    Span::raw("  "),
-                    Span::styled("\u{25cf} ", status_style),
-                    Span::styled(format!("{:<11}", run.status), status_style),
-                    Span::styled(
-                        format!(" {date} "),
-                        Style::default().fg(self.theme.accent_dim),
-                    ),
-                ];
-
-                if let Some(metrics) = run_metrics.get(i) {
-                    let metric_strs: Vec<String> = metrics
-                        .iter()
-                        .take(3)
-                        .map(|m| format!("{}: {:.3}", m.name, m.value))
-                        .collect();
-                    if !metric_strs.is_empty() {
-                        spans.push(Span::raw(format!(" {}", metric_strs.join("  "))));
-                    }
-                }
-
-                lines.push(Line::from(spans));
-            }
-        }
-
-        if !aggregate_metrics.is_empty() {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "  Summary",
-                Style::default()
-                    .fg(self.theme.accent)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            lines.push(self.separator());
-            self.append_metric_aggregates(&mut lines, aggregate_metrics);
-        }
-
-        frame.render_widget(Paragraph::new(lines), area);
-    }
-
-    fn append_metric_aggregates(&self, lines: &mut Vec<Line<'_>>, metrics: &[MetricAggregate]) {
-        for m in metrics {
-            if m.count > 1 {
-                lines.push(Line::from(vec![
-                    Span::raw(format!("  {:<14}", m.name)),
-                    Span::raw(format!("mean: {:<8.4}", m.mean)),
-                    Span::styled(
-                        format!("\u{00b1}{:<8.4}", m.std_dev),
-                        Style::default().fg(self.theme.accent_dim),
-                    ),
-                    Span::styled(
-                        format!("[{:.4}, {:.4}]", m.min, m.max),
-                        Style::default().fg(self.theme.accent_dim),
-                    ),
-                ]));
-            } else {
-                lines.push(Line::from(format!(
-                    "  {:<14}{:.4}",
-                    m.name, m.mean
-                )));
-            }
-        }
     }
 
     fn separator(&self) -> Line<'static> {

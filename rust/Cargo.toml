@@ -16,3 +16,4 @@ clap = { version = "4", features = ["derive"] }
 ndarray = "0.16"
 ndarray-npy = "0.9"
 chrono = "0.4"
+toml = "0.8"

@@ -42,7 +42,7 @@ impl AppLayout {
         }
     }
 
-    pub fn render(&mut self, frame: &mut Frame, state: &AppState) {
+    pub fn render(&mut self, frame: &mut Frame, state: &mut AppState) {
         let area = frame.area();
 
         // Outer block with title

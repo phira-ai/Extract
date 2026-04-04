@@ -1,5 +1,6 @@
 mod app;
 mod artifact;
+mod config;
 mod db;
 mod event;
 mod keys;
@@ -43,7 +44,7 @@ async fn main() -> color_eyre::Result<()> {
     // Main loop
     loop {
         terminal.draw(|frame| {
-            layout.render(frame, &app);
+            layout.render(frame, &mut app);
         })?;
 
         let event = events.next().await?;

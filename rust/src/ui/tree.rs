@@ -144,6 +144,14 @@ impl TreePanel {
                 state.metrics.clear();
                 let _ = state.refresh_runs();
                 let _ = state.refresh_selection_summary();
+                // Load preview data (curves + matrix) for leaf experiments
+                let has_children = state
+                    .experiments
+                    .iter()
+                    .any(|e| e.parent_id.as_deref() == Some(last_id.as_str()));
+                if !has_children {
+                    let _ = state.refresh_leaf_preview();
+                }
             }
         } else {
             state.selected_experiment = None;

@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
 use color_eyre::Result;
+use ndarray::Array2;
 
+use crate::config::{self, Config};
 use crate::db::Db;
 use std::collections::HashMap;
 
@@ -61,6 +63,7 @@ pub struct AppState {
     pub db: Db,
     pub store_root: PathBuf,
     pub hierarchy: Vec<String>,
+    pub config: Config,
     pub current_view: View,
     pub focus: Focus,
     pub should_quit: bool,
@@ -75,6 +78,12 @@ pub struct AppState {
     pub available_metric_names: Vec<String>,
     pub selected_metric_idx: usize,
     pub selection_summary: SelectionSummary,
+    pub summary_scroll: u16,
+    pub summary_total_lines: usize,
+    pub cached_matrix: Option<Array2<f64>>,
+    pub cached_matrix_artifact_id: Option<String>,
+    pub cached_matrix_axes: Option<(String, String)>,
+    pub cached_matrix_title: Option<String>,
 }
 
 impl AppState {
@@ -84,10 +93,12 @@ impl AppState {
         let recent_runs = db.recent_runs(5)?;
         let total_experiments = experiments.len();
         let hierarchy = db.list_hierarchy()?;
+        let config = config::load_config(&store_root);
         Ok(Self {
             db,
             store_root,
             hierarchy,
+            config,
             current_view: View::Explorer,
             focus: Focus::Tree,
             should_quit: false,
@@ -106,6 +117,12 @@ impl AppState {
                 total_runs,
                 recent_runs,
             },
+            summary_scroll: 0,
+            summary_total_lines: 0,
+            cached_matrix: None,
+            cached_matrix_artifact_id: None,
+            cached_matrix_axes: None,
+            cached_matrix_title: None,
         })
     }
 
@@ -154,6 +171,97 @@ impl AppState {
             self.metric_history = self.db.get_scalar_metrics(&run.id, Some(name))?;
         } else {
             self.metric_history.clear();
+        }
+
+        Ok(())
+    }
+
+    /// Load preview data (metric history + matrix) for a leaf experiment.
+    /// Uses the latest completed run, or the first run if none completed.
+    pub fn refresh_leaf_preview(&mut self) -> Result<()> {
+        self.summary_scroll = 0;
+
+        if self.runs.is_empty() {
+            self.metric_history.clear();
+            self.available_metric_names.clear();
+            self.artifacts.clear();
+            self.cached_matrix = None;
+            self.cached_matrix_artifact_id = None;
+            return Ok(());
+        }
+
+        // Pick a preview run: latest completed, or first
+        let preview_run = self
+            .runs
+            .iter()
+            .rev()
+            .find(|r| r.status == "completed")
+            .or(self.runs.first());
+
+        let Some(run) = preview_run else {
+            return Ok(());
+        };
+        let run_id = run.id.clone();
+
+        // Load metric names and history for first metric
+        let all = self.db.get_scalar_metrics(&run_id, None)?;
+        let mut names: Vec<String> = Vec::new();
+        for m in &all {
+            if !names.contains(&m.name) {
+                names.push(m.name.clone());
+            }
+        }
+        self.available_metric_names = names;
+        self.selected_metric_idx = 0;
+
+        if let Some(name) = self.available_metric_names.first() {
+            self.metric_history = self.db.get_scalar_metrics(&run_id, Some(name))?;
+        } else {
+            self.metric_history.clear();
+        }
+
+        // Load artifacts and cache first matrix
+        self.artifacts = self.db.list_artifacts(&run_id)?;
+        self.load_first_matrix()?;
+
+        Ok(())
+    }
+
+    fn load_first_matrix(&mut self) -> Result<()> {
+        let matrix_artifact = self.artifacts.iter().find(|a| a.kind == "matrix");
+
+        let Some(artifact) = matrix_artifact else {
+            self.cached_matrix = None;
+            self.cached_matrix_artifact_id = None;
+            self.cached_matrix_axes = None;
+            self.cached_matrix_title = None;
+            return Ok(());
+        };
+
+        // Skip if already cached for this artifact
+        if self.cached_matrix_artifact_id.as_deref() == Some(&artifact.id) {
+            return Ok(());
+        }
+
+        let path = self.store_root.join(&artifact.rel_path);
+        match crate::artifact::load_npy_matrix(&path) {
+            Ok(matrix) => {
+                let axes = artifact.metadata.as_ref().and_then(|m| {
+                    let parsed: serde_json::Value = serde_json::from_str(m).ok()?;
+                    let axes_obj = parsed.get("axes")?;
+                    let rows = axes_obj.get("rows")?.as_str()?.to_string();
+                    let cols = axes_obj.get("cols")?.as_str()?.to_string();
+                    Some((rows, cols))
+                });
+                self.cached_matrix = Some(matrix);
+                self.cached_matrix_artifact_id = Some(artifact.id.clone());
+                self.cached_matrix_title = Some(artifact.name.clone());
+                self.cached_matrix_axes = axes;
+            }
+            Err(_) => {
+                self.cached_matrix = None;
+                self.cached_matrix_artifact_id = None;
+            }
         }
 
         Ok(())
