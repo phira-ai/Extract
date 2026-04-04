@@ -42,7 +42,6 @@ impl StatusBar {
                     ("j/k", "scroll"),
                 ];
                 if has_runs {
-                    b.push(("Space", "mark"));
                     b.push(("h/l", "cycle run"));
                     b.push(("S/I", "tabs"));
                     b.push(("x", "delete"));
@@ -66,6 +65,8 @@ impl StatusBar {
             (View::Compare, _) | (View::Diff, _) => vec![
                 ("Esc", "back"),
                 ("j/k", "scroll"),
+                ("C/D", "switch view"),
+                ("Tab", "selection"),
                 ("q", "quit"),
             ],
             _ => vec![("q", "quit"), ("Esc", "back")],

@@ -58,6 +58,8 @@ impl SelectionWindow {
                 if new_len == 0 {
                     state.selection_cursor = 0;
                     state.compare_baseline = 0;
+                    // If selection is now empty, focus back to tree
+                    state.focus = Focus::Tree;
                 } else {
                     if state.selection_cursor >= new_len {
                         state.selection_cursor = new_len - 1;

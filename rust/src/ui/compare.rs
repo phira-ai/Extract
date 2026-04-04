@@ -1,6 +1,6 @@
 use crossterm::event::KeyEvent;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
@@ -65,11 +65,45 @@ impl CompareView {
             return Action::None;
         }
 
+        if keys::matches_shift(key, keys::DIFF_TAB) {
+            if state.selected_runs_for_compare.len() >= 2 {
+                state.current_view = View::Diff;
+                if let Some(data) = &mut state.compare_data {
+                    data.scroll = 0;
+                }
+                return Action::None;
+            }
+            return Action::None;
+        }
+
+        if keys::matches(key, keys::TAB) {
+            if !state.selected_runs_for_compare.is_empty() {
+                state.focus = Focus::Selection;
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::QUIT) {
             return Action::Quit;
         }
 
         Action::None
+    }
+
+    fn render_tab_bar(&self, frame: &mut Frame, area: Rect) {
+        let mnemonic = Style::default()
+            .fg(self.theme.accent)
+            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+
+        let spans = vec![
+            Span::raw(" ["),
+            Span::styled("C", mnemonic),
+            Span::styled("ompare]", self.theme.tab_active),
+            Span::raw(" ["),
+            Span::styled("D", mnemonic),
+            Span::styled("iff]", self.theme.tab_inactive),
+        ];
+        frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &mut AppState) {
@@ -93,8 +127,12 @@ impl CompareView {
         let block = Block::bordered()
             .title(title)
             .border_style(border_style);
-        let inner = block.inner(area);
+        let block_inner = block.inner(area);
         frame.render_widget(block, area);
+
+        let chunks = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).split(block_inner);
+        self.render_tab_bar(frame, chunks[0]);
+        let inner = chunks[1];
 
         // Build lines from compare data (immutable borrow of state.compare_data)
         let (scroll, lines, total_lines) = {

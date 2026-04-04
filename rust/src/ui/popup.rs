@@ -196,35 +196,23 @@ impl PopupRenderer {
         area: Rect,
         confirm: &DeleteConfirmState,
     ) {
-        let width = 50u16.min(area.width.saturating_sub(4));
-        let height = 5u16;
-        let popup_area = centered_rect(width, height, area);
-
+        let popup_area = centered_rect(44, 5, area);
         frame.render_widget(Clear, popup_area);
 
         let block = Block::bordered()
-            .title(" Confirm Delete ")
+            .title(" Delete ")
+            .title_bottom(Line::from(vec![
+                Span::styled(" [y]", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::raw(" confirm  "),
+                Span::styled("[esc]", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::raw(" cancel "),
+            ]))
             .border_style(Style::default().fg(self.theme.error));
-
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
 
-        let lines = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    format!("Delete run {}? ", confirm.label),
-                    Style::default().add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("[y]", Style::default().fg(self.theme.error)),
-                Span::raw(" confirm  "),
-                Span::styled("[any key]", Style::default().fg(self.theme.accent_dim)),
-                Span::raw(" cancel"),
-            ]),
-        ];
-
-        let paragraph = Paragraph::new(lines);
-        frame.render_widget(paragraph, inner);
+        let text = Paragraph::new(Line::from(format!(" Delete run {}?", confirm.label)));
+        frame.render_widget(text, inner);
     }
 }
 

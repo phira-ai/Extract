@@ -85,7 +85,10 @@ impl AppLayout {
 
         // Selection window focus
         if state.focus == Focus::Selection {
-            if let AppEvent::Key(key) = event {
+            if state.selected_runs_for_compare.is_empty() {
+                state.focus = Focus::Tree;
+                // Fall through to normal routing
+            } else if let AppEvent::Key(key) = event {
                 if keys::matches(key, keys::QUIT) {
                     return Action::Quit;
                 }

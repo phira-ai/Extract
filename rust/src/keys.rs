@@ -29,6 +29,8 @@ pub const DELETE: KeyCode = KeyCode::Char('x');
 pub const BASELINE: KeyCode = KeyCode::Char('b');
 pub const YES: KeyCode = KeyCode::Char('y');
 pub const NO: KeyCode = KeyCode::Char('n');
+pub const COMPARE_TAB: KeyCode = KeyCode::Char('C');
+pub const DIFF_TAB: KeyCode = KeyCode::Char('D');
 
 /// Check if a key event matches a given key code (ignoring modifiers).
 pub fn matches(event: &KeyEvent, code: KeyCode) -> bool {

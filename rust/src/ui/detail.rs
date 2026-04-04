@@ -131,19 +131,6 @@ impl DetailPanel {
             return Action::None;
         }
 
-        if keys::matches(key, keys::TOGGLE_SELECT) {
-            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
-                let run_id = run.id.clone();
-                if state.selected_runs_for_compare.contains(&run_id) {
-                    state.selected_runs_for_compare.retain(|id| id != &run_id);
-                } else {
-                    state.selected_runs_for_compare.push(run_id);
-                }
-                state.refresh_marked_experiments();
-            }
-            return Action::None;
-        }
-
         if keys::matches(key, keys::COMPARE) {
             if state.selected_runs_for_compare.len() >= 2 {
                 if state.load_compare_data().is_ok() {
@@ -230,37 +217,48 @@ impl DetailPanel {
             return;
         };
 
-        // Split inner into tab bar + content
-        let chunks = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).split(inner);
-
-        self.render_tab_bar(frame, chunks[0]);
-
-        match self.active_tab {
-            DetailTab::Summary => self.render_summary(frame, chunks[1], state),
-            DetailTab::Info => self.render_info(frame, chunks[1], &run),
+        if focused {
+            // Split inner into tab bar + content
+            let chunks = Layout::vertical([Constraint::Length(2), Constraint::Min(0)]).split(inner);
+            self.render_tab_bar(frame, chunks[0]);
+            match self.active_tab {
+                DetailTab::Summary => self.render_summary(frame, chunks[1], state),
+                DetailTab::Info => self.render_info(frame, chunks[1], &run),
+            }
+        } else {
+            match self.active_tab {
+                DetailTab::Summary => self.render_summary(frame, inner, state),
+                DetailTab::Info => self.render_info(frame, inner, &run),
+            }
         }
     }
 
     fn render_tab_bar(&self, frame: &mut Frame, area: Rect) {
+        let mnemonic = Style::default()
+            .fg(self.theme.accent)
+            .add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+
         let mut spans: Vec<Span> = Vec::new();
 
         // Summary tab
-        let sum_active = self.active_tab == DetailTab::Summary;
-        let sum_style = if sum_active { self.theme.tab_active } else { self.theme.tab_inactive };
-        let s_style = sum_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+        let sum_style = if self.active_tab == DetailTab::Summary {
+            self.theme.tab_active
+        } else {
+            self.theme.tab_inactive
+        };
         spans.push(Span::raw(" ["));
-        spans.push(Span::styled("S", s_style));
-        spans.push(Span::styled("ummary", sum_style));
-        spans.push(Span::styled("]", sum_style));
+        spans.push(Span::styled("S", mnemonic));
+        spans.push(Span::styled("ummary]", sum_style));
 
         // Info tab
-        let info_active = self.active_tab == DetailTab::Info;
-        let info_style = if info_active { self.theme.tab_active } else { self.theme.tab_inactive };
-        let i_style = info_style.add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+        let info_style = if self.active_tab == DetailTab::Info {
+            self.theme.tab_active
+        } else {
+            self.theme.tab_inactive
+        };
         spans.push(Span::raw(" ["));
-        spans.push(Span::styled("I", i_style));
-        spans.push(Span::styled("nfo", info_style));
-        spans.push(Span::styled("]", info_style));
+        spans.push(Span::styled("I", mnemonic));
+        spans.push(Span::styled("nfo]", info_style));
 
         frame.render_widget(Paragraph::new(Line::from(spans)), area);
     }
