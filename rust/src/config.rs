@@ -88,7 +88,7 @@ pub struct Config {
 pub fn parse_color(name: &str) -> Color {
     match name.to_lowercase().as_str() {
         "none" | "reset" | "default" => Color::Reset,
-        "orange" => Color::LightRed,
+        "orange" => Color::Rgb(255, 165, 0),
         "red" => Color::Red,
         "green" => Color::Green,
         "yellow" => Color::Yellow,
@@ -105,6 +105,59 @@ pub fn parse_color(name: &str) -> Color {
         "lightcyan" | "light_cyan" => Color::LightCyan,
         "lightmagenta" | "light_magenta" => Color::LightMagenta,
         _ => Color::Reset, // fallback to terminal default
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_config_toml() {
+        let content = r#"
+[summary]
+curve_smooth = true
+
+[tables]
+[[tables.highlight]]
+eq = 0.00
+color = "none"
+
+[[tables.highlight]]
+min = 0.7
+color = "red"
+
+[[tables.highlight]]
+min = 0.5
+max = 0.7
+color = "orange"
+
+[[tables.highlight]]
+min = 0.3
+max = 0.5
+color = "yellow"
+
+[[tables.highlight]]
+max = 0.3
+color = "white"
+"#;
+        let config: Config = toml::from_str(content).expect("Failed to parse config");
+        assert!(config.summary.curve_smooth);
+        assert_eq!(config.tables.highlight.len(), 5);
+
+        let r0 = &config.tables.highlight[0];
+        assert_eq!(r0.eq, Some(0.0));
+        assert_eq!(r0.color, "none");
+
+        let r1 = &config.tables.highlight[1];
+        assert_eq!(r1.min, Some(0.7));
+        assert_eq!(r1.max, None);
+        assert_eq!(r1.color, "red");
+
+        // Check color parsing
+        assert_eq!(parse_color("red"), Color::Red);
+        assert_eq!(parse_color("orange"), Color::Rgb(255, 165, 0));
+        assert_eq!(parse_color("none"), Color::Reset);
     }
 }
 
