@@ -351,16 +351,14 @@ fn build_tree_items<'a>(
     build_children(None, &children_map, marked_experiment_ids)
 }
 
-/// Map node_type to an icon prefix. Leaf nodes get a distinct icon.
+/// Map node_type to a Nerd Font icon prefix. Leaf nodes get the variant/run icon.
 fn node_icon(node_type: Option<&str>, is_leaf: bool) -> &'static str {
     if is_leaf {
-        return "\u{25cb} "; // ○ leaf experiment
+        return "\u{f0668} "; // 󰙨 code-branch — leaf/variant/run level
     }
     match node_type {
-        Some("benchmark") | Some("dataset") => "\u{25ce} ", // ◎ target/dataset
-        Some("method") | Some("model") => "\u{25c6} ",      // ◆ method/approach
-        Some("variant") | Some("ablation") => "\u{25c7} ",  // ◇ variant
-        Some("task") | Some("sweep") => "\u{25a3} ",        // ▣ task/grid
-        _ => "\u{25c8} ",                                    // ◈ default branch
+        Some("benchmark") | Some("dataset") => "\u{f0130} ", //  target
+        Some("method") | Some("model") => "\u{f0a95} ",      // 󰊕 flask
+        _ => "\u{f0130} ",                                    //  default branch
     }
 }
