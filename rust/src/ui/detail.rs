@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Wrap};
+use ratatui::widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap};
 use ratatui::Frame;
 
 use crate::app::{Action, AppState, Focus, SelectionSummary, View};
@@ -311,6 +311,15 @@ impl DetailPanel {
             &state.config.tables,
         );
         state.summary_total_lines = total;
+
+        // Scrollbar
+        let visible_height = area.height as usize;
+        if total > visible_height {
+            let mut scrollbar_state = ScrollbarState::new(total.saturating_sub(visible_height))
+                .position(state.summary_scroll as usize);
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+        }
     }
 
     fn render_info(&self, frame: &mut Frame, area: Rect, run: &Run) {

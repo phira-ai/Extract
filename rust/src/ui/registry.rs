@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Cell, Row, Table};
+use ratatui::widgets::{Block, Cell, Row, Scrollbar, ScrollbarOrientation, ScrollbarState, Table};
 use ratatui::Frame;
 
 use crate::app::{Action, AppState, Focus, View};
@@ -196,5 +196,14 @@ impl RegistryView {
             .column_spacing(1);
 
         frame.render_widget(table, inner);
+
+        // Scrollbar
+        let visible_height = inner.height.saturating_sub(1) as usize; // -1 for header
+        if state.models.len() > visible_height {
+            let mut scrollbar_state = ScrollbarState::new(state.models.len().saturating_sub(visible_height))
+                .position(state.registry_cursor);
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
+        }
     }
 }

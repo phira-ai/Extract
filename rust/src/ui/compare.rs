@@ -4,7 +4,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Widget};
+use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Widget};
 use ratatui::Frame;
 
 use crate::app::{format_json_value, Action, AppState, CompareData, Focus, View};
@@ -181,25 +181,13 @@ impl CompareView {
         let paragraph = Paragraph::new(lines).scroll((scroll, 0));
         frame.render_widget(paragraph, inner);
 
-        // Scroll indicators
+        // Scrollbar
         let visible_height = inner.height as usize;
         if total_lines > visible_height {
-            if scroll > 0 {
-                let hint = Paragraph::new(Line::from(Span::styled(
-                    " \u{25b2} more above",
-                    Style::default().fg(self.theme.accent_dim),
-                )));
-                frame.render_widget(hint, Rect::new(inner.x, inner.y, inner.width, 1));
-            }
-            let at_bottom = scroll as usize + visible_height >= total_lines;
-            if !at_bottom {
-                let hint = Paragraph::new(Line::from(Span::styled(
-                    " \u{25bc} more below",
-                    Style::default().fg(self.theme.accent_dim),
-                )));
-                let y = inner.y + inner.height.saturating_sub(1);
-                frame.render_widget(hint, Rect::new(inner.x, y, inner.width, 1));
-            }
+            let mut scrollbar_state = ScrollbarState::new(total_lines.saturating_sub(visible_height))
+                .position(scroll as usize);
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(scrollbar, inner, &mut scrollbar_state);
         }
 
         // Update total_lines

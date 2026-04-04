@@ -2,7 +2,7 @@ use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState};
 use ratatui::Frame;
 
 use crate::app::{Action, AppState, Focus, View};
@@ -306,6 +306,15 @@ impl LineageView {
             .collect();
 
         frame.render_widget(Paragraph::new(display_lines), tree_area);
+
+        // Scrollbar
+        let total = tree_lines.len();
+        if total > visible_height {
+            let mut scrollbar_state = ScrollbarState::new(total.saturating_sub(visible_height))
+                .position(scroll);
+            let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight);
+            frame.render_stateful_widget(scrollbar, tree_area, &mut scrollbar_state);
+        }
 
         // Info bar
         if let Some(node) = state.lineage_nodes.get(state.lineage_cursor) {
