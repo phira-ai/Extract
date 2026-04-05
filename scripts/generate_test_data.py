@@ -15,16 +15,29 @@ import extract
 STORE_ROOT = Path(__file__).parent.parent / ".extract"
 
 def main():
-    # Clean existing data but preserve config.toml
+    # Clean existing data but preserve config.toml (except ensure hierarchy is set)
     config_path = STORE_ROOT / "config.toml"
     saved_config = config_path.read_text() if config_path.exists() else None
     if STORE_ROOT.exists():
         shutil.rmtree(STORE_ROOT)
+    STORE_ROOT.mkdir(parents=True, exist_ok=True)
     if saved_config is not None:
-        STORE_ROOT.mkdir(parents=True, exist_ok=True)
+        # Uncomment hierarchy if it was commented out
+        import re
+        saved_config = re.sub(
+            r'^#\s*hierarchy\s*=',
+            'hierarchy =',
+            saved_config,
+            flags=re.MULTILINE,
+        )
+        # Add [store] section with hierarchy if missing entirely
+        if "hierarchy" not in saved_config:
+            saved_config = '[store]\nhierarchy = "benchmark > method > variant"\n\n' + saved_config
         config_path.write_text(saved_config)
+    else:
+        config_path.write_text('[store]\nhierarchy = "benchmark > method > variant"\n')
 
-    store = extract.Store(root=STORE_ROOT, hierarchy="benchmark > method > variant")
+    store = extract.Store(root=STORE_ROOT)
 
     # --- CIFAR-100 experiments ---
 

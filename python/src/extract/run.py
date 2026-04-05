@@ -32,6 +32,7 @@ class Run:
         self._experiment_id = experiment_id
         self._id = run_id
         self._start_time = time.time()
+        self._finished = False
         self._buffer: list[tuple[str, int, str, float, float]] = []  # (run_id, step, name, value, wall_time)
 
     @property
@@ -46,9 +47,23 @@ class Run:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        self._flush()
-
         status = "failed" if exc_type is not None else "completed"
+        self.finish(status=status)
+        return None
+
+    # ------------------------------------------------------------------
+    # Lifecycle
+    # ------------------------------------------------------------------
+
+    def finish(self, status: str = "completed") -> None:
+        """Flush metrics and finalize the run.
+
+        Idempotent — safe to call multiple times.
+        """
+        if self._finished:
+            return
+        self._finished = True
+        self._flush()
         with self._store.lock:
             self._store._conn.execute(
                 "UPDATE runs SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), "
@@ -57,8 +72,9 @@ class Run:
             )
             self._store._conn.commit()
 
-        # Do NOT suppress exceptions
-        return None
+    def _check_active(self) -> None:
+        if self._finished:
+            raise RuntimeError(f"Run {self._id} is already finished")
 
     # ------------------------------------------------------------------
     # Scalar metrics
@@ -70,6 +86,7 @@ class Run:
         Numeric values (int, float) are stored as time-series scalar metrics.
         String values are stored as run-level categorical parameters.
         """
+        self._check_active()
         wall_time = time.time() - self._start_time
         for name, value in kwargs.items():
             if isinstance(value, str):
@@ -120,6 +137,7 @@ class Run:
         axes: dict | None = None,
     ) -> None:
         """Save a matrix as a .npy artifact."""
+        self._check_active()
         suffix = f"_step_{step}" if step is not None else ""
         filename = f"{name}{suffix}.npy"
         rel_dir = Path("artifacts") / self._id / "matrices"
@@ -153,6 +171,7 @@ class Run:
 
     def log_timeseries(self, name: str, steps: list, values: list) -> None:
         """Save a timeseries as a JSON artifact."""
+        self._check_active()
         rel_dir = Path("artifacts") / self._id / "timeseries"
         rel_path = rel_dir / f"{name}.json"
         abs_path = self._store.root / rel_path
@@ -170,6 +189,7 @@ class Run:
 
     def log_text(self, name: str, content: str) -> None:
         """Save text content as a markdown artifact."""
+        self._check_active()
         rel_dir = Path("artifacts") / self._id / "text"
         rel_path = rel_dir / f"{name}.md"
         abs_path = self._store.root / rel_path
@@ -191,6 +211,7 @@ class Run:
 
     def tag(self, *tags: str) -> None:
         """Append tags to this run."""
+        self._check_active()
         with self._store.lock:
             row = self._store._conn.execute(
                 "SELECT tags FROM runs WHERE id = ?", (self._id,)
@@ -205,6 +226,7 @@ class Run:
 
     def note(self, content: str) -> None:
         """Set or append to this run's notes."""
+        self._check_active()
         with self._store.lock:
             row = self._store._conn.execute(
                 "SELECT notes FROM runs WHERE id = ?", (self._id,)
@@ -223,6 +245,7 @@ class Run:
 
     def todo(self, content: str, priority: int = 0) -> None:
         """Create a TODO scoped to this run."""
+        self._check_active()
         todo_id = str(ULID())
         with self._store.lock:
             self._store._conn.execute(
@@ -245,6 +268,7 @@ class Run:
         framework: str = "pytorch",
     ) -> None:
         """Register a model version, copying it to the models directory."""
+        self._check_active()
         dest_dir = self._store.root / "models" / name / version
         dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -287,6 +311,7 @@ class Run:
         version: str | None = None,
     ) -> None:
         """Record that this run is derived from another run or model."""
+        self._check_active()
         with self._store.lock:
             if run is not None:
                 self._store._conn.execute(
@@ -319,6 +344,7 @@ class Run:
         run: str | None = None,
     ) -> None:
         """Record that this run branched from an experiment or another run."""
+        self._check_active()
         with self._store.lock:
             if experiment is not None:
                 self._store._conn.execute(

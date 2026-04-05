@@ -7,6 +7,11 @@ import sqlite3
 import threading
 from pathlib import Path
 
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib  # type: ignore[no-redef]
+
 from ulid import ULID
 
 from extract.experiment import Experiment
@@ -142,7 +147,7 @@ class Store:
     """Manages the .extract/ directory, SQLite database, and provides the
     top-level API for creating experiments and global TODOs."""
 
-    def __init__(self, root: str | Path = ".extract", hierarchy: str | None = None) -> None:
+    def __init__(self, root: str | Path = ".extract") -> None:
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "artifacts").mkdir(exist_ok=True)
@@ -164,19 +169,33 @@ class Store:
                 pass  # Column already exists
             self._conn.commit()
 
-        # Load or save hierarchy config
-        existing = self._load_hierarchy()
-        if hierarchy is not None:
-            levels = _parse_hierarchy(hierarchy)
-            if existing and existing != levels:
-                raise ValueError(
-                    f"Store already has hierarchy {' > '.join(existing)}, "
-                    f"cannot change to {' > '.join(levels)}"
-                )
-            if not existing:
-                self._save_hierarchy(levels)
-                existing = levels
-        self._hierarchy = existing
+        # Load hierarchy: config.toml is the source of truth, DB is the cache
+        config_hierarchy = self._load_config_hierarchy()
+        db_hierarchy = self._load_hierarchy()
+
+        if config_hierarchy and db_hierarchy and config_hierarchy != db_hierarchy:
+            raise ValueError(
+                f"Hierarchy mismatch: config.toml has "
+                f"{' > '.join(config_hierarchy)} but DB has "
+                f"{' > '.join(db_hierarchy)}"
+            )
+
+        if config_hierarchy and not db_hierarchy:
+            self._save_hierarchy(config_hierarchy)
+
+        self._hierarchy = config_hierarchy or db_hierarchy
+
+    def _load_config_hierarchy(self) -> list[str]:
+        """Read hierarchy from config.toml if it exists."""
+        config_path = self.root / "config.toml"
+        if not config_path.exists():
+            return []
+        with open(config_path, "rb") as f:
+            config = tomllib.load(f)
+        hierarchy_str = config.get("store", {}).get("hierarchy")
+        if hierarchy_str is None:
+            return []
+        return _parse_hierarchy(hierarchy_str)
 
     def _load_hierarchy(self) -> list[str]:
         """Load hierarchy level names from DB, ordered."""
@@ -252,7 +271,7 @@ class Store:
         if not self._hierarchy:
             raise ValueError(
                 "Cannot use dict spec without hierarchy. "
-                "Initialize Store with hierarchy='level1 > level2 > ...'"
+                "Set hierarchy in config.toml: [store] hierarchy = 'level1 > level2 > ...'"
             )
 
         unknown = set(spec.keys()) - set(self._hierarchy)
