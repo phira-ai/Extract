@@ -162,7 +162,7 @@ impl CompareView {
                     ),
                     CompareSection::Curves => {
                         let chart_width = ((w as f32)
-                            * (state.config.summary.curve_width.min(100) as f32 / 100.0))
+                            * (state.config.compare.curve_width.min(100) as f32 / 100.0))
                             as u16;
                         self.build_overlay_charts(
                             &mut lines,

@@ -98,12 +98,16 @@ fn default_compare_sections() -> Vec<CompareSection> {
 pub struct CompareConfig {
     #[serde(default = "default_compare_sections")]
     pub sections: Vec<CompareSection>,
+    /// Chart width as percentage of panel width (1-100, default 80).
+    #[serde(default = "default_curve_width")]
+    pub curve_width: u8,
 }
 
 impl Default for CompareConfig {
     fn default() -> Self {
         Self {
             sections: default_compare_sections(),
+            curve_width: default_curve_width(),
         }
     }
 }
