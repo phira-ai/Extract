@@ -216,15 +216,26 @@ impl PopupRenderer {
 
     /// Render the run picker popup.
     pub fn render_run_picker(&self, frame: &mut Frame, area: Rect, picker: &RunPickerState) {
-        let height = (picker.runs.len() as u16 + 4).min(area.height.saturating_sub(4));
+        let height = (picker.runs.len() as u16 + 5).min(area.height.saturating_sub(4));
         let width = 60u16.min(area.width.saturating_sub(4));
         let popup_area = centered_rect(width, height, area);
 
         frame.render_widget(Clear, popup_area);
 
         let title = format!(" {} — select runs ", picker.experiment_name);
+        let footer_spans = vec![
+            Span::styled("j/k", Style::default().fg(self.theme.accent)),
+            Span::styled(" nav  ", Style::default().fg(self.theme.accent_dim)),
+            Span::styled("Space", Style::default().fg(self.theme.accent)),
+            Span::styled(" toggle  ", Style::default().fg(self.theme.accent_dim)),
+            Span::styled("Enter", Style::default().fg(self.theme.accent)),
+            Span::styled(" confirm  ", Style::default().fg(self.theme.accent_dim)),
+            Span::styled("Esc", Style::default().fg(self.theme.accent)),
+            Span::styled(" close", Style::default().fg(self.theme.accent_dim)),
+        ];
         let block = Block::bordered()
             .title(title)
+            .title_bottom(Line::from(footer_spans))
             .border_style(Style::default().fg(self.theme.accent))
             .border_set(border::ROUNDED);
 
