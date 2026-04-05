@@ -111,6 +111,16 @@ pub struct MetricRanking {
     pub entries: Vec<(String, f64)>, // (child_name, best_value) sorted best-first
 }
 
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub result_type: String, // "experiment" or "run"
+    pub id: String,
+    pub experiment_id: Option<String>,
+    pub label: String,
+    pub matched_field: String,
+    pub snippet: String,
+}
+
 /// Heuristic: returns true if lower values are better for this metric.
 pub fn is_lower_better(metric_name: &str) -> bool {
     let name = metric_name.to_lowercase();

@@ -591,6 +591,78 @@ impl Db {
         Ok(rows)
     }
 
+    pub fn search(&self, query: &str) -> Result<Vec<crate::model::SearchResult>> {
+        let pattern = format!("%{query}%");
+        let mut results = Vec::new();
+
+        // Search experiments by path and name
+        let mut stmt = self.conn.prepare(
+            "SELECT id, path, name FROM experiments WHERE path LIKE ?1 OR name LIKE ?1 LIMIT 20",
+        )?;
+        let rows = stmt.query_map(params![pattern], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, path, name) = row?;
+            let matched = if name.to_lowercase().contains(&query.to_lowercase()) {
+                ("name", name.clone())
+            } else {
+                ("path", path.clone())
+            };
+            results.push(crate::model::SearchResult {
+                result_type: "experiment".to_string(),
+                id,
+                experiment_id: None,
+                label: path,
+                matched_field: matched.0.to_string(),
+                snippet: matched.1,
+            });
+        }
+
+        // Search runs by name, tags, notes
+        let mut stmt = self.conn.prepare(
+            "SELECT r.id, r.experiment_id, r.name, r.tags, r.notes, e.path \
+             FROM runs r JOIN experiments e ON r.experiment_id = e.id \
+             WHERE r.name LIKE ?1 OR r.tags LIKE ?1 OR r.notes LIKE ?1 LIMIT 20",
+        )?;
+        let rows = stmt.query_map(params![pattern], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?;
+        for row in rows {
+            let (id, exp_id, name, tags, notes, exp_path) = row?;
+            let q_lower = query.to_lowercase();
+            let (field, snippet) = if name.as_deref().unwrap_or("").to_lowercase().contains(&q_lower) {
+                ("name", name.clone().unwrap_or_default())
+            } else if tags.as_deref().unwrap_or("").to_lowercase().contains(&q_lower) {
+                ("tags", tags.clone().unwrap_or_default())
+            } else {
+                ("notes", notes.clone().unwrap_or_default().chars().take(80).collect())
+            };
+            let label = name.unwrap_or_else(|| format!("{exp_path} (run)"));
+            results.push(crate::model::SearchResult {
+                result_type: "run".to_string(),
+                id,
+                experiment_id: Some(exp_id),
+                label,
+                matched_field: field.to_string(),
+                snippet,
+            });
+        }
+
+        Ok(results)
+    }
+
     /// Toggle a todo's done status. Opens a writable connection.
     pub fn toggle_todo(db_path: &Path, todo_id: &str) -> Result<bool> {
         let conn = Connection::open(db_path)?;

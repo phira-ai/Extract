@@ -31,6 +31,8 @@ pub const BASELINE: KeyCode = KeyCode::Char('b');
 pub const YES: KeyCode = KeyCode::Char('y');
 pub const COMPARE_TAB: KeyCode = KeyCode::Char('C');
 pub const DIFF_TAB: KeyCode = KeyCode::Char('D');
+pub const SEARCH: KeyCode = KeyCode::Char('/');
+pub const HELP: KeyCode = KeyCode::Char('?');
 
 /// Check if a key event matches a given key code (ignoring modifiers).
 pub fn matches(event: &KeyEvent, code: KeyCode) -> bool {

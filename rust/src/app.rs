@@ -147,6 +147,12 @@ pub enum TodoFilter {
     Run,
 }
 
+pub struct SearchState {
+    pub query: String,
+    pub results: Vec<crate::model::SearchResult>,
+    pub cursor: usize,
+}
+
 pub struct AppState {
     pub db: Db,
     pub store_root: PathBuf,
@@ -192,6 +198,8 @@ pub struct AppState {
     pub todo_scope_picker: Option<TodoScopePicker>,
     /// When set, tree panel should open ancestors and select this experiment path.
     pub pending_tree_select: Option<String>,
+    pub search: Option<SearchState>,
+    pub show_help: bool,
 }
 
 pub struct TodoScopePicker {
@@ -252,6 +260,8 @@ impl AppState {
             todo_add_scope: None,
             todo_scope_picker: None,
             pending_tree_select: None,
+            search: None,
+            show_help: false,
         })
     }
 
