@@ -392,7 +392,7 @@ impl AppLayout {
         if let Some(ref picker) = state.run_picker {
             self.popup.render_run_picker(frame, area, picker);
         }
-        if let Some(ref browser) = state.run_browser {
+        if let Some(ref mut browser) = state.run_browser {
             self.popup.render_run_browser(frame, area, browser);
         }
         if let Some(ref confirm) = state.delete_confirm {

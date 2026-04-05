@@ -139,13 +139,13 @@ impl PopupRenderer {
                     browser.apply_filter();
                     return false;
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
+                KeyCode::Down => {
                     if !browser.filtered.is_empty() && browser.cursor + 1 < browser.filtered.len() {
                         browser.cursor += 1;
                     }
                     return false;
                 }
-                KeyCode::Up | KeyCode::Char('k') => {
+                KeyCode::Up => {
                     if browser.cursor > 0 {
                         browser.cursor -= 1;
                     }
@@ -177,13 +177,17 @@ impl PopupRenderer {
 
         if keys::matches(key, keys::SELECT) {
             // Select the run under cursor and navigate to it
-            if let Some(&run_idx) = browser.filtered.get(browser.cursor) {
-                state.selected_run = Some(run_idx);
-                let _ = state.load_run_preview(run_idx);
-                state.metrics = state.runs.get(run_idx)
-                    .map(|r| state.db.get_latest_metrics(&r.id).unwrap_or_default())
-                    .unwrap_or_default();
-                state.focus = crate::app::Focus::Detail;
+            if let Some(&filtered_idx) = browser.filtered.get(browser.cursor) {
+                if let Some(run) = browser.runs.get(filtered_idx) {
+                    let run_id = run.id.clone();
+                    // Find this run's position in state.runs (different ordering)
+                    if let Some(state_idx) = state.runs.iter().position(|r| r.id == run_id) {
+                        state.selected_run = Some(state_idx);
+                        let _ = state.load_run_preview(state_idx);
+                        state.metrics = state.db.get_latest_metrics(&run_id).unwrap_or_default();
+                        state.focus = crate::app::Focus::Detail;
+                    }
+                }
             }
             state.run_browser = None;
             return true;
@@ -338,14 +342,13 @@ impl PopupRenderer {
     }
 
     /// Render the run browser popup.
-    pub fn render_run_browser(&self, frame: &mut Frame, area: Rect, browser: &RunBrowserState) {
+    pub fn render_run_browser(&self, frame: &mut Frame, area: Rect, browser: &mut RunBrowserState) {
         let is_searching = browser.search_query.is_some();
         let search_line_count: u16 = if is_searching { 1 } else { 0 };
-        let footer_line_count: u16 = 1;
         let filtered_count = browser.filtered.len() as u16;
 
-        // Height: border(2) + search(0|1) + runs + footer(1)
-        let content_height = search_line_count + filtered_count + footer_line_count;
+        // Height: border(2) + search(0|1) + runs (footer is in border via title_bottom)
+        let content_height = search_line_count + filtered_count;
         let height = (content_height + 2).min(area.height.saturating_sub(4)).max(4);
         let width = 60u16.min(area.width.saturating_sub(4));
         let popup_area = centered_rect(width, height, area);
@@ -402,7 +405,7 @@ impl PopupRenderer {
         }
 
         // Compute visible window for scrolling
-        let list_height = inner.height as usize - lines.len() - footer_line_count as usize;
+        let list_height = inner.height as usize - lines.len();
         let scroll = if browser.cursor >= browser.scroll_offset + list_height {
             browser.cursor.saturating_sub(list_height - 1)
         } else if browser.cursor < browser.scroll_offset {
@@ -410,6 +413,7 @@ impl PopupRenderer {
         } else {
             browser.scroll_offset
         };
+        browser.scroll_offset = scroll;
 
         // Run rows
         for (vi, &run_idx) in browser.filtered.iter().enumerate().skip(scroll).take(list_height) {
@@ -432,8 +436,9 @@ impl PopupRenderer {
 
             // Truncate name to fit: width - date(19) - status(~10) - padding(4)
             let max_name_len = (inner.width as usize).saturating_sub(34);
-            let display_name = if name.len() > max_name_len {
-                format!("{}…", &name[..max_name_len.saturating_sub(1)])
+            let display_name: String = if name.chars().count() > max_name_len {
+                let truncated: String = name.chars().take(max_name_len.saturating_sub(1)).collect();
+                format!("{truncated}…")
             } else {
                 name.to_string()
             };
