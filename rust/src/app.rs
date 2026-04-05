@@ -112,6 +112,63 @@ pub struct RunPickerState {
     pub cursor: usize,
 }
 
+/// State for the run browser popup (r key).
+pub struct RunBrowserState {
+    pub experiment_name: String,
+    pub experiment_id: String,
+    pub runs: Vec<Run>,
+    pub filtered: Vec<usize>,
+    pub cursor: usize,
+    pub search_query: Option<String>,
+    pub scroll_offset: usize,
+}
+
+impl RunBrowserState {
+    pub fn new(experiment_name: String, experiment_id: String, runs: Vec<Run>) -> Self {
+        let filtered = (0..runs.len()).collect();
+        Self {
+            experiment_name,
+            experiment_id,
+            runs,
+            filtered,
+            cursor: 0,
+            search_query: None,
+            scroll_offset: 0,
+        }
+    }
+
+    /// Re-filter runs based on current search query.
+    pub fn apply_filter(&mut self) {
+        let Some(ref query) = self.search_query else {
+            self.filtered = (0..self.runs.len()).collect();
+            self.cursor = 0;
+            self.scroll_offset = 0;
+            return;
+        };
+        if query.is_empty() {
+            self.filtered = (0..self.runs.len()).collect();
+            self.cursor = 0;
+            self.scroll_offset = 0;
+            return;
+        }
+        let q = query.to_lowercase();
+        self.filtered = self.runs.iter().enumerate()
+            .filter(|(_, run)| {
+                let name = run.name.as_deref().unwrap_or("").to_lowercase();
+                let tags = run.tags.as_deref().unwrap_or("").to_lowercase();
+                let notes = run.notes.as_deref().unwrap_or("").to_lowercase();
+                let status = run.status.to_lowercase();
+                let config = run.config.as_deref().unwrap_or("").to_lowercase();
+                name.contains(&q) || tags.contains(&q) || notes.contains(&q)
+                    || status.contains(&q) || config.contains(&q)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        self.cursor = 0;
+        self.scroll_offset = 0;
+    }
+}
+
 /// State for the delete confirmation popup.
 pub struct DeleteConfirmState {
     pub run_id: String,
@@ -182,6 +239,7 @@ pub struct AppState {
     pub marked_experiment_ids: std::collections::HashSet<String>,
     pub selection_cursor: usize,
     pub run_picker: Option<RunPickerState>,
+    pub run_browser: Option<RunBrowserState>,
     pub delete_confirm: Option<DeleteConfirmState>,
     pub notification: Option<Notification>,
     // Phase 5: Registry, Lineage, TODOs
@@ -251,6 +309,7 @@ impl AppState {
             marked_experiment_ids: std::collections::HashSet::new(),
             selection_cursor: 0,
             run_picker: None,
+            run_browser: None,
             delete_confirm: None,
             notification: None,
             models: Vec::new(),

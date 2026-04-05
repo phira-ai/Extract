@@ -36,6 +36,7 @@ pub const SEARCH: KeyCode = KeyCode::Char('/');
 pub const HELP: KeyCode = KeyCode::Char('?');
 pub const GO_TOP_G: KeyCode = KeyCode::Char('g');
 pub const GO_BOTTOM: KeyCode = KeyCode::Char('G');
+pub const RUN_BROWSER: KeyCode = KeyCode::Char('r');
 
 /// Check if a key event matches a given key code (ignoring modifiers).
 pub fn matches(event: &KeyEvent, code: KeyCode) -> bool {
