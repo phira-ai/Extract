@@ -12,14 +12,13 @@ use crate::ui::compare::CompareView;
 use crate::ui::dashboard::Dashboard;
 use crate::ui::detail::DetailPanel;
 use crate::ui::diff::DiffView;
+use crate::ui::help::HelpOverlay;
 use crate::ui::lineage::LineageView;
 use crate::ui::popup::PopupRenderer;
 use crate::ui::registry::RegistryView;
-use crate::ui::selection::SelectionWindow;
-use crate::ui::statusbar::StatusBar;
-use crate::ui::theme::Theme;
-use crate::ui::help::HelpOverlay;
 use crate::ui::search::SearchPopup;
+use crate::ui::selection::SelectionWindow;
+use crate::ui::theme::Theme;
 use crate::ui::todo::TodoView;
 use crate::ui::tree::TreePanel;
 
@@ -30,7 +29,6 @@ pub struct AppLayout {
     pub compare: CompareView,
     pub diff: DiffView,
     pub selection: SelectionWindow,
-    pub statusbar: StatusBar,
     pub popup: PopupRenderer,
     pub registry: RegistryView,
     pub lineage: LineageView,
@@ -50,7 +48,6 @@ impl AppLayout {
             compare: CompareView::new(theme),
             diff: DiffView::new(theme),
             selection: SelectionWindow::new(theme),
-            statusbar: StatusBar::new(theme),
             popup: PopupRenderer::new(theme),
             registry: RegistryView::new(theme),
             lineage: LineageView::new(theme),
@@ -76,6 +73,26 @@ impl AppLayout {
                 state.show_help = false;
             }
             return Action::None;
+        }
+
+        // Handle gg (go to top) / G (go to bottom)
+        if let AppEvent::Key(key) = event {
+            if state.g_pending {
+                state.g_pending = false;
+                if keys::matches(key, keys::GO_TOP_G) {
+                    self.go_to_edge(state, true);
+                    return Action::None;
+                }
+                // Not a second g — fall through to normal handling
+            }
+            if keys::matches(key, keys::GO_TOP_G) {
+                state.g_pending = true;
+                return Action::None;
+            }
+            if keys::matches_shift(key, keys::GO_BOTTOM) {
+                self.go_to_edge(state, false);
+                return Action::None;
+            }
         }
 
         if let AppEvent::Key(key) = event {
@@ -192,43 +209,86 @@ impl AppLayout {
         }
     }
 
+    /// Move cursor/scroll to top (true) or bottom (false) for the current view/focus.
+    fn go_to_edge(&mut self, state: &mut AppState, top: bool) {
+        match state.current_view {
+            View::Compare | View::Diff => {
+                if let Some(ref mut data) = state.compare_data {
+                    data.scroll = if top { 0 } else { data.total_lines.saturating_sub(1) as u16 };
+                }
+            }
+            View::Registry => {
+                if top {
+                    state.registry_cursor = 0;
+                } else if !state.models.is_empty() {
+                    state.registry_cursor = state.models.len() - 1;
+                }
+            }
+            View::Lineage => {
+                if top {
+                    state.lineage_cursor = 0;
+                } else if !state.lineage_nodes.is_empty() {
+                    state.lineage_cursor = state.lineage_nodes.len() - 1;
+                }
+            }
+            View::TodoGlobal => {
+                if top {
+                    state.todo_cursor = 0;
+                } else if !state.todos.is_empty() {
+                    state.todo_cursor = state.todos.len() - 1;
+                }
+            }
+            _ => match state.focus {
+                Focus::Tree => {
+                    if top {
+                        self.tree.tree_state.select_first();
+                    } else {
+                        self.tree.tree_state.select_last();
+                    }
+                }
+                Focus::Detail => {
+                    if top {
+                        state.summary_scroll = 0;
+                    } else {
+                        state.summary_scroll = state.summary_total_lines.saturating_sub(1) as u16;
+                    }
+                }
+                Focus::Selection => {
+                    if top {
+                        state.selection_cursor = 0;
+                    } else if !state.selected_runs_for_compare.is_empty() {
+                        state.selection_cursor = state.selected_runs_for_compare.len() - 1;
+                    }
+                }
+            },
+        }
+    }
+
     pub fn render(&mut self, frame: &mut Frame, state: &mut AppState) {
         // Process pending tree select (e.g., from registry Enter)
         self.tree.apply_pending_select(state);
 
         let area = frame.area();
+        let main_area = area;
 
-        let inner = area;
-
-        // Split: main content + status bar
-        let vertical = Layout::vertical([Constraint::Min(0), Constraint::Length(1)]).split(inner);
-
-        let main_area = vertical[0];
-        let status_area = vertical[1];
-
-        // Full-screen views: Compare / Diff
+        // Full-screen views
         match state.current_view {
             View::Compare => {
                 self.compare.render(frame, main_area, state);
-                self.statusbar.render(frame, status_area, state);
                 self.selection.render(frame, main_area, state);
             }
             View::Diff => {
                 self.diff.render(frame, main_area, state);
-                self.statusbar.render(frame, status_area, state);
                 self.selection.render(frame, main_area, state);
             }
             View::Registry => {
                 self.registry.render(frame, main_area, state);
-                self.statusbar.render(frame, status_area, state);
             }
             View::Lineage => {
                 self.lineage.render(frame, main_area, state);
-                self.statusbar.render(frame, status_area, state);
             }
             View::TodoGlobal => {
                 self.todo_view.render(frame, main_area, state);
-                self.statusbar.render(frame, status_area, state);
             }
             _ => {
                 // Split main area: 30% tree, 70% detail
@@ -272,9 +332,6 @@ impl AppLayout {
                     self.dashboard.render(frame, inner_detail, state);
                 }
 
-                // Render status bar
-                self.statusbar.render(frame, status_area, state);
-
                 // Selection window overlay
                 self.selection.render(frame, main_area, state);
             }
@@ -306,7 +363,7 @@ impl AppLayout {
 
     fn render_notification(&self, frame: &mut Frame, area: Rect, notif: &crate::app::Notification) {
         let msg = &notif.message;
-        let width = (msg.len() as u16 + 4).min(area.width.saturating_sub(2)); // +4 for border + padding
+        let width = (msg.len() as u16 + 4).min(area.width.saturating_sub(2));
         let height = 3u16;
 
         let x = area.x + area.width.saturating_sub(width + 1);

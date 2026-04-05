@@ -200,6 +200,8 @@ pub struct AppState {
     pub pending_tree_select: Option<String>,
     pub search: Option<SearchState>,
     pub show_help: bool,
+    /// True when `g` was pressed once, waiting for second `g` to go to top.
+    pub g_pending: bool,
 }
 
 pub struct TodoScopePicker {
@@ -262,6 +264,7 @@ impl AppState {
             pending_tree_select: None,
             search: None,
             show_help: false,
+            g_pending: false,
         })
     }
 

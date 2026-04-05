@@ -20,7 +20,7 @@ impl HelpOverlay {
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         let width = 50u16.min(area.width.saturating_sub(4));
-        let height = 34u16.min(area.height.saturating_sub(2));
+        let height = 38u16.min(area.height.saturating_sub(2));
         let popup_area = centered_rect(width, height, area);
 
         frame.render_widget(Clear, popup_area);
@@ -48,13 +48,14 @@ impl HelpOverlay {
         )));
         for (key, desc) in &[
             ("j/k", "navigate"),
+            ("gg/G", "top / bottom"),
             ("Enter", "expand / select"),
             ("Space", "mark run"),
             ("c", "compare marked"),
             ("d", "diff marked"),
             ("/", "search"),
             ("1/2/3", "focus panels"),
-            ("Tab", "next panel"),
+            ("Tab/S-Tab", "next / prev panel"),
         ] {
             lines.push(binding_line(key, desc, accent_bold, accent_dim));
         }
@@ -67,6 +68,8 @@ impl HelpOverlay {
             accent_bold,
         )));
         for (key, desc) in &[
+            ("j/k", "scroll"),
+            ("gg/G", "top / bottom"),
             ("h/l", "cycle runs"),
             ("S/I", "summary / info tab"),
             ("x", "delete run"),
