@@ -34,6 +34,8 @@ impl StatusBar {
                 b.push(("M", "models"));
                 b.push(("T", "todos"));
                 b.push(("L", "lineage"));
+                b.push(("/", "search"));
+                b.push(("?", "help"));
                 b.push(("Tab", "detail"));
                 b.push(("q", "quit"));
                 b

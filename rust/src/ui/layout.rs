@@ -17,6 +17,8 @@ use crate::ui::registry::RegistryView;
 use crate::ui::selection::SelectionWindow;
 use crate::ui::statusbar::StatusBar;
 use crate::ui::theme::Theme;
+use crate::ui::help::HelpOverlay;
+use crate::ui::search::SearchPopup;
 use crate::ui::todo::TodoView;
 use crate::ui::tree::TreePanel;
 
@@ -32,11 +34,14 @@ pub struct AppLayout {
     pub registry: RegistryView,
     pub lineage: LineageView,
     pub todo_view: TodoView,
+    pub search: SearchPopup,
+    pub help: HelpOverlay,
     theme: Theme,
 }
 
 impl AppLayout {
-    pub fn new() -> Self {
+    pub fn new(config: &crate::config::Config) -> Self {
+        let theme = Theme::from_config(&config.theme);
         Self {
             tree: TreePanel::new(),
             detail: DetailPanel::new(),
@@ -49,11 +54,29 @@ impl AppLayout {
             registry: RegistryView::new(),
             lineage: LineageView::new(),
             todo_view: TodoView::new(),
-            theme: Theme::default(),
+            search: SearchPopup::new(),
+            help: HelpOverlay::new(),
+            theme,
         }
     }
 
     pub fn handle_event(&mut self, event: &AppEvent, state: &mut AppState) -> Action {
+        // Search popup intercepts all keys when active
+        if state.search.is_some() {
+            if let AppEvent::Key(key) = event {
+                self.search.handle_key(key, state);
+            }
+            return Action::None;
+        }
+
+        // Help overlay dismisses on any key
+        if state.show_help {
+            if let AppEvent::Key(_) = event {
+                state.show_help = false;
+            }
+            return Action::None;
+        }
+
         if let AppEvent::Key(key) = event {
             if state.delete_confirm.is_some() {
                 if let Some(confirmed) = self.popup.handle_delete_confirm_key(key) {
@@ -127,6 +150,18 @@ impl AppLayout {
             if keys::matches_shift(key, keys::LINEAGE) {
                 let _ = state.load_lineage_data();
                 state.current_view = View::Lineage;
+                return Action::None;
+            }
+            if keys::matches(key, keys::SEARCH) {
+                state.search = Some(crate::app::SearchState {
+                    query: String::new(),
+                    results: Vec::new(),
+                    cursor: 0,
+                });
+                return Action::None;
+            }
+            if keys::matches(key, keys::HELP) {
+                state.show_help = true;
                 return Action::None;
             }
         }
@@ -251,9 +286,19 @@ impl AppLayout {
             self.popup.render_delete_confirm(frame, area, confirm);
         }
 
-        // Notification toast (rendered last, top-right)
+        // Notification toast
         if let Some(ref notif) = state.notification {
             self.render_notification(frame, area, notif);
+        }
+
+        // Search popup overlay
+        if let Some(ref search) = state.search {
+            self.search.render(frame, area, search);
+        }
+
+        // Help overlay
+        if state.show_help {
+            self.help.render(frame, area);
         }
     }
 

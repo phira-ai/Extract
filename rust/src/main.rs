@@ -32,7 +32,7 @@ async fn main() -> color_eyre::Result<()> {
     let db = db::Db::open(&db_path)?;
     let mut app = app::AppState::new(db, std::path::PathBuf::from(&cli.store))?;
     let mut events = event::EventHandler::new(Duration::from_millis(500));
-    let mut layout = AppLayout::new();
+    let mut layout = AppLayout::new(&app.config);
 
     // Setup terminal
     crossterm::terminal::enable_raw_mode()?;
