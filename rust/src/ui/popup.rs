@@ -325,6 +325,126 @@ impl PopupRenderer {
         let text = Paragraph::new(Line::from(format!(" Delete run {}?", confirm.label)));
         frame.render_widget(text, inner);
     }
+
+    /// Render the run browser popup.
+    pub fn render_run_browser(&self, frame: &mut Frame, area: Rect, browser: &RunBrowserState) {
+        let is_searching = browser.search_query.is_some();
+        let search_line_count: u16 = if is_searching { 1 } else { 0 };
+        let footer_line_count: u16 = 1;
+        let filtered_count = browser.filtered.len() as u16;
+
+        // Height: border(2) + search(0|1) + runs + footer(1)
+        let content_height = search_line_count + filtered_count + footer_line_count;
+        let height = (content_height + 2).min(area.height.saturating_sub(4)).max(4);
+        let width = 60u16.min(area.width.saturating_sub(4));
+        let popup_area = centered_rect(width, height, area);
+
+        frame.render_widget(Clear, popup_area);
+
+        let title = format!(" {} — runs ", browser.experiment_name);
+
+        let footer_spans = if is_searching {
+            vec![
+                Span::styled("Type", Style::default().fg(self.theme.accent)),
+                Span::styled(" filter  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("Enter", Style::default().fg(self.theme.accent)),
+                Span::styled(" confirm  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("Esc", Style::default().fg(self.theme.accent)),
+                Span::styled(" cancel", Style::default().fg(self.theme.accent_dim)),
+            ]
+        } else {
+            vec![
+                Span::styled("j/k", Style::default().fg(self.theme.accent)),
+                Span::styled(" nav  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("Enter", Style::default().fg(self.theme.accent)),
+                Span::styled(" select  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("/", Style::default().fg(self.theme.accent)),
+                Span::styled(" search  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("x", Style::default().fg(self.theme.accent)),
+                Span::styled(" delete  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("Esc", Style::default().fg(self.theme.accent)),
+                Span::styled(" close", Style::default().fg(self.theme.accent_dim)),
+            ]
+        };
+
+        let block = Block::bordered()
+            .title(title)
+            .title_bottom(Line::from(footer_spans))
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(border::ROUNDED);
+
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        if inner.height == 0 || inner.width == 0 {
+            return;
+        }
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        // Search input line
+        if let Some(ref query) = browser.search_query {
+            let prompt = Span::styled("/ ", Style::default().fg(self.theme.accent));
+            let query_text = Span::raw(query.clone());
+            let cursor = Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK));
+            lines.push(Line::from(vec![prompt, query_text, cursor]));
+        }
+
+        // Compute visible window for scrolling
+        let list_height = inner.height as usize - lines.len() - footer_line_count as usize;
+        let scroll = if browser.cursor >= browser.scroll_offset + list_height {
+            browser.cursor.saturating_sub(list_height - 1)
+        } else if browser.cursor < browser.scroll_offset {
+            browser.cursor
+        } else {
+            browser.scroll_offset
+        };
+
+        // Run rows
+        for (vi, &run_idx) in browser.filtered.iter().enumerate().skip(scroll).take(list_height) {
+            let run = &browser.runs[run_idx];
+            let is_cursor = vi == browser.cursor;
+
+            let name = run.name.as_deref().unwrap_or(&run.id);
+            let date = run.ended_at.as_deref()
+                .unwrap_or(if run.status == "running" { "running" } else { &run.started_at })
+                .chars().take(19).collect::<String>();
+
+            let status_style = match run.status.as_str() {
+                "running" => self.theme.status_running,
+                "completed" => self.theme.status_completed,
+                "failed" => self.theme.status_failed,
+                _ => Style::default(),
+            };
+
+            let line_style = if is_cursor { self.theme.selected } else { Style::default() };
+
+            // Truncate name to fit: width - date(19) - status(~10) - padding(4)
+            let max_name_len = (inner.width as usize).saturating_sub(34);
+            let display_name = if name.len() > max_name_len {
+                format!("{}…", &name[..max_name_len.saturating_sub(1)])
+            } else {
+                name.to_string()
+            };
+
+            let padding = max_name_len.saturating_sub(display_name.len());
+            let line = Line::from(vec![
+                Span::styled(format!(" {display_name}{}", " ".repeat(padding)), line_style),
+                Span::styled(
+                    format!(" {:>9} ", run.status),
+                    if is_cursor { line_style } else { status_style },
+                ),
+                Span::styled(
+                    date,
+                    if is_cursor { line_style } else { Style::default().fg(self.theme.accent_dim) },
+                ),
+            ]);
+            lines.push(line);
+        }
+
+        let paragraph = Paragraph::new(lines);
+        frame.render_widget(paragraph, inner);
+    }
 }
 
 /// Create a centered rectangle of the given size within the area.
