@@ -365,13 +365,19 @@ impl TodoView {
             )));
             frame.render_widget(text, inner);
         } else {
+            let visible_height = inner.height as usize;
+            let scroll = if state.todo_cursor >= visible_height {
+                (state.todo_cursor - visible_height + 1) as u16
+            } else {
+                0
+            };
             let lines: Vec<Line> = state
                 .todos
                 .iter()
                 .enumerate()
                 .map(|(i, todo)| self.render_todo_line(i, todo, state))
                 .collect();
-            frame.render_widget(Paragraph::new(lines), inner);
+            frame.render_widget(Paragraph::new(lines).scroll((scroll, 0)), inner);
         }
 
         // Scope picker popup

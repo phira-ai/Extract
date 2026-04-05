@@ -26,7 +26,7 @@ impl SelectionWindow {
             state.focus = Focus::Tree;
             return;
         }
-        if keys::matches_shift(key, keys::TAB) {
+        if keys::matches(key, keys::BACKTAB) {
             state.focus = Focus::Detail;
             return;
         }

@@ -19,6 +19,7 @@ pub const LINEAGE: KeyCode = KeyCode::Char('L');
 pub const ADD: KeyCode = KeyCode::Char('a');
 pub const TOGGLE_SELECT: KeyCode = KeyCode::Char(' ');
 pub const TAB: KeyCode = KeyCode::Tab;
+pub const BACKTAB: KeyCode = KeyCode::BackTab;
 pub const CYCLE_PREV: KeyCode = KeyCode::Char('h');
 pub const CYCLE_NEXT: KeyCode = KeyCode::Char('l');
 pub const SUMMARY_TAB: KeyCode = KeyCode::Char('S');

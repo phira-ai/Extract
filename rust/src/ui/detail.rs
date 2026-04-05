@@ -63,7 +63,7 @@ impl DetailPanel {
         }
 
         // Shift-Tab → previous panel: Tree
-        if keys::matches_shift(key, keys::TAB) {
+        if keys::matches(key, keys::BACKTAB) {
             state.focus = Focus::Tree;
             return Action::None;
         }
