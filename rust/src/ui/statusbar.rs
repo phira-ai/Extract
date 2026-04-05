@@ -13,9 +13,7 @@ pub struct StatusBar {
 
 impl StatusBar {
     pub fn new(theme: Theme) -> Self {
-        Self {
-            theme,
-        }
+        Self { theme }
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
@@ -36,26 +34,23 @@ impl StatusBar {
                 b.push(("L", "lineage"));
                 b.push(("/", "search"));
                 b.push(("?", "help"));
-                b.push(("Tab", "detail"));
+                b.push(("Tab/S-Tab", "focus"));
                 b.push(("q", "quit"));
                 b
             }
             (View::Explorer, Focus::Detail) | (View::Detail, _) => {
                 let has_runs = !state.runs.is_empty();
-                let mut b = vec![
-                    ("Esc", "back"),
-                    ("j/k", "scroll"),
-                ];
+                let mut b = Vec::new();
                 if has_runs {
+                    b.push(("j/k", "scroll"));
                     b.push(("h/l", "cycle run"));
                     b.push(("S/I", "tabs"));
                     b.push(("x", "delete"));
+                } else {
+                    b.push(("j/k", "scroll"));
                 }
-                if n_marked >= 2 {
-                    b.push(("c", "compare"));
-                    b.push(("d", "diff"));
-                }
-                b.push(("Tab", "next"));
+                b.push(("Tab/S-Tab", "focus"));
+                b.push(("Esc", "tree"));
                 b.push(("q", "quit"));
                 b
             }
@@ -64,7 +59,8 @@ impl StatusBar {
                 ("Space", "deselect"),
                 ("b", "baseline"),
                 ("x", "delete"),
-                ("Tab/Esc", "back"),
+                ("Tab/S-Tab", "focus"),
+                ("Esc", "tree"),
                 ("q", "quit"),
             ],
             (View::Compare, _) | (View::Diff, _) => vec![
