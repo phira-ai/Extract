@@ -1,4 +1,4 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::symbols::border;
@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{AppState, DeleteConfirmState, RunPickerState};
+use crate::app::{AppState, DeleteConfirmState, RunBrowserState, RunPickerState};
 use crate::keys;
 use crate::ui::theme::Theme;
 
@@ -98,6 +98,120 @@ impl PopupRenderer {
         } else {
             Some(false)
         }
+    }
+
+    /// Handle key events for the run browser popup.
+    /// Returns true when the popup should close.
+    pub fn handle_run_browser_key(&self, key: &KeyEvent, state: &mut AppState) -> bool {
+        let Some(ref mut browser) = state.run_browser else {
+            return false;
+        };
+
+        let is_searching = browser.search_query.is_some();
+
+        // Search mode: handle text input
+        if is_searching {
+            match key.code {
+                KeyCode::Esc => {
+                    // Cancel search, restore full list
+                    browser.search_query = None;
+                    browser.filtered = (0..browser.runs.len()).collect();
+                    browser.cursor = 0;
+                    browser.scroll_offset = 0;
+                    return false;
+                }
+                KeyCode::Enter => {
+                    // Confirm filter, exit search mode but keep filtered results
+                    browser.search_query = None;
+                    return false;
+                }
+                KeyCode::Backspace => {
+                    if let Some(ref mut q) = browser.search_query {
+                        q.pop();
+                    }
+                    browser.apply_filter();
+                    return false;
+                }
+                KeyCode::Char(c) => {
+                    if let Some(ref mut q) = browser.search_query {
+                        q.push(c);
+                    }
+                    browser.apply_filter();
+                    return false;
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if !browser.filtered.is_empty() && browser.cursor + 1 < browser.filtered.len() {
+                        browser.cursor += 1;
+                    }
+                    return false;
+                }
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if browser.cursor > 0 {
+                        browser.cursor -= 1;
+                    }
+                    return false;
+                }
+                _ => return false,
+            }
+        }
+
+        // Normal mode
+        if keys::matches(key, keys::NAV_DOWN_J) || keys::matches(key, keys::NAV_DOWN) {
+            if !browser.filtered.is_empty() && browser.cursor + 1 < browser.filtered.len() {
+                browser.cursor += 1;
+            }
+            return false;
+        }
+
+        if keys::matches(key, keys::NAV_UP_K) || keys::matches(key, keys::NAV_UP) {
+            if browser.cursor > 0 {
+                browser.cursor -= 1;
+            }
+            return false;
+        }
+
+        if keys::matches(key, keys::SEARCH) {
+            browser.search_query = Some(String::new());
+            return false;
+        }
+
+        if keys::matches(key, keys::SELECT) {
+            // Select the run under cursor and navigate to it
+            if let Some(&run_idx) = browser.filtered.get(browser.cursor) {
+                state.selected_run = Some(run_idx);
+                let _ = state.load_run_preview(run_idx);
+                state.metrics = state.runs.get(run_idx)
+                    .map(|r| state.db.get_latest_metrics(&r.id).unwrap_or_default())
+                    .unwrap_or_default();
+                state.focus = crate::app::Focus::Detail;
+            }
+            state.run_browser = None;
+            return true;
+        }
+
+        if keys::matches(key, keys::DELETE) {
+            if let Some(&run_idx) = browser.filtered.get(browser.cursor) {
+                if let Some(run) = browser.runs.get(run_idx) {
+                    let run_id = run.id.clone();
+                    let label = run.name.clone().unwrap_or_else(|| {
+                        if run_id.len() > 8 {
+                            run_id[run_id.len() - 8..].to_string()
+                        } else {
+                            run_id.clone()
+                        }
+                    });
+                    state.delete_confirm = Some(DeleteConfirmState { run_id, label });
+                }
+            }
+            return false;
+        }
+
+        if keys::matches(key, keys::BACK_ESC) {
+            state.run_browser = None;
+            return true;
+        }
+
+        false
     }
 
     /// Render the run picker popup.
