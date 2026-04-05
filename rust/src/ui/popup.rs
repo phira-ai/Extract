@@ -350,7 +350,7 @@ impl PopupRenderer {
         // Height: border(2) + search(0|1) + runs (footer is in border via title_bottom)
         let content_height = search_line_count + filtered_count;
         let height = (content_height + 2).min(area.height.saturating_sub(4)).max(4);
-        let width = 60u16.min(area.width.saturating_sub(4));
+        let width = 80u16.min(area.width.saturating_sub(4));
         let popup_area = centered_rect(width, height, area);
 
         frame.render_widget(Clear, popup_area);
@@ -415,44 +415,62 @@ impl PopupRenderer {
         };
         browser.scroll_offset = scroll;
 
-        // Run rows
+        // Run rows (same format as run picker: name, date, config summary)
         for (vi, &run_idx) in browser.filtered.iter().enumerate().skip(scroll).take(list_height) {
             let run = &browser.runs[run_idx];
             let is_cursor = vi == browser.cursor;
 
-            let name = run.name.as_deref().unwrap_or(&run.id);
-            let date = run.ended_at.as_deref()
-                .unwrap_or(if run.status == "running" { "running" } else { &run.started_at })
-                .chars().take(19).collect::<String>();
+            let date = run
+                .ended_at
+                .as_deref()
+                .unwrap_or(&run.started_at)
+                .chars()
+                .take(19)
+                .collect::<String>();
 
-            let status_style = match run.status.as_str() {
-                "running" => self.theme.status_running,
-                "completed" => self.theme.status_completed,
-                "failed" => self.theme.status_failed,
-                _ => Style::default(),
-            };
+            let config_summary = run
+                .config
+                .as_ref()
+                .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok())
+                .and_then(|v| {
+                    v.as_object().map(|obj| {
+                        obj.iter()
+                            .take(3)
+                            .map(|(k, v)| {
+                                let val = match v {
+                                    serde_json::Value::String(s) => s.clone(),
+                                    other => other.to_string(),
+                                };
+                                format!("{}={}", k, val)
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    })
+                })
+                .unwrap_or_default();
 
-            let line_style = if is_cursor { self.theme.selected } else { Style::default() };
+            let label = run
+                .name
+                .as_deref()
+                .map(|n| format!("{} ", n))
+                .unwrap_or_default();
 
-            // Truncate name to fit: width - date(19) - status(~10) - padding(4)
-            let max_name_len = (inner.width as usize).saturating_sub(34);
-            let display_name: String = if name.chars().count() > max_name_len {
-                let truncated: String = name.chars().take(max_name_len.saturating_sub(1)).collect();
-                format!("{truncated}…")
+            let line_style = if is_cursor {
+                self.theme.selected
             } else {
-                name.to_string()
+                Style::default()
             };
 
-            let padding = max_name_len.saturating_sub(display_name.len());
             let line = Line::from(vec![
-                Span::styled(format!(" {display_name}{}", " ".repeat(padding)), line_style),
+                Span::styled(format!(" {}", label), line_style),
+                Span::styled(format!("{} ", date), line_style),
                 Span::styled(
-                    format!(" {:>9} ", run.status),
-                    if is_cursor { line_style } else { status_style },
-                ),
-                Span::styled(
-                    date,
-                    if is_cursor { line_style } else { Style::default().fg(self.theme.accent_dim) },
+                    config_summary,
+                    if is_cursor {
+                        line_style
+                    } else {
+                        Style::default().fg(self.theme.accent_dim)
+                    },
                 ),
             ]);
             lines.push(line);
