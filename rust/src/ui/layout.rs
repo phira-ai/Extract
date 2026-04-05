@@ -107,10 +107,24 @@ impl AppLayout {
                         let run_id = confirm.run_id.clone();
                         let label = confirm.label.clone();
                         match state.delete_run(&run_id) {
-                            Ok(()) => state.notify(
-                                crate::app::NotifyLevel::Success,
-                                format!("Deleted {label}"),
-                            ),
+                            Ok(()) => {
+                                state.notify(
+                                    crate::app::NotifyLevel::Success,
+                                    format!("Deleted {label}"),
+                                );
+                                // Refresh run browser if open
+                                if let Some(ref mut browser) = state.run_browser {
+                                    browser.runs.retain(|r| r.id != run_id);
+                                    browser.apply_filter();
+                                    if browser.cursor >= browser.filtered.len() && !browser.filtered.is_empty() {
+                                        browser.cursor = browser.filtered.len() - 1;
+                                    }
+                                    // Close browser if 0 or 1 runs remain
+                                    if browser.runs.len() <= 1 {
+                                        state.run_browser = None;
+                                    }
+                                }
+                            }
                             Err(e) => state.notify(
                                 crate::app::NotifyLevel::Error,
                                 format!("Delete failed: {e}"),
@@ -123,6 +137,10 @@ impl AppLayout {
             }
             if state.run_picker.is_some() {
                 self.popup.handle_run_picker_key(key, state);
+                return Action::None;
+            }
+            if state.run_browser.is_some() {
+                self.popup.handle_run_browser_key(key, state);
                 return Action::None;
             }
         }
@@ -204,6 +222,29 @@ impl AppLayout {
                     results: Vec::new(),
                     cursor: 0,
                 });
+                return Action::None;
+            }
+            if keys::matches(key, keys::RUN_BROWSER) {
+                // Open run browser for current leaf experiment with multiple runs
+                if let Some(idx) = state.selected_experiment {
+                    if let Some(exp) = state.experiments.get(idx) {
+                        let has_children = state.experiments.iter()
+                            .any(|e| e.parent_id.as_deref() == Some(&exp.id));
+                        if !has_children && state.runs.len() > 1 {
+                            let mut sorted_runs = state.runs.clone();
+                            sorted_runs.sort_by(|a, b| {
+                                let a_time = a.ended_at.as_deref().unwrap_or(&a.started_at);
+                                let b_time = b.ended_at.as_deref().unwrap_or(&b.started_at);
+                                b_time.cmp(a_time)
+                            });
+                            state.run_browser = Some(crate::app::RunBrowserState::new(
+                                exp.name.clone(),
+                                exp.id.clone(),
+                                sorted_runs,
+                            ));
+                        }
+                    }
+                }
                 return Action::None;
             }
         }
@@ -350,6 +391,9 @@ impl AppLayout {
         // Popup overlays (rendered on top of everything)
         if let Some(ref picker) = state.run_picker {
             self.popup.render_run_picker(frame, area, picker);
+        }
+        if let Some(ref browser) = state.run_browser {
+            self.popup.render_run_browser(frame, area, browser);
         }
         if let Some(ref confirm) = state.delete_confirm {
             self.popup.render_delete_confirm(frame, area, confirm);
