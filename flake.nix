@@ -35,6 +35,7 @@
           pkg-config
           sqlite
           rust-analyzer
+          maturin
         ];
 
         shellHook = "";

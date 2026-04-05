@@ -3,8 +3,30 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shutil
 import sys
 from pathlib import Path
+
+
+def _find_tui_binary() -> str | None:
+    """Locate the extract-tui binary.
+
+    Search order:
+    1. sys.prefix bin/ (venv or system Python install)
+    2. On PATH
+    """
+    # 1. Same environment as the Python that's running (venv bin/, system bin/)
+    candidate = Path(sys.prefix) / "bin" / "extract-tui"
+    if candidate.is_file():
+        return str(candidate)
+
+    # 2. Anywhere on PATH
+    found = shutil.which("extract-tui")
+    if found:
+        return found
+
+    return None
 
 
 def _print_merge_stats(verb: str, src: object, dst: object, stats: dict[str, int]) -> None:
@@ -25,6 +47,10 @@ def _print_merge_stats(verb: str, src: object, dst: object, stats: dict[str, int
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(prog="extract", description="Extract experiment tracker")
     sub = parser.add_subparsers(dest="command")
+
+    # --- tui ---
+    tui_parser = sub.add_parser("tui", help="Launch the TUI explorer")
+    tui_parser.add_argument("--store", default=".extract", help="Path to .extract/ directory")
 
     # --- sync ---
     sync_parser = sub.add_parser("sync", help="Sync .extract/ between machines")
@@ -48,7 +74,19 @@ def main(argv: list[str] | None = None) -> None:
 
     args = parser.parse_args(argv)
 
-    if args.command == "sync":
+    if args.command == "tui":
+        binary = _find_tui_binary()
+        if binary is None:
+            print(
+                "error: extract-tui binary not found.\n"
+                "If installed via pip, reinstall with: pip install extract-tracker\n"
+                "For development, build with: cargo build --release -p extract-tui",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        os.execvp(binary, [binary, "--store", args.store])
+
+    elif args.command == "sync":
         from extract.sync import export_archive, import_archive, pull, push
 
         root = Path(args.root).resolve()
