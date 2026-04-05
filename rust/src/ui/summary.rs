@@ -30,9 +30,9 @@ pub struct SummaryRenderer {
 }
 
 impl SummaryRenderer {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

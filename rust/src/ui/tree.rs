@@ -23,12 +23,12 @@ pub struct TreePanel {
 }
 
 impl TreePanel {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         let mut tree_state = TreeState::default();
         tree_state.select(Vec::new());
         Self {
             tree_state,
-            theme: Theme::default(),
+            theme,
         }
     }
 

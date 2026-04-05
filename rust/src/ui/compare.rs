@@ -35,9 +35,9 @@ pub struct CompareView {
 }
 
 impl CompareView {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

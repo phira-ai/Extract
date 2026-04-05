@@ -16,9 +16,9 @@ pub struct RegistryView {
 }
 
 impl RegistryView {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

@@ -15,9 +15,9 @@ pub struct SelectionWindow {
 }
 
 impl SelectionWindow {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

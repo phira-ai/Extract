@@ -14,9 +14,9 @@ pub struct HeatmapView {
 
 #[allow(dead_code)]
 impl HeatmapView {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

@@ -12,9 +12,9 @@ pub struct StatusBar {
 }
 
 impl StatusBar {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

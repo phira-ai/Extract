@@ -44,19 +44,19 @@ impl AppLayout {
     pub fn new(config: &crate::config::Config) -> Self {
         let theme = Theme::from_config(&config.theme);
         Self {
-            tree: TreePanel::new(),
-            detail: DetailPanel::new(),
-            dashboard: Dashboard::new(),
-            compare: CompareView::new(),
-            diff: DiffView::new(),
-            selection: SelectionWindow::new(),
-            statusbar: StatusBar::new(),
-            popup: PopupRenderer::new(),
-            registry: RegistryView::new(),
-            lineage: LineageView::new(),
-            todo_view: TodoView::new(),
-            search: SearchPopup::new(),
-            help: HelpOverlay::new(),
+            tree: TreePanel::new(theme),
+            detail: DetailPanel::new(theme),
+            dashboard: Dashboard::new(theme),
+            compare: CompareView::new(theme),
+            diff: DiffView::new(theme),
+            selection: SelectionWindow::new(theme),
+            statusbar: StatusBar::new(theme),
+            popup: PopupRenderer::new(theme),
+            registry: RegistryView::new(theme),
+            lineage: LineageView::new(theme),
+            todo_view: TodoView::new(theme),
+            search: SearchPopup::new(theme),
+            help: HelpOverlay::new(theme),
             theme,
         }
     }

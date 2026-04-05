@@ -26,11 +26,11 @@ pub struct DetailPanel {
 }
 
 impl DetailPanel {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
             active_tab: DetailTab::Summary,
-            summary: SummaryRenderer::new(),
-            theme: Theme::default(),
+            summary: SummaryRenderer::new(theme),
+            theme,
         }
     }
 

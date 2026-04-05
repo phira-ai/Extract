@@ -14,9 +14,9 @@ pub struct ChartView {
 
 #[allow(dead_code)]
 impl ChartView {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

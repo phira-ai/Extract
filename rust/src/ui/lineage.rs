@@ -16,9 +16,9 @@ pub struct LineageView {
 }
 
 impl LineageView {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

@@ -75,6 +75,14 @@ impl Default for Theme {
     }
 }
 
+impl Clone for Theme {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl Copy for Theme {}
+
 impl Theme {
     pub fn from_config(tc: &ThemeConfig) -> Self {
         let mut t = Self::default();

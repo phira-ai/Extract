@@ -33,9 +33,9 @@ pub struct DiffView {
 }
 
 impl DiffView {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 

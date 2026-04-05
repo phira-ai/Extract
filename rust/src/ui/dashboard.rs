@@ -15,10 +15,10 @@ pub struct Dashboard {
 }
 
 impl Dashboard {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
-            summary: SummaryRenderer::new(),
+            summary: SummaryRenderer::new(theme),
+            theme,
         }
     }
 

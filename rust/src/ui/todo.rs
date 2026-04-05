@@ -15,9 +15,9 @@ pub struct TodoView {
 }
 
 impl TodoView {
-    pub fn new() -> Self {
+    pub fn new(theme: Theme) -> Self {
         Self {
-            theme: Theme::default(),
+            theme,
         }
     }
 
