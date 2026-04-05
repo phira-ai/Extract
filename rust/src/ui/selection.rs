@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{AppState, DeleteConfirmState, Focus};
+use crate::app::{AppState, DeleteConfirmState, Focus, View};
 use crate::keys;
 use crate::ui::theme::Theme;
 
@@ -59,8 +59,9 @@ impl SelectionWindow {
                 if new_len == 0 {
                     state.selection_cursor = 0;
                     state.compare_baseline = 0;
-                    // If selection is now empty, focus back to tree
+                    state.compare_data = None;
                     state.focus = Focus::Tree;
+                    state.current_view = View::Explorer;
                 } else {
                     if state.selection_cursor >= new_len {
                         state.selection_cursor = new_len - 1;
@@ -70,6 +71,9 @@ impl SelectionWindow {
                     }
                 }
                 state.refresh_marked_experiments();
+                if matches!(state.current_view, View::Compare | View::Diff) {
+                    let _ = state.load_compare_data();
+                }
             }
             return;
         }
