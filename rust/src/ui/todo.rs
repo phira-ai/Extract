@@ -1,5 +1,6 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
@@ -350,7 +351,8 @@ impl TodoView {
                     .chain(std::iter::once(Span::raw(" ")))
                     .collect::<Vec<_>>(),
             ))
-            .border_style(Style::default().fg(self.theme.border_focused));
+            .border_style(Style::default().fg(self.theme.border_focused))
+            .border_set(border::ROUNDED);
 
         let inner = block.inner(area);
         frame.render_widget(block, area);
@@ -491,7 +493,8 @@ impl TodoView {
 
         let block = Block::bordered()
             .title(title)
-            .border_style(Style::default().fg(self.theme.accent));
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(border::ROUNDED);
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
 
@@ -566,7 +569,8 @@ impl TodoView {
 
         let block = Block::bordered()
             .title(scope_label)
-            .border_style(Style::default().fg(self.theme.accent));
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(border::ROUNDED);
         let popup_inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
 

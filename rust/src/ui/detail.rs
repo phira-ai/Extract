@@ -1,6 +1,7 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 use ratatui::Frame;
@@ -204,7 +205,8 @@ impl DetailPanel {
 
         let block = Block::bordered()
             .title(format!(" 2 Detail{run_indicator}"))
-            .border_style(border_style);
+            .border_style(border_style)
+            .border_set(border::ROUNDED);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 

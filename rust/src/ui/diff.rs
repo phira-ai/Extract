@@ -1,6 +1,7 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
@@ -134,7 +135,8 @@ impl DiffView {
 
         let block = Block::bordered()
             .title(title)
-            .border_style(border_style);
+            .border_style(border_style)
+            .border_set(border::ROUNDED);
         let block_inner = block.inner(area);
         frame.render_widget(block, area);
 

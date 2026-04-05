@@ -1,6 +1,7 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
@@ -110,7 +111,8 @@ impl PopupRenderer {
         let title = format!(" {} — select runs ", picker.experiment_name);
         let block = Block::bordered()
             .title(title)
-            .border_style(Style::default().fg(self.theme.accent));
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(border::ROUNDED);
 
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
@@ -219,7 +221,8 @@ impl PopupRenderer {
                 Span::styled("[esc]", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
                 Span::raw(" cancel "),
             ]))
-            .border_style(Style::default().fg(self.theme.error));
+            .border_style(Style::default().fg(self.theme.error))
+            .border_set(border::ROUNDED);
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
 

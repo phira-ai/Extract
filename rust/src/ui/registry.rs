@@ -1,6 +1,7 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Row, Table};
 use ratatui::Frame;
@@ -101,7 +102,8 @@ impl RegistryView {
 
         let block = Block::bordered()
             .title(" M Models ")
-            .border_style(border_style);
+            .border_style(border_style)
+            .border_set(border::ROUNDED);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 

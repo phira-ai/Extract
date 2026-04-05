@@ -338,14 +338,13 @@ fn build_tree_items<'a>(
             .iter()
             .filter_map(|exp| {
                 let sub_children = build_children(Some(&exp.id), children_map, marked, dim_style);
-                let marker = if marked.contains(&exp.id) { "\u{25cf} " } else { "" };
                 let icon = node_icon(exp.node_type.as_deref(), sub_children.is_empty());
 
                 let label: Line = if sub_children.is_empty() {
-                    Line::from(format!("{marker}{icon}{}", exp.name))
+                    Line::from(format!("{icon}{}", exp.name))
                 } else {
                     Line::from(vec![
-                        Span::raw(format!("{marker}{icon}{} ", exp.name)),
+                        Span::raw(format!("{icon}{} ", exp.name)),
                         Span::styled(format!("[{}]", sub_children.len()), dim_style),
                     ])
                 };

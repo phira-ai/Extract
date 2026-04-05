@@ -1,5 +1,6 @@
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
@@ -18,15 +19,16 @@ impl HelpOverlay {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
-        let width = 50u16.min(area.width);
-        let height = 30u16.min(area.height);
+        let width = 50u16.min(area.width.saturating_sub(4));
+        let height = 36u16.min(area.height.saturating_sub(2));
         let popup_area = centered_rect(width, height, area);
 
         frame.render_widget(Clear, popup_area);
 
         let block = Block::bordered()
             .title(" ? Help ")
-            .border_style(Style::default().fg(self.theme.accent));
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(border::ROUNDED);
 
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);

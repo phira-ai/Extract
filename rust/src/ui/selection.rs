@@ -1,6 +1,7 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
@@ -118,7 +119,8 @@ impl SelectionWindow {
 
         let block = Block::bordered()
             .title(" 3 Selected ")
-            .border_style(Style::default().fg(border_color));
+            .border_style(Style::default().fg(border_color))
+            .border_set(border::ROUNDED);
 
         let inner = block.inner(rect);
 

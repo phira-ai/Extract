@@ -3,6 +3,7 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Widget};
 use ratatui::Frame;
@@ -132,7 +133,8 @@ impl CompareView {
 
         let block = Block::bordered()
             .title(title)
-            .border_style(border_style);
+            .border_style(border_style)
+            .border_set(border::ROUNDED);
         let block_inner = block.inner(area);
         frame.render_widget(block, area);
 

@@ -1,5 +1,6 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
@@ -264,7 +265,8 @@ impl AppLayout {
                     };
                     let block = Block::bordered()
                         .title(title)
-                        .border_style(border_style);
+                        .border_style(border_style)
+                        .border_set(border::ROUNDED);
                     let inner_detail = block.inner(detail_area);
                     frame.render_widget(block, detail_area);
                     self.dashboard.render(frame, inner_detail, state);
@@ -332,7 +334,8 @@ impl AppLayout {
                     .fg(border_color)
                     .add_modifier(Modifier::BOLD),
             ))
-            .border_style(Style::default().fg(border_color));
+            .border_style(Style::default().fg(border_color))
+            .border_set(border::ROUNDED);
 
         let inner = block.inner(toast_area);
         frame.render_widget(block, toast_area);

@@ -1,6 +1,7 @@
 use crossterm::event::{KeyCode, KeyEvent};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
@@ -54,9 +55,15 @@ impl SearchPopup {
                                     .position(|e| e.id == result.id)
                                 {
                                     state.selected_experiment = Some(idx);
-                                    state.pending_tree_select =
-                                        Some(state.experiments[idx].path.clone());
+                                    state.pending_tree_select = Some(result.id.clone());
                                     let _ = state.refresh_runs();
+                                    // Auto-select latest run and focus detail
+                                    if !state.runs.is_empty() {
+                                        let run_idx = state.runs.len() - 1;
+                                        state.selected_run = Some(run_idx);
+                                        let _ = state.load_run_preview(run_idx);
+                                        state.focus = Focus::Detail;
+                                    }
                                 }
                                 state.current_view = View::Explorer;
                                 state.search = None;
@@ -69,8 +76,7 @@ impl SearchPopup {
                                         .position(|e| e.id == exp_id)
                                     {
                                         state.selected_experiment = Some(exp_idx);
-                                        state.pending_tree_select =
-                                            Some(state.experiments[exp_idx].path.clone());
+                                        state.pending_tree_select = Some(exp_id);
                                         let _ = state.refresh_runs();
                                         if let Some(run_idx) = state
                                             .runs
@@ -163,7 +169,8 @@ impl SearchPopup {
 
         let block = Block::bordered()
             .title(" / Search ")
-            .border_style(Style::default().fg(self.theme.accent));
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(border::ROUNDED);
 
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);

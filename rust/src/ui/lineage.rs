@@ -1,6 +1,7 @@
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
+use ratatui::symbols::border;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
@@ -187,7 +188,8 @@ impl LineageView {
         let border_style = Style::default().fg(self.theme.border_focused);
         let block = Block::bordered()
             .title(" L Lineage ")
-            .border_style(border_style);
+            .border_style(border_style)
+            .border_set(border::ROUNDED);
         let block_inner = block.inner(area);
         frame.render_widget(block, area);
 
