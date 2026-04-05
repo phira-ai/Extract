@@ -37,6 +37,10 @@ pub const HELP: KeyCode = KeyCode::Char('?');
 
 /// Check if a key event matches a given key code (ignoring modifiers).
 pub fn matches(event: &KeyEvent, code: KeyCode) -> bool {
+    if code == KeyCode::BackTab {
+        // crossterm sends BackTab with SHIFT modifier
+        return event.code == code && event.modifiers == KeyModifiers::SHIFT;
+    }
     event.code == code && event.modifiers == KeyModifiers::NONE
 }
 
