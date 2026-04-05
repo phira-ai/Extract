@@ -1,3 +1,4 @@
+use crate::config::{parse_hex_color, ThemeConfig};
 use ratatui::style::{Color, Modifier, Style};
 
 #[allow(dead_code)]
@@ -71,5 +72,55 @@ impl Default for Theme {
             chart_line_2: Color::Magenta,
             chart_axis: Color::DarkGray,
         }
+    }
+}
+
+impl Theme {
+    pub fn from_config(tc: &ThemeConfig) -> Self {
+        let mut t = Self::default();
+        if let Some(ref c) = tc.fg { if let Some(color) = parse_hex_color(c) { t.fg = color; } }
+        if let Some(ref c) = tc.bg { if let Some(color) = parse_hex_color(c) { t.bg = color; } }
+        if let Some(ref c) = tc.accent {
+            if let Some(color) = parse_hex_color(c) {
+                t.accent = color;
+                t.border_focused = color;
+                t.header = Style::default().fg(color).add_modifier(Modifier::BOLD);
+                t.selected = Style::default().fg(Color::Black).bg(color).add_modifier(Modifier::BOLD);
+                t.tab_active = Style::default().fg(color).add_modifier(Modifier::BOLD | Modifier::UNDERLINED);
+                t.chart_line_1 = color;
+            }
+        }
+        if let Some(ref c) = tc.accent_dim {
+            if let Some(color) = parse_hex_color(c) {
+                t.accent_dim = color;
+                t.border = color;
+                t.tab_inactive = Style::default().fg(color);
+                t.tree_branch = Style::default().fg(color);
+                t.chart_axis = color;
+            }
+        }
+        if let Some(ref c) = tc.success {
+            if let Some(color) = parse_hex_color(c) {
+                t.success = color;
+                t.status_completed = Style::default().fg(color);
+                t.metric_positive = Style::default().fg(color);
+            }
+        }
+        if let Some(ref c) = tc.warning {
+            if let Some(color) = parse_hex_color(c) {
+                t.warning = color;
+                t.status_running = Style::default().fg(color).add_modifier(Modifier::BOLD);
+            }
+        }
+        if let Some(ref c) = tc.error {
+            if let Some(color) = parse_hex_color(c) {
+                t.error = color;
+                t.status_failed = Style::default().fg(color).add_modifier(Modifier::BOLD);
+                t.metric_negative = Style::default().fg(color);
+            }
+        }
+        if let Some(ref c) = tc.border { if let Some(color) = parse_hex_color(c) { t.border = color; } }
+        if let Some(ref c) = tc.border_focused { if let Some(color) = parse_hex_color(c) { t.border_focused = color; } }
+        t
     }
 }

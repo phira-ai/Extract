@@ -127,6 +127,31 @@ impl Default for NotificationsConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+pub struct ThemeConfig {
+    pub fg: Option<String>,
+    pub bg: Option<String>,
+    pub accent: Option<String>,
+    pub accent_dim: Option<String>,
+    pub success: Option<String>,
+    pub warning: Option<String>,
+    pub error: Option<String>,
+    pub border: Option<String>,
+    pub border_focused: Option<String>,
+}
+
+/// Parse a hex color string like "#89b4fa" into a ratatui Color.
+pub fn parse_hex_color(s: &str) -> Option<Color> {
+    let s = s.strip_prefix('#').unwrap_or(s);
+    if s.len() != 6 {
+        return None;
+    }
+    let r = u8::from_str_radix(&s[0..2], 16).ok()?;
+    let g = u8::from_str_radix(&s[2..4], 16).ok()?;
+    let b = u8::from_str_radix(&s[4..6], 16).ok()?;
+    Some(Color::Rgb(r, g, b))
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub summary: SummaryConfig,
@@ -136,6 +161,8 @@ pub struct Config {
     pub compare: CompareConfig,
     #[serde(default)]
     pub notifications: NotificationsConfig,
+    #[serde(default)]
+    pub theme: ThemeConfig,
 }
 
 /// Parse a color name string into a ratatui Color.
