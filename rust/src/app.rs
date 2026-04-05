@@ -110,6 +110,55 @@ pub struct RunPickerState {
     pub runs: Vec<Run>,
     pub selected: Vec<String>,
     pub cursor: usize,
+    pub search_query: Option<String>,
+    pub filtered: Vec<usize>,
+    pub scroll_offset: usize,
+}
+
+impl RunPickerState {
+    pub fn new(experiment_name: String, runs: Vec<Run>, selected: Vec<String>) -> Self {
+        let filtered = (0..runs.len()).collect();
+        Self {
+            experiment_name,
+            runs,
+            selected,
+            cursor: 0,
+            search_query: None,
+            filtered,
+            scroll_offset: 0,
+        }
+    }
+
+    /// Re-filter runs based on current search query.
+    pub fn apply_filter(&mut self) {
+        let Some(ref query) = self.search_query else {
+            self.filtered = (0..self.runs.len()).collect();
+            self.cursor = 0;
+            self.scroll_offset = 0;
+            return;
+        };
+        if query.is_empty() {
+            self.filtered = (0..self.runs.len()).collect();
+            self.cursor = 0;
+            self.scroll_offset = 0;
+            return;
+        }
+        let q = query.to_lowercase();
+        self.filtered = self.runs.iter().enumerate()
+            .filter(|(_, run)| {
+                let name = run.name.as_deref().unwrap_or("").to_lowercase();
+                let tags = run.tags.as_deref().unwrap_or("").to_lowercase();
+                let notes = run.notes.as_deref().unwrap_or("").to_lowercase();
+                let status = run.status.to_lowercase();
+                let config = run.config.as_deref().unwrap_or("").to_lowercase();
+                name.contains(&q) || tags.contains(&q) || notes.contains(&q)
+                    || status.contains(&q) || config.contains(&q)
+            })
+            .map(|(i, _)| i)
+            .collect();
+        self.cursor = 0;
+        self.scroll_offset = 0;
+    }
 }
 
 /// State for the run browser popup (r key).

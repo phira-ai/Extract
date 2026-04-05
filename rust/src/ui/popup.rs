@@ -8,7 +8,14 @@ use ratatui::Frame;
 
 use crate::app::{AppState, DeleteConfirmState, RunBrowserState, RunPickerState};
 use crate::keys;
+use crate::model::Run;
 use crate::ui::theme::Theme;
+
+/// Fixed popup dimensions.
+const POPUP_WIDTH: u16 = 80;
+const POPUP_HEIGHT: u16 = 24;
+/// Empty lines at top and bottom inside the popup content area.
+const PADDING: u16 = 1;
 
 pub struct PopupRenderer {
     theme: Theme,
@@ -16,10 +23,10 @@ pub struct PopupRenderer {
 
 impl PopupRenderer {
     pub fn new(theme: Theme) -> Self {
-        Self {
-            theme,
-        }
+        Self { theme }
     }
+
+    // ── Run Picker (Space — mark for compare) ──────────────────────────
 
     /// Handle key events for the run picker popup.
     /// Returns true when the popup should close.
@@ -28,8 +35,55 @@ impl PopupRenderer {
             return false;
         };
 
+        let is_searching = picker.search_query.is_some();
+
+        // Search mode
+        if is_searching {
+            match key.code {
+                KeyCode::Esc => {
+                    picker.search_query = None;
+                    picker.filtered = (0..picker.runs.len()).collect();
+                    picker.cursor = 0;
+                    picker.scroll_offset = 0;
+                    return false;
+                }
+                KeyCode::Enter => {
+                    picker.search_query = None;
+                    return false;
+                }
+                KeyCode::Backspace => {
+                    if let Some(ref mut q) = picker.search_query {
+                        q.pop();
+                    }
+                    picker.apply_filter();
+                    return false;
+                }
+                KeyCode::Char(c) => {
+                    if let Some(ref mut q) = picker.search_query {
+                        q.push(c);
+                    }
+                    picker.apply_filter();
+                    return false;
+                }
+                KeyCode::Down => {
+                    if !picker.filtered.is_empty() && picker.cursor + 1 < picker.filtered.len() {
+                        picker.cursor += 1;
+                    }
+                    return false;
+                }
+                KeyCode::Up => {
+                    if picker.cursor > 0 {
+                        picker.cursor -= 1;
+                    }
+                    return false;
+                }
+                _ => return false,
+            }
+        }
+
+        // Normal mode
         if keys::matches(key, keys::NAV_DOWN_J) || keys::matches(key, keys::NAV_DOWN) {
-            if picker.cursor + 1 < picker.runs.len() {
+            if !picker.filtered.is_empty() && picker.cursor + 1 < picker.filtered.len() {
                 picker.cursor += 1;
             }
             return false;
@@ -42,40 +96,45 @@ impl PopupRenderer {
             return false;
         }
 
+        if keys::matches(key, keys::SEARCH) {
+            picker.search_query = Some(String::new());
+            return false;
+        }
+
         if keys::matches(key, keys::TOGGLE_SELECT) {
-            let run_id = picker.runs[picker.cursor].id.clone();
-            if picker.selected.contains(&run_id) {
-                picker.selected.retain(|id| id != &run_id);
-            } else {
-                // Count: already selected from other experiments + this picker's selections
-                let other_count = state.selected_runs_for_compare.len()
-                    - state.selected_runs_for_compare.iter()
-                        .filter(|id| picker.runs.iter().any(|r| r.id == **id))
-                        .count();
-                if other_count + picker.selected.len() < crate::ui::tree::MAX_COMPARE_RUNS {
-                    picker.selected.push(run_id);
+            if let Some(&run_idx) = picker.filtered.get(picker.cursor) {
+                let run_id = picker.runs[run_idx].id.clone();
+                if picker.selected.contains(&run_id) {
+                    picker.selected.retain(|id| id != &run_id);
                 } else {
-                    state.notify(
-                        crate::app::NotifyLevel::Warn,
-                        format!("Max {} runs for compare", crate::ui::tree::MAX_COMPARE_RUNS),
-                    );
+                    let other_count = state.selected_runs_for_compare.len()
+                        - state
+                            .selected_runs_for_compare
+                            .iter()
+                            .filter(|id| picker.runs.iter().any(|r| r.id == **id))
+                            .count();
+                    if other_count + picker.selected.len() < crate::ui::tree::MAX_COMPARE_RUNS {
+                        picker.selected.push(run_id);
+                    } else {
+                        state.notify(
+                            crate::app::NotifyLevel::Warn,
+                            format!("Max {} runs for compare", crate::ui::tree::MAX_COMPARE_RUNS),
+                        );
+                    }
                 }
             }
             return false;
         }
 
         if keys::matches(key, keys::SELECT) || keys::matches(key, keys::BACK_ESC) {
-            // Apply selections: add newly selected run IDs, remove deselected ones
             let picker = state.run_picker.take().unwrap();
             let experiment_run_ids: Vec<String> =
                 picker.runs.iter().map(|r| r.id.clone()).collect();
 
-            // Remove all runs from this experiment
             state
                 .selected_runs_for_compare
                 .retain(|id| !experiment_run_ids.contains(id));
 
-            // Add back the selected ones
             for id in &picker.selected {
                 if !state.selected_runs_for_compare.contains(id) {
                     state.selected_runs_for_compare.push(id.clone());
@@ -83,15 +142,15 @@ impl PopupRenderer {
             }
 
             state.refresh_marked_experiments();
-            // run_picker is already None from take()
             return true;
         }
 
         false
     }
 
+    // ── Delete Confirmation ────────────────────────────────────────────
+
     /// Handle key events for the delete confirmation popup.
-    /// Returns Some(true) on 'y', Some(false) on any other key.
     pub fn handle_delete_confirm_key(&self, key: &KeyEvent) -> Option<bool> {
         if keys::matches(key, keys::YES) {
             Some(true)
@@ -99,6 +158,8 @@ impl PopupRenderer {
             Some(false)
         }
     }
+
+    // ── Run Browser (r — navigate to run) ──────────────────────────────
 
     /// Handle key events for the run browser popup.
     /// Returns true when the popup should close.
@@ -109,11 +170,10 @@ impl PopupRenderer {
 
         let is_searching = browser.search_query.is_some();
 
-        // Search mode: handle text input
+        // Search mode
         if is_searching {
             match key.code {
                 KeyCode::Esc => {
-                    // Cancel search, restore full list
                     browser.search_query = None;
                     browser.filtered = (0..browser.runs.len()).collect();
                     browser.cursor = 0;
@@ -121,7 +181,6 @@ impl PopupRenderer {
                     return false;
                 }
                 KeyCode::Enter => {
-                    // Confirm filter, exit search mode but keep filtered results
                     browser.search_query = None;
                     return false;
                 }
@@ -140,7 +199,9 @@ impl PopupRenderer {
                     return false;
                 }
                 KeyCode::Down => {
-                    if !browser.filtered.is_empty() && browser.cursor + 1 < browser.filtered.len() {
+                    if !browser.filtered.is_empty()
+                        && browser.cursor + 1 < browser.filtered.len()
+                    {
                         browser.cursor += 1;
                     }
                     return false;
@@ -176,15 +237,14 @@ impl PopupRenderer {
         }
 
         if keys::matches(key, keys::SELECT) {
-            // Select the run under cursor and navigate to it
             if let Some(&filtered_idx) = browser.filtered.get(browser.cursor) {
                 if let Some(run) = browser.runs.get(filtered_idx) {
                     let run_id = run.id.clone();
-                    // Find this run's position in state.runs (different ordering)
                     if let Some(state_idx) = state.runs.iter().position(|r| r.id == run_id) {
                         state.selected_run = Some(state_idx);
                         let _ = state.load_run_preview(state_idx);
-                        state.metrics = state.db.get_latest_metrics(&run_id).unwrap_or_default();
+                        state.metrics =
+                            state.db.get_latest_metrics(&run_id).unwrap_or_default();
                         state.focus = crate::app::Focus::Detail;
                     }
                 }
@@ -218,25 +278,34 @@ impl PopupRenderer {
         false
     }
 
-    /// Render the run picker popup.
-    pub fn render_run_picker(&self, frame: &mut Frame, area: Rect, picker: &RunPickerState) {
-        let height = (picker.runs.len() as u16 + 5).min(area.height.saturating_sub(4));
-        let width = 60u16.min(area.width.saturating_sub(4));
+    // ── Rendering ──────────────────────────────────────────────────────
+
+    /// Render the run picker popup (Space — select runs for compare).
+    pub fn render_run_picker(&self, frame: &mut Frame, area: Rect, picker: &mut RunPickerState) {
+        let is_searching = picker.search_query.is_some();
+        let width = POPUP_WIDTH.min(area.width.saturating_sub(4));
+        let height = POPUP_HEIGHT.min(area.height.saturating_sub(4));
         let popup_area = centered_rect(width, height, area);
 
         frame.render_widget(Clear, popup_area);
 
         let title = format!(" {} — select runs ", picker.experiment_name);
-        let footer_spans = vec![
-            Span::styled("j/k", Style::default().fg(self.theme.accent)),
-            Span::styled(" nav  ", Style::default().fg(self.theme.accent_dim)),
-            Span::styled("Space", Style::default().fg(self.theme.accent)),
-            Span::styled(" toggle  ", Style::default().fg(self.theme.accent_dim)),
-            Span::styled("Enter", Style::default().fg(self.theme.accent)),
-            Span::styled(" confirm  ", Style::default().fg(self.theme.accent_dim)),
-            Span::styled("Esc", Style::default().fg(self.theme.accent)),
-            Span::styled(" close", Style::default().fg(self.theme.accent_dim)),
-        ];
+        let footer_spans = if is_searching {
+            search_footer_spans(&self.theme)
+        } else {
+            vec![
+                Span::styled("j/k", Style::default().fg(self.theme.accent)),
+                Span::styled(" nav  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("Space", Style::default().fg(self.theme.accent)),
+                Span::styled(" toggle  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("/", Style::default().fg(self.theme.accent)),
+                Span::styled(" search  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("Enter", Style::default().fg(self.theme.accent)),
+                Span::styled(" confirm  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("Esc", Style::default().fg(self.theme.accent)),
+                Span::styled(" close", Style::default().fg(self.theme.accent_dim)),
+            ]
+        };
         let block = Block::bordered()
             .title(title)
             .title_bottom(Line::from(footer_spans))
@@ -246,56 +315,63 @@ impl PopupRenderer {
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
 
+        if inner.height == 0 || inner.width == 0 {
+            return;
+        }
+
+        let diff_keys = differing_config_keys(&picker.runs);
         let mut lines: Vec<Line> = Vec::new();
-        for (i, run) in picker.runs.iter().enumerate() {
+
+        // Top padding
+        for _ in 0..PADDING.min(inner.height) {
+            lines.push(Line::raw(""));
+        }
+
+        // Search input line
+        if let Some(ref query) = picker.search_query {
+            lines.push(search_input_line(query, &self.theme));
+        }
+
+        // Scrollable area
+        let reserved = lines.len() + PADDING as usize;
+        let list_height = (inner.height as usize).saturating_sub(reserved);
+        let scroll = compute_scroll(picker.cursor, picker.scroll_offset, list_height);
+        picker.scroll_offset = scroll;
+
+        for (vi, &run_idx) in picker
+            .filtered
+            .iter()
+            .enumerate()
+            .skip(scroll)
+            .take(list_height)
+        {
+            let run = &picker.runs[run_idx];
+            let is_cursor = vi == picker.cursor;
             let is_selected = picker.selected.contains(&run.id);
-            let is_cursor = i == picker.cursor;
-
-            let check = if is_selected { "[x] " } else { "[ ] " };
-
-            let date = run
-                .ended_at
-                .as_deref()
-                .unwrap_or(&run.started_at)
-                .chars()
-                .take(19)
-                .collect::<String>();
-
-            let config_summary = run
-                .config
-                .as_ref()
-                .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok())
-                .and_then(|v| {
-                    v.as_object().map(|obj| {
-                        obj.iter()
-                            .take(3)
-                            .map(|(k, v)| {
-                                let val = match v {
-                                    serde_json::Value::String(s) => s.clone(),
-                                    other => other.to_string(),
-                                };
-                                format!("{}={}", k, val)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    })
-                })
-                .unwrap_or_default();
-
-            let label = run
-                .name
-                .as_deref()
-                .map(|n| format!("{} ", n))
-                .unwrap_or_default();
-
             let line_style = if is_cursor {
                 self.theme.selected
             } else {
                 Style::default()
             };
 
-            let line = Line::from(vec![
-                Span::styled(check, if is_cursor { line_style } else { Style::default() }),
+            let check = if is_selected { "[x] " } else { "[ ] " };
+            let label = run
+                .name
+                .as_deref()
+                .map(|n| format!("{} ", n))
+                .unwrap_or_default();
+            let date = format_date(run);
+            let config_summary = differing_config_summary(run, &diff_keys);
+
+            lines.push(Line::from(vec![
+                Span::styled(
+                    check,
+                    if is_cursor {
+                        line_style
+                    } else {
+                        Style::default()
+                    },
+                ),
                 Span::styled(label, line_style),
                 Span::styled(format!("{} ", date), line_style),
                 Span::styled(
@@ -306,12 +382,15 @@ impl PopupRenderer {
                         Style::default().fg(self.theme.accent_dim)
                     },
                 ),
-            ]);
-            lines.push(line);
+            ]));
         }
 
-        let paragraph = Paragraph::new(lines);
-        frame.render_widget(paragraph, inner);
+        // Bottom padding
+        for _ in 0..PADDING {
+            lines.push(Line::raw(""));
+        }
+
+        frame.render_widget(Paragraph::new(lines), inner);
     }
 
     /// Render the delete confirmation popup.
@@ -327,9 +406,19 @@ impl PopupRenderer {
         let block = Block::bordered()
             .title(" Delete ")
             .title_bottom(Line::from(vec![
-                Span::styled(" [y]", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    " [y]",
+                    Style::default()
+                        .fg(self.theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" confirm  "),
-                Span::styled("[esc]", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    "[esc]",
+                    Style::default()
+                        .fg(self.theme.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
                 Span::raw(" cancel "),
             ]))
             .border_style(Style::default().fg(self.theme.error))
@@ -341,31 +430,23 @@ impl PopupRenderer {
         frame.render_widget(text, inner);
     }
 
-    /// Render the run browser popup.
-    pub fn render_run_browser(&self, frame: &mut Frame, area: Rect, browser: &mut RunBrowserState) {
+    /// Render the run browser popup (r — navigate to run).
+    pub fn render_run_browser(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        browser: &mut RunBrowserState,
+    ) {
         let is_searching = browser.search_query.is_some();
-        let search_line_count: u16 = if is_searching { 1 } else { 0 };
-        let filtered_count = browser.filtered.len() as u16;
-
-        // Height: border(2) + search(0|1) + runs (footer is in border via title_bottom)
-        let content_height = search_line_count + filtered_count;
-        let height = (content_height + 2).min(area.height.saturating_sub(4)).max(4);
-        let width = 80u16.min(area.width.saturating_sub(4));
+        let width = POPUP_WIDTH.min(area.width.saturating_sub(4));
+        let height = POPUP_HEIGHT.min(area.height.saturating_sub(4));
         let popup_area = centered_rect(width, height, area);
 
         frame.render_widget(Clear, popup_area);
 
         let title = format!(" {} — runs ", browser.experiment_name);
-
         let footer_spans = if is_searching {
-            vec![
-                Span::styled("Type", Style::default().fg(self.theme.accent)),
-                Span::styled(" filter  ", Style::default().fg(self.theme.accent_dim)),
-                Span::styled("Enter", Style::default().fg(self.theme.accent)),
-                Span::styled(" confirm  ", Style::default().fg(self.theme.accent_dim)),
-                Span::styled("Esc", Style::default().fg(self.theme.accent)),
-                Span::styled(" cancel", Style::default().fg(self.theme.accent_dim)),
-            ]
+            search_footer_spans(&self.theme)
         } else {
             vec![
                 Span::styled("j/k", Style::default().fg(self.theme.accent)),
@@ -394,75 +475,50 @@ impl PopupRenderer {
             return;
         }
 
+        let diff_keys = differing_config_keys(&browser.runs);
         let mut lines: Vec<Line> = Vec::new();
+
+        // Top padding
+        for _ in 0..PADDING.min(inner.height) {
+            lines.push(Line::raw(""));
+        }
 
         // Search input line
         if let Some(ref query) = browser.search_query {
-            let prompt = Span::styled("/ ", Style::default().fg(self.theme.accent));
-            let query_text = Span::raw(query.clone());
-            let cursor = Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK));
-            lines.push(Line::from(vec![prompt, query_text, cursor]));
+            lines.push(search_input_line(query, &self.theme));
         }
 
-        // Compute visible window for scrolling
-        let list_height = inner.height as usize - lines.len();
-        let scroll = if browser.cursor >= browser.scroll_offset + list_height {
-            browser.cursor.saturating_sub(list_height - 1)
-        } else if browser.cursor < browser.scroll_offset {
-            browser.cursor
-        } else {
-            browser.scroll_offset
-        };
+        // Scrollable area
+        let reserved = lines.len() + PADDING as usize;
+        let list_height = (inner.height as usize).saturating_sub(reserved);
+        let scroll = compute_scroll(browser.cursor, browser.scroll_offset, list_height);
         browser.scroll_offset = scroll;
 
-        // Run rows (same format as run picker: name, date, config summary)
-        for (vi, &run_idx) in browser.filtered.iter().enumerate().skip(scroll).take(list_height) {
+        for (vi, &run_idx) in browser
+            .filtered
+            .iter()
+            .enumerate()
+            .skip(scroll)
+            .take(list_height)
+        {
             let run = &browser.runs[run_idx];
             let is_cursor = vi == browser.cursor;
-
-            let date = run
-                .ended_at
-                .as_deref()
-                .unwrap_or(&run.started_at)
-                .chars()
-                .take(19)
-                .collect::<String>();
-
-            let config_summary = run
-                .config
-                .as_ref()
-                .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok())
-                .and_then(|v| {
-                    v.as_object().map(|obj| {
-                        obj.iter()
-                            .take(3)
-                            .map(|(k, v)| {
-                                let val = match v {
-                                    serde_json::Value::String(s) => s.clone(),
-                                    other => other.to_string(),
-                                };
-                                format!("{}={}", k, val)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ")
-                    })
-                })
-                .unwrap_or_default();
-
-            let label = run
-                .name
-                .as_deref()
-                .map(|n| format!("{} ", n))
-                .unwrap_or_default();
-
             let line_style = if is_cursor {
                 self.theme.selected
             } else {
                 Style::default()
             };
 
-            let line = Line::from(vec![
-                Span::styled(format!(" {}", label), line_style),
+            let label = run
+                .name
+                .as_deref()
+                .map(|n| format!("{} ", n))
+                .unwrap_or_default();
+            let date = format_date(run);
+            let config_summary = differing_config_summary(run, &diff_keys);
+
+            lines.push(Line::from(vec![
+                Span::styled(format!("  {}", label), line_style),
                 Span::styled(format!("{} ", date), line_style),
                 Span::styled(
                     config_summary,
@@ -472,18 +528,154 @@ impl PopupRenderer {
                         Style::default().fg(self.theme.accent_dim)
                     },
                 ),
-            ]);
-            lines.push(line);
+            ]));
         }
 
-        let paragraph = Paragraph::new(lines);
-        frame.render_widget(paragraph, inner);
+        // Bottom padding
+        for _ in 0..PADDING {
+            lines.push(Line::raw(""));
+        }
+
+        frame.render_widget(Paragraph::new(lines), inner);
     }
 }
+
+// ── Shared helpers ─────────────────────────────────────────────────────
 
 /// Create a centered rectangle of the given size within the area.
 fn centered_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
     Rect::new(x, y, width.min(area.width), height.min(area.height))
+}
+
+/// Compute scroll offset to keep cursor visible within list_height rows.
+fn compute_scroll(cursor: usize, current_offset: usize, list_height: usize) -> usize {
+    if list_height == 0 {
+        return 0;
+    }
+    if cursor >= current_offset + list_height {
+        cursor.saturating_sub(list_height - 1)
+    } else if cursor < current_offset {
+        cursor
+    } else {
+        current_offset
+    }
+}
+
+/// Format a run's date for display (first 19 chars of ended_at or started_at).
+fn format_date(run: &Run) -> String {
+    run.ended_at
+        .as_deref()
+        .unwrap_or(&run.started_at)
+        .chars()
+        .take(19)
+        .collect()
+}
+
+/// Build search input line with blinking cursor.
+fn search_input_line<'a>(query: &str, theme: &Theme) -> Line<'a> {
+    Line::from(vec![
+        Span::styled(" / ", Style::default().fg(theme.accent)),
+        Span::raw(query.to_string()),
+        Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)),
+    ])
+}
+
+/// Footer spans shown during search mode (shared by both popups).
+fn search_footer_spans(theme: &Theme) -> Vec<Span<'static>> {
+    vec![
+        Span::styled("Type", Style::default().fg(theme.accent)),
+        Span::styled(" filter  ", Style::default().fg(theme.accent_dim)),
+        Span::styled("Enter", Style::default().fg(theme.accent)),
+        Span::styled(" confirm  ", Style::default().fg(theme.accent_dim)),
+        Span::styled("Esc", Style::default().fg(theme.accent)),
+        Span::styled(" cancel", Style::default().fg(theme.accent_dim)),
+    ]
+}
+
+/// Compare configs across all runs and return only the keys whose values differ.
+fn differing_config_keys(runs: &[Run]) -> Vec<String> {
+    use std::collections::HashMap;
+
+    let mut all_keys: Vec<String> = Vec::new();
+    let mut values_per_key: HashMap<String, Vec<Option<String>>> = HashMap::new();
+
+    // Collect all config values per key across runs
+    for run in runs {
+        let parsed = run
+            .config
+            .as_ref()
+            .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok());
+
+        if let Some(serde_json::Value::Object(obj)) = &parsed {
+            for key in obj.keys() {
+                if !all_keys.contains(key) {
+                    all_keys.push(key.clone());
+                }
+            }
+        }
+    }
+
+    // For each key, collect the value from every run
+    for key in &all_keys {
+        let mut vals = Vec::with_capacity(runs.len());
+        for run in runs {
+            let parsed = run
+                .config
+                .as_ref()
+                .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok());
+            let val = parsed
+                .as_ref()
+                .and_then(|v| v.get(key))
+                .map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                });
+            vals.push(val);
+        }
+        values_per_key.insert(key.clone(), vals);
+    }
+
+    // Keep only keys where not all values are identical
+    all_keys
+        .into_iter()
+        .filter(|key| {
+            let vals = &values_per_key[key];
+            if vals.is_empty() {
+                return false;
+            }
+            let first = &vals[0];
+            vals.iter().any(|v| v != first)
+        })
+        .collect()
+}
+
+/// Build a config summary string showing only the differing keys for this run.
+fn differing_config_summary(run: &Run, diff_keys: &[String]) -> String {
+    if diff_keys.is_empty() {
+        return String::new();
+    }
+    let parsed = run
+        .config
+        .as_ref()
+        .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok());
+
+    let Some(serde_json::Value::Object(obj)) = parsed else {
+        return String::new();
+    };
+
+    diff_keys
+        .iter()
+        .filter_map(|key| {
+            obj.get(key).map(|v| {
+                let val = match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                format!("{}={}", key, val)
+            })
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }

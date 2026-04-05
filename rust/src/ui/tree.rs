@@ -158,12 +158,11 @@ impl TreePanel {
                         let b_time = b.ended_at.as_deref().unwrap_or(&b.started_at);
                         b_time.cmp(a_time)
                     });
-                    state.run_picker = Some(crate::app::RunPickerState {
-                        experiment_name: exp_name,
-                        runs: sorted_runs,
-                        selected: already_selected,
-                        cursor: 0,
-                    });
+                    state.run_picker = Some(crate::app::RunPickerState::new(
+                        exp_name,
+                        sorted_runs,
+                        already_selected,
+                    ));
                 }
             }
             return Action::None;

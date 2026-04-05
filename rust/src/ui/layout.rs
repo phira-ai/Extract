@@ -389,7 +389,7 @@ impl AppLayout {
         }
 
         // Popup overlays (rendered on top of everything)
-        if let Some(ref picker) = state.run_picker {
+        if let Some(ref mut picker) = state.run_picker {
             self.popup.render_run_picker(frame, area, picker);
         }
         if let Some(ref mut browser) = state.run_browser {
