@@ -127,6 +127,30 @@ impl AppLayout {
             }
         }
 
+        // Selection window intercepts keys when focused (works in all views)
+        if state.focus == Focus::Selection && !state.selected_runs_for_compare.is_empty() {
+            if let AppEvent::Key(key) = event {
+                if keys::matches(key, keys::QUIT) {
+                    return Action::Quit;
+                }
+                // Tab/BackTab/Esc from Selection: return focus to the main view
+                if keys::matches(key, keys::TAB) || keys::matches(key, keys::BACKTAB) || keys::matches(key, keys::BACK_ESC) {
+                    match state.current_view {
+                        View::Compare | View::Diff => {
+                            // In compare/diff, just unfocus selection (compare/diff has no sub-panels)
+                            state.focus = Focus::Tree; // Tree means "main content" here
+                        }
+                        _ => {
+                            state.focus = Focus::Tree;
+                        }
+                    }
+                    return Action::None;
+                }
+                self.selection.handle_event(key, state);
+                return Action::None;
+            }
+        }
+
         // Route to full-screen views first (before panel shortcuts)
         match state.current_view {
             View::Compare => return self.compare.handle_event(event, state),
@@ -180,20 +204,6 @@ impl AppLayout {
                     results: Vec::new(),
                     cursor: 0,
                 });
-                return Action::None;
-            }
-        }
-
-        // Selection window focus
-        if state.focus == Focus::Selection {
-            if state.selected_runs_for_compare.is_empty() {
-                state.focus = Focus::Tree;
-                // Fall through to normal routing
-            } else if let AppEvent::Key(key) = event {
-                if keys::matches(key, keys::QUIT) {
-                    return Action::Quit;
-                }
-                self.selection.handle_event(key, state);
                 return Action::None;
             }
         }

@@ -79,14 +79,7 @@ impl DiffView {
             return Action::None;
         }
 
-        if keys::matches(key, keys::TAB) || keys::matches(key, keys::PANEL_3) {
-            if !state.selected_runs_for_compare.is_empty() {
-                state.focus = Focus::Selection;
-            }
-            return Action::None;
-        }
-
-        if keys::matches(key, keys::BACKTAB) {
+        if keys::matches(key, keys::TAB) || keys::matches(key, keys::PANEL_3) || keys::matches(key, keys::BACKTAB) {
             if !state.selected_runs_for_compare.is_empty() {
                 state.focus = Focus::Selection;
             }
