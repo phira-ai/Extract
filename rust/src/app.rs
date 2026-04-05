@@ -101,6 +101,7 @@ pub struct CompareData {
     pub table_names: Vec<String>,
     pub scroll: u16,
     pub total_lines: usize,
+    pub visible_height: usize,
 }
 
 /// State for the run picker popup.
@@ -171,6 +172,7 @@ pub struct AppState {
     pub selection_summary: SelectionSummary,
     pub summary_scroll: u16,
     pub summary_total_lines: usize,
+    pub summary_visible_height: usize,
     pub cached_table: Option<TableData>,
     pub cached_table_artifact_id: Option<String>,
     pub cached_table_axes: Option<(String, String)>,
@@ -239,6 +241,7 @@ impl AppState {
             },
             summary_scroll: 0,
             summary_total_lines: 0,
+            summary_visible_height: 0,
             cached_table: None,
             cached_table_artifact_id: None,
             cached_table_axes: None,
@@ -546,6 +549,7 @@ impl AppState {
             table_names,
             scroll: 0,
             total_lines: 0,
+            visible_height: 0,
         });
 
         Ok(())

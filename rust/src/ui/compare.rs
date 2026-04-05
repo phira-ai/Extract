@@ -58,7 +58,8 @@ impl CompareView {
 
         if keys::matches(key, keys::NAV_DOWN_J) || keys::matches(key, keys::NAV_DOWN) {
             if let Some(data) = &mut state.compare_data {
-                if (data.scroll as usize) + 1 < data.total_lines {
+                let max_scroll = data.total_lines.saturating_sub(data.visible_height);
+                if (data.scroll as usize) < max_scroll {
                     data.scroll += 1;
                 }
             }
@@ -83,7 +84,14 @@ impl CompareView {
             return Action::None;
         }
 
-        if keys::matches(key, keys::TAB) {
+        if keys::matches(key, keys::TAB) || keys::matches(key, keys::PANEL_3) {
+            if !state.selected_runs_for_compare.is_empty() {
+                state.focus = Focus::Selection;
+            }
+            return Action::None;
+        }
+
+        if keys::matches(key, keys::BACKTAB) {
             if !state.selected_runs_for_compare.is_empty() {
                 state.focus = Focus::Selection;
             }
@@ -183,9 +191,10 @@ impl CompareView {
         let paragraph = Paragraph::new(lines).scroll((scroll, 0));
         frame.render_widget(paragraph, inner);
 
-        // Update total_lines
+        // Update total_lines and visible_height
         if let Some(data) = &mut state.compare_data {
             data.total_lines = total_lines;
+            data.visible_height = inner.height as usize;
         }
     }
 

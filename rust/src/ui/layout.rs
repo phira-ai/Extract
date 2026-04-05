@@ -75,7 +75,7 @@ impl AppLayout {
             return Action::None;
         }
 
-        // Handle gg (go to top) / G (go to bottom)
+        // Global keys: gg/G, ?, work in all views
         if let AppEvent::Key(key) = event {
             if state.g_pending {
                 state.g_pending = false;
@@ -91,6 +91,10 @@ impl AppLayout {
             }
             if keys::matches_shift(key, keys::GO_BOTTOM) {
                 self.go_to_edge(state, false);
+                return Action::None;
+            }
+            if keys::matches(key, keys::HELP) {
+                state.show_help = true;
                 return Action::None;
             }
         }
@@ -178,10 +182,6 @@ impl AppLayout {
                 });
                 return Action::None;
             }
-            if keys::matches(key, keys::HELP) {
-                state.show_help = true;
-                return Action::None;
-            }
         }
 
         // Selection window focus
@@ -214,7 +214,7 @@ impl AppLayout {
         match state.current_view {
             View::Compare | View::Diff => {
                 if let Some(ref mut data) = state.compare_data {
-                    data.scroll = if top { 0 } else { data.total_lines.saturating_sub(1) as u16 };
+                    data.scroll = if top { 0 } else { data.total_lines.saturating_sub(data.visible_height) as u16 };
                 }
             }
             View::Registry => {
@@ -250,7 +250,7 @@ impl AppLayout {
                     if top {
                         state.summary_scroll = 0;
                     } else {
-                        state.summary_scroll = state.summary_total_lines.saturating_sub(1) as u16;
+                        state.summary_scroll = state.summary_total_lines.saturating_sub(state.summary_visible_height) as u16;
                     }
                 }
                 Focus::Selection => {

@@ -77,7 +77,8 @@ impl DetailPanel {
         // Summary tab: j/k scrolls
         if self.active_tab == DetailTab::Summary {
             if keys::matches(key, keys::NAV_DOWN_J) || keys::matches(key, keys::NAV_DOWN) {
-                if (state.summary_scroll as usize) + 1 < state.summary_total_lines {
+                let max_scroll = state.summary_total_lines.saturating_sub(state.summary_visible_height);
+                if (state.summary_scroll as usize) < max_scroll {
                     state.summary_scroll += 1;
                 }
                 return Action::None;
@@ -313,6 +314,7 @@ impl DetailPanel {
             &state.config.tables,
         );
         state.summary_total_lines = total;
+        state.summary_visible_height = area.height as usize;
     }
 
     fn render_info(&self, frame: &mut Frame, area: Rect, run: &Run) {
