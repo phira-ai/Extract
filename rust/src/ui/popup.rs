@@ -48,7 +48,15 @@ impl PopupRenderer {
                     return false;
                 }
                 KeyCode::Enter => {
+                    // Empty query = clear filter; non-empty = keep filter applied
+                    let is_empty = picker.search_query.as_ref()
+                        .map_or(true, |q| q.is_empty());
                     picker.search_query = None;
+                    if is_empty {
+                        picker.filtered = (0..picker.runs.len()).collect();
+                        picker.cursor = 0;
+                        picker.scroll_offset = 0;
+                    }
                     return false;
                 }
                 KeyCode::Backspace => {
@@ -181,7 +189,14 @@ impl PopupRenderer {
                     return false;
                 }
                 KeyCode::Enter => {
+                    let is_empty = browser.search_query.as_ref()
+                        .map_or(true, |q| q.is_empty());
                     browser.search_query = None;
+                    if is_empty {
+                        browser.filtered = (0..browser.runs.len()).collect();
+                        browser.cursor = 0;
+                        browser.scroll_offset = 0;
+                    }
                     return false;
                 }
                 KeyCode::Backspace => {
