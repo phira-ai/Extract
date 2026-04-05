@@ -20,7 +20,7 @@ impl HelpOverlay {
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         let width = 50u16.min(area.width.saturating_sub(4));
-        let height = 36u16.min(area.height.saturating_sub(2));
+        let height = 34u16.min(area.height.saturating_sub(2));
         let popup_area = centered_rect(width, height, area);
 
         frame.render_widget(Clear, popup_area);
@@ -39,6 +39,7 @@ impl HelpOverlay {
         let accent_dim = Style::default().fg(self.theme.accent_dim);
 
         let mut lines: Vec<Line> = Vec::new();
+        lines.push(Line::raw(""));
 
         // Explorer section
         lines.push(Line::from(Span::styled(

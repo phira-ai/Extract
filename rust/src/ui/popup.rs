@@ -167,24 +167,6 @@ impl PopupRenderer {
 
             let line = Line::from(vec![
                 Span::styled(check, if is_cursor { line_style } else { Style::default() }),
-                Span::styled(
-                    "● ",
-                    if is_cursor {
-                        line_style.fg(match run.status.as_str() {
-                            "completed" => self.theme.status_completed.fg.unwrap_or(self.theme.success),
-                            "running" => self.theme.status_running.fg.unwrap_or(self.theme.warning),
-                            "failed" => self.theme.status_failed.fg.unwrap_or(self.theme.error),
-                            _ => self.theme.accent_dim,
-                        })
-                    } else {
-                        match run.status.as_str() {
-                            "completed" => self.theme.status_completed,
-                            "running" => self.theme.status_running,
-                            "failed" => self.theme.status_failed,
-                            _ => Style::default().fg(self.theme.accent_dim),
-                        }
-                    },
-                ),
                 Span::styled(label, line_style),
                 Span::styled(format!("{} ", date), line_style),
                 Span::styled(
