@@ -60,6 +60,20 @@ class Experiment:
         config_json = json.dumps(config) if config is not None else None
 
         with self._store.lock:
+            # Auto-suffix duplicate names within this experiment.
+            if name is not None:
+                row = self._store._conn.execute(
+                    "SELECT COUNT(*) FROM runs WHERE experiment_id = ? AND name = ?",
+                    (self._id, name),
+                ).fetchone()
+                if row[0] > 0:
+                    # Find the next available suffix.
+                    row2 = self._store._conn.execute(
+                        "SELECT COUNT(*) FROM runs WHERE experiment_id = ? AND name LIKE ?",
+                        (self._id, f"{name}_%"),
+                    ).fetchone()
+                    name = f"{name}_{row[0] + row2[0]}"
+
             self._store._conn.execute(
                 "INSERT INTO runs (id, experiment_id, name, config, status, "
                 "hostname, git_sha, tags) VALUES (?, ?, ?, ?, 'running', ?, ?, '[]')",

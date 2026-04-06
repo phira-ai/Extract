@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{format_json_value, Action, AppState, CompareData, Focus, View};
+use crate::app::{format_json_value, resolve_dotted_key, Action, AppState, CompareData, Focus, View};
 use crate::artifact::CellValue;
 use crate::event::AppEvent;
 use crate::keys;
@@ -351,14 +351,14 @@ impl DiffView {
             let v_base = data.runs[baseline_idx]
                 .config
                 .as_ref()
-                .and_then(|c| c.get(key))
+                .and_then(|c| resolve_dotted_key(c, key))
                 .map(format_json_value);
 
             for &i in &non_baseline {
                 let v_run = data.runs[i]
                     .config
                     .as_ref()
-                    .and_then(|c| c.get(key))
+                    .and_then(|c| resolve_dotted_key(c, key))
                     .map(format_json_value);
 
                 if v_base == v_run {
@@ -462,7 +462,6 @@ impl DiffView {
                 1
             };
 
-            let baseline_label = data.runs[baseline_idx].label();
 
             for chunk in delta_runs.chunks(tables_per_row) {
                 // Run label headers side-by-side
@@ -475,7 +474,7 @@ impl DiffView {
                     let label = format!(
                         "{} - {}",
                         data.runs[run_idx].label(),
-                        baseline_label,
+                        data.runs[baseline_idx].label(),
                     );
                     header_spans.push(Span::styled(
                         format!("  {:<width$}", label, width = table_w.saturating_sub(2)),

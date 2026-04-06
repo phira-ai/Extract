@@ -8,7 +8,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph, Widget};
 use ratatui::Frame;
 
-use crate::app::{format_json_value, Action, AppState, CompareData, Focus, View};
+use crate::app::{format_json_value, resolve_dotted_key, Action, AppState, CompareData, Focus, View};
 use crate::config::{parse_color, CompareSection};
 use crate::event::AppEvent;
 use crate::keys;
@@ -122,11 +122,7 @@ impl CompareView {
         };
 
         let title = if data.runs.len() == 2 {
-            format!(
-                " Compare: {} vs {} ",
-                data.runs[0].label(),
-                data.runs[1].label()
-            )
+            format!(" Compare: {} vs {} ", data.runs[0].label(), data.runs[1].label())
         } else {
             let labels: Vec<String> = data.runs.iter().map(|r| r.label()).collect();
             format!(" Compare: {} ", labels.join(" vs "))
@@ -312,7 +308,14 @@ impl CompareView {
         )));
         lines.push(self.separator());
 
-        let label_width: usize = 16;
+        let label_width: usize = data
+            .config_keys
+            .iter()
+            .map(|k| k.len())
+            .max()
+            .unwrap_or(8)
+            .max(8)
+            + 2; // padding
         let col_width: usize = 14;
         let indent: usize = 2;
 
@@ -342,7 +345,7 @@ impl CompareView {
                     .map(|rd| {
                         rd.config
                             .as_ref()
-                            .and_then(|c| c.get(key))
+                            .and_then(|c| resolve_dotted_key(c, key))
                             .map(|v| format_json_value(v))
                             .unwrap_or_else(|| "-".to_string())
                     })
@@ -431,9 +434,8 @@ impl CompareView {
                         header_spans.push(Span::raw(" ".repeat(gap)));
                     }
                     let color = RUN_COLORS[run_idx % RUN_COLORS.len()];
-                    let label = data.runs[run_idx].label();
                     header_spans.push(Span::styled(
-                        format!("  {:<width$}", label, width = table_w.saturating_sub(2)),
+                        format!("  {:<width$}", data.runs[run_idx].label(), width = table_w.saturating_sub(2)),
                         Style::default().fg(color).add_modifier(Modifier::BOLD),
                     ));
                 }
@@ -486,7 +488,7 @@ impl CompareView {
         height_override: Option<u16>,
         available_width: u16,
     ) {
-        if data.metric_names.is_empty() {
+        if data.timeseries_names.is_empty() {
             return;
         }
 
@@ -526,15 +528,15 @@ impl CompareView {
             lines.push(Line::from(row_spans));
         }
 
-        // Use configured height or auto-scale based on number of metrics
-        let chart_height: u16 = height_override.unwrap_or_else(|| match data.metric_names.len() {
+        // Use configured height or auto-scale based on number of timeseries
+        let chart_height: u16 = height_override.unwrap_or_else(|| match data.timeseries_names.len() {
             1 => 12,
             2 => 10,
             3 => 8,
             _ => 6,
         });
 
-        for metric_name in &data.metric_names {
+        for metric_name in &data.timeseries_names {
             let mut all_points: Vec<(Vec<(f64, f64)>, Color)> = Vec::new();
             let mut has_data = false;
 

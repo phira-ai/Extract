@@ -6,7 +6,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::Frame;
 
-use crate::app::{AppState, DeleteConfirmState, Focus, View};
+use crate::app::{disambiguate_labels, AppState, DeleteConfirmState, Focus, View};
 use crate::keys;
 use crate::ui::theme::Theme;
 
@@ -86,7 +86,7 @@ impl SelectionWindow {
         if keys::matches(key, keys::DELETE) {
             if state.selection_cursor < len {
                 let run_id = state.selected_runs_for_compare[state.selection_cursor].clone();
-                let label = run_label(&run_id, state);
+                let label = run_label_short(&run_id, state);
                 state.delete_confirm = Some(DeleteConfirmState {
                     target: crate::app::DeleteTarget::Run { run_id },
                     label,
@@ -131,9 +131,11 @@ impl SelectionWindow {
 
         let inner = block.inner(rect);
 
+        // Compute disambiguated labels for all selected runs.
+        let labels = compute_selection_labels(runs, state);
+
         let mut lines: Vec<Line> = Vec::with_capacity(n_runs);
-        for (i, run_id) in runs.iter().enumerate() {
-            let label = run_label(run_id, state);
+        for (i, label) in labels.iter().enumerate() {
             let is_baseline = i == state.compare_baseline;
             let prefix = if is_baseline { "\u{2605} " } else { "\u{00b7} " };
 
@@ -156,7 +158,7 @@ impl SelectionWindow {
     }
 }
 
-fn run_label(run_id: &str, state: &AppState) -> String {
+fn run_label_short(run_id: &str, state: &AppState) -> String {
     if let Ok(Some(run)) = state.db.get_run(run_id) {
         if let Some(ref name) = run.name {
             return name.clone();
@@ -164,19 +166,39 @@ fn run_label(run_id: &str, state: &AppState) -> String {
         if let Ok(Some(exp)) = state.db.get_experiment(&run.experiment_id) {
             return exp.name.clone();
         }
-        // Fall back to short ID
         let id = &run.id;
-        if id.len() > 8 {
-            id[id.len() - 8..].to_string()
-        } else {
-            id.clone()
-        }
+        if id.len() > 8 { id[id.len() - 8..].to_string() } else { id.clone() }
     } else {
-        // Can't look up run, use short ID
-        if run_id.len() > 8 {
-            run_id[run_id.len() - 8..].to_string()
+        if run_id.len() > 8 { run_id[run_id.len() - 8..].to_string() } else { run_id.to_string() }
+    }
+}
+
+/// Compute disambiguated labels for the selection panel runs.
+fn compute_selection_labels(run_ids: &[String], state: &AppState) -> Vec<String> {
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    let mut run_names: Vec<String> = Vec::new();
+
+    for run_id in run_ids {
+        if let Ok(Some(run)) = state.db.get_run(run_id) {
+            let name = run.name.clone().unwrap_or_else(|| {
+                if let Ok(Some(exp)) = state.db.get_experiment(&run.experiment_id) {
+                    exp.name.clone()
+                } else {
+                    run_label_short(run_id, state)
+                }
+            });
+            let path = if let Ok(Some(exp)) = state.db.get_experiment(&run.experiment_id) {
+                exp.path.split('/').map(|s| s.to_string()).collect()
+            } else {
+                Vec::new()
+            };
+            run_names.push(name);
+            paths.push(path);
         } else {
-            run_id.to_string()
+            run_names.push(run_label_short(run_id, state));
+            paths.push(Vec::new());
         }
     }
+
+    disambiguate_labels(&paths, &run_names)
 }
