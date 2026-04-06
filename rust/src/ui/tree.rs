@@ -204,6 +204,22 @@ impl TreePanel {
             return Action::None;
         }
 
+        if keys::matches(key, keys::DELETE) {
+            let selected = self.tree_state.selected().to_vec();
+            if let Some(last_id) = selected.last() {
+                if let Some(exp) = state.experiments.iter().find(|e| e.id == *last_id) {
+                    let label = exp.name.clone();
+                    state.delete_confirm = Some(crate::app::DeleteConfirmState {
+                        target: crate::app::DeleteTarget::Experiment {
+                            experiment_id: last_id.clone(),
+                        },
+                        label,
+                    });
+                }
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::QUIT) {
             return Action::Quit;
         }

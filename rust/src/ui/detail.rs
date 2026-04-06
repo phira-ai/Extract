@@ -156,7 +156,10 @@ impl DetailPanel {
                         run_id.clone()
                     }
                 });
-                state.delete_confirm = Some(crate::app::DeleteConfirmState { run_id, label });
+                state.delete_confirm = Some(crate::app::DeleteConfirmState {
+                    target: crate::app::DeleteTarget::Run { run_id },
+                    label,
+                });
             }
             return Action::None;
         }

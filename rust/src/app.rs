@@ -218,9 +218,16 @@ impl RunBrowserState {
     }
 }
 
+/// What kind of entity is being deleted.
+#[derive(Debug, Clone)]
+pub enum DeleteTarget {
+    Run { run_id: String },
+    Experiment { experiment_id: String },
+}
+
 /// State for the delete confirmation popup.
 pub struct DeleteConfirmState {
-    pub run_id: String,
+    pub target: DeleteTarget,
     pub label: String,
 }
 
@@ -808,6 +815,38 @@ impl AppState {
                 self.selected_run = Some(self.runs.len() - 1);
             }
         }
+
+        Ok(())
+    }
+
+    pub fn delete_experiment(&mut self, experiment_id: &str) -> Result<()> {
+        let db_path = self.store_root.join("extract.db");
+        let deleted_run_ids = crate::db::Db::delete_experiment(&db_path, experiment_id)?;
+
+        // Remove artifact files for all deleted runs
+        for run_id in &deleted_run_ids {
+            let artifacts_dir = self.store_root.join("artifacts").join(run_id);
+            if artifacts_dir.exists() {
+                let _ = std::fs::remove_dir_all(&artifacts_dir);
+            }
+        }
+
+        // Remove deleted runs from compare selection
+        self.selected_runs_for_compare
+            .retain(|id| !deleted_run_ids.contains(id));
+        if self.compare_baseline >= self.selected_runs_for_compare.len()
+            && !self.selected_runs_for_compare.is_empty()
+        {
+            self.compare_baseline = 0;
+        }
+        self.refresh_marked_experiments();
+
+        // Refresh experiments and runs
+        let _ = self.refresh_experiments();
+        self.selected_experiment = None;
+        self.selected_run = None;
+        self.runs.clear();
+        self.metrics.clear();
 
         Ok(())
     }

@@ -87,7 +87,10 @@ impl SelectionWindow {
             if state.selection_cursor < len {
                 let run_id = state.selected_runs_for_compare[state.selection_cursor].clone();
                 let label = run_label(&run_id, state);
-                state.delete_confirm = Some(DeleteConfirmState { run_id, label });
+                state.delete_confirm = Some(DeleteConfirmState {
+                    target: crate::app::DeleteTarget::Run { run_id },
+                    label,
+                });
             }
             return;
         }

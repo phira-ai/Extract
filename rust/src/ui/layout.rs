@@ -104,31 +104,50 @@ impl AppLayout {
                 if let Some(confirmed) = self.popup.handle_delete_confirm_key(key) {
                     if confirmed {
                         let confirm = state.delete_confirm.as_ref().unwrap();
-                        let run_id = confirm.run_id.clone();
                         let label = confirm.label.clone();
-                        match state.delete_run(&run_id) {
-                            Ok(()) => {
-                                state.notify(
-                                    crate::app::NotifyLevel::Success,
-                                    format!("Deleted {label}"),
-                                );
-                                // Refresh run browser if open
-                                if let Some(ref mut browser) = state.run_browser {
-                                    browser.runs.retain(|r| r.id != run_id);
-                                    browser.apply_filter();
-                                    if browser.cursor >= browser.filtered.len() && !browser.filtered.is_empty() {
-                                        browser.cursor = browser.filtered.len() - 1;
+                        let target = confirm.target.clone();
+                        match &target {
+                            crate::app::DeleteTarget::Run { run_id } => {
+                                let run_id = run_id.clone();
+                                match state.delete_run(&run_id) {
+                                    Ok(()) => {
+                                        state.notify(
+                                            crate::app::NotifyLevel::Success,
+                                            format!("Deleted {label}"),
+                                        );
+                                        // Refresh run browser if open
+                                        if let Some(ref mut browser) = state.run_browser {
+                                            browser.runs.retain(|r| r.id != run_id);
+                                            browser.apply_filter();
+                                            if browser.cursor >= browser.filtered.len() && !browser.filtered.is_empty() {
+                                                browser.cursor = browser.filtered.len() - 1;
+                                            }
+                                            if browser.runs.len() <= 1 {
+                                                state.run_browser = None;
+                                            }
+                                        }
                                     }
-                                    // Close browser if 0 or 1 runs remain
-                                    if browser.runs.len() <= 1 {
-                                        state.run_browser = None;
-                                    }
+                                    Err(e) => state.notify(
+                                        crate::app::NotifyLevel::Error,
+                                        format!("Delete failed: {e}"),
+                                    ),
                                 }
                             }
-                            Err(e) => state.notify(
-                                crate::app::NotifyLevel::Error,
-                                format!("Delete failed: {e}"),
-                            ),
+                            crate::app::DeleteTarget::Experiment { experiment_id } => {
+                                let experiment_id = experiment_id.clone();
+                                match state.delete_experiment(&experiment_id) {
+                                    Ok(()) => {
+                                        state.notify(
+                                            crate::app::NotifyLevel::Success,
+                                            format!("Deleted {label}"),
+                                        );
+                                    }
+                                    Err(e) => state.notify(
+                                        crate::app::NotifyLevel::Error,
+                                        format!("Delete failed: {e}"),
+                                    ),
+                                }
+                            }
                         }
                     }
                     state.delete_confirm = None;

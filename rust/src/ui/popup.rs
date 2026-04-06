@@ -279,7 +279,10 @@ impl PopupRenderer {
                             run_id.clone()
                         }
                     });
-                    state.delete_confirm = Some(DeleteConfirmState { run_id, label });
+                    state.delete_confirm = Some(DeleteConfirmState {
+                        target: crate::app::DeleteTarget::Run { run_id },
+                        label,
+                    });
                 }
             }
             return false;
@@ -441,7 +444,11 @@ impl PopupRenderer {
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
 
-        let text = Paragraph::new(Line::from(format!(" Delete run {}?", confirm.label)));
+        let kind = match &confirm.target {
+            crate::app::DeleteTarget::Run { .. } => "run",
+            crate::app::DeleteTarget::Experiment { .. } => "experiment",
+        };
+        let text = Paragraph::new(Line::from(format!(" Delete {kind} {}?", confirm.label)));
         frame.render_widget(text, inner);
     }
 

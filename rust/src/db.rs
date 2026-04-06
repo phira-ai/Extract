@@ -520,6 +520,61 @@ impl Db {
         Ok(())
     }
 
+    /// Delete an experiment and all its descendants (child experiments, runs, metrics, etc.).
+    /// Returns the list of deleted run IDs so callers can clean up artifacts.
+    pub fn delete_experiment(db_path: &std::path::Path, experiment_id: &str) -> Result<Vec<String>> {
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+
+        // Collect all experiment IDs to delete (the target + all descendants).
+        let mut exp_ids: Vec<String> = vec![experiment_id.to_string()];
+        let mut i = 0;
+        while i < exp_ids.len() {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM experiments WHERE parent_id = ?",
+            )?;
+            let children: Vec<String> = stmt
+                .query_map(params![exp_ids[i]], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            exp_ids.extend(children);
+            i += 1;
+        }
+
+        // Collect all run IDs under these experiments.
+        let mut run_ids: Vec<String> = Vec::new();
+        for eid in &exp_ids {
+            let mut stmt = conn.prepare("SELECT id FROM runs WHERE experiment_id = ?")?;
+            let ids: Vec<String> = stmt
+                .query_map(params![eid], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            run_ids.extend(ids);
+        }
+
+        let tx = conn.unchecked_transaction()?;
+
+        // Delete run data for all collected runs.
+        for rid in &run_ids {
+            tx.execute("DELETE FROM scalar_metrics WHERE run_id = ?", params![rid])?;
+            tx.execute("DELETE FROM run_params WHERE run_id = ?", params![rid])?;
+            tx.execute("DELETE FROM artifacts WHERE run_id = ?", params![rid])?;
+            tx.execute("DELETE FROM lineage WHERE (parent_type = 'run' AND parent_id = ?) OR (child_type = 'run' AND child_id = ?)", params![rid, rid])?;
+            tx.execute("DELETE FROM todos WHERE scope_type = 'run' AND scope_id = ?", params![rid])?;
+        }
+
+        // Delete runs, todos, lineage, and experiments (children first due to FK).
+        for eid in exp_ids.iter().rev() {
+            tx.execute("DELETE FROM runs WHERE experiment_id = ?", params![eid])?;
+            tx.execute("DELETE FROM todos WHERE scope_type = 'experiment' AND scope_id = ?", params![eid])?;
+            tx.execute("DELETE FROM lineage WHERE (parent_type = 'experiment' AND parent_id = ?) OR (child_type = 'experiment' AND child_id = ?)", params![eid, eid])?;
+            tx.execute("DELETE FROM experiments WHERE id = ?", params![eid])?;
+        }
+
+        tx.commit()?;
+        Ok(run_ids)
+    }
+
     // Todos
 
     pub fn list_todos(&self, scope_type: Option<&str>, scope_id: Option<&str>) -> Result<Vec<Todo>> {
