@@ -68,29 +68,37 @@ extract tui --store /path/to/.extract
 | `j` / `k` | Move down / up |
 | `gg` / `G` | Jump to top / bottom |
 | `Enter` | Expand / select |
+| `h` / `l` | Cycle panels (same as Tab / Shift+Tab) |
 | `Tab` / `Shift+Tab` | Cycle panels |
 | `1` / `2` / `3` | Focus Tree / Detail / Selection panel |
 | `/` | Search experiments and runs |
 | `?` | Help overlay |
 | `q` | Quit |
 
-### Runs & Comparison
+### Experiment Tree
 
 | Key | Action |
 |-----|--------|
+| `Left` | Go to parent node |
+| `Right` | Go to first child / enter leaf |
 | `Space` | Mark run for comparison |
-| `r` | Open run browser |
-| `c` | Compare marked runs |
-| `d` | Diff marked runs (config) |
-| `h` / `l` | Cycle through runs |
-| `x` | Delete run |
 
 ### Detail Panel
 
 | Key | Action |
 |-----|--------|
+| `Left` / `Right` | Cycle through runs |
 | `S` | Summary tab |
 | `I` | Info tab |
+
+### Runs & Comparison
+
+| Key | Action |
+|-----|--------|
+| `r` | Open run browser |
+| `c` | Compare marked runs |
+| `d` | Diff marked runs (config) |
+| `x` | Delete run |
 
 ### Views
 
@@ -144,7 +152,7 @@ curve_width = 80       # chart width as % of panel
 # curve_height = 10    # chart height in lines (default: auto-scales by metric count)
 curve_smooth = false
 
-# Info tab in Detail panel (I)
+# Info tab in Detail panel (I) + Config section in Compare/Diff views
 # Nested configs are flattened with dot-notation (method.lora_r, task.num_train_epochs)
 # Full glob syntax: * (single segment), ** (multi-segment), ? (single char), {a,b}
 # Prefix with ! to exclude: ["method.**", "!method.parent"]

@@ -7,10 +7,12 @@ use ratatui::Frame;
 use crate::app::{AppState, Focus, View};
 use crate::ui::theme::Theme;
 
-pub struct StatusBar {
+#[allow(dead_code)]
+pub(crate) struct StatusBar {
     theme: Theme,
 }
 
+#[allow(dead_code)]
 impl StatusBar {
     pub fn new(theme: Theme) -> Self {
         Self { theme }
@@ -43,7 +45,7 @@ impl StatusBar {
                 let mut b = Vec::new();
                 if has_runs {
                     b.push(("j/k", "scroll"));
-                    b.push(("h/l", "cycle run"));
+                    b.push(("\u{2190}/\u{2192}", "cycle run"));
                     b.push(("S/I", "tabs"));
                     b.push(("x", "delete"));
                 } else {

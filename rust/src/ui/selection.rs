@@ -173,32 +173,50 @@ fn run_label_short(run_id: &str, state: &AppState) -> String {
     }
 }
 
-/// Compute disambiguated labels for the selection panel runs.
+/// Compute labels for the selection panel runs.
+/// Always includes the immediate parent (experiment name) with the run name.
 fn compute_selection_labels(run_ids: &[String], state: &AppState) -> Vec<String> {
-    let mut paths: Vec<Vec<String>> = Vec::new();
-    let mut run_names: Vec<String> = Vec::new();
+    let mut labels: Vec<String> = Vec::new();
 
     for run_id in run_ids {
         if let Ok(Some(run)) = state.db.get_run(run_id) {
-            let name = run.name.clone().unwrap_or_else(|| {
-                if let Ok(Some(exp)) = state.db.get_experiment(&run.experiment_id) {
-                    exp.name.clone()
-                } else {
-                    run_label_short(run_id, state)
-                }
-            });
-            let path = if let Ok(Some(exp)) = state.db.get_experiment(&run.experiment_id) {
-                exp.path.split('/').map(|s| s.to_string()).collect()
-            } else {
-                Vec::new()
+            let exp_name = state
+                .db
+                .get_experiment(&run.experiment_id)
+                .ok()
+                .flatten()
+                .map(|e| e.name.clone());
+            let label = match (exp_name, &run.name) {
+                (Some(exp), Some(name)) => format!("{}/{}", exp, name),
+                (Some(exp), None) => exp,
+                (None, Some(name)) => name.clone(),
+                (None, None) => run_label_short(run_id, state),
             };
-            run_names.push(name);
-            paths.push(path);
+            labels.push(label);
         } else {
-            run_names.push(run_label_short(run_id, state));
-            paths.push(Vec::new());
+            labels.push(run_label_short(run_id, state));
         }
     }
 
-    disambiguate_labels(&paths, &run_names)
+    // Disambiguate any remaining duplicates by prepending path segments.
+    let mut paths: Vec<Vec<String>> = Vec::new();
+    for run_id in run_ids {
+        let path = state
+            .db
+            .get_run(run_id)
+            .ok()
+            .flatten()
+            .and_then(|run| {
+                state
+                    .db
+                    .get_experiment(&run.experiment_id)
+                    .ok()
+                    .flatten()
+                    .map(|e| e.path.split('/').map(|s| s.to_string()).collect())
+            })
+            .unwrap_or_default();
+        paths.push(path);
+    }
+
+    disambiguate_labels(&paths, &labels)
 }

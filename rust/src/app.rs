@@ -83,10 +83,65 @@ pub fn format_json_value(v: &JsonValue) -> String {
     }
 }
 
+/// Recursively collect dotted key paths from a JSON object (e.g. "optimizer.lr").
+fn collect_dotted_keys(value: &JsonValue, prefix: &str, keys: &mut Vec<String>) {
+    if let Some(obj) = value.as_object() {
+        for (k, v) in obj {
+            let full_key = if prefix.is_empty() {
+                k.clone()
+            } else {
+                format!("{}.{}", prefix, k)
+            };
+            if v.is_object() {
+                collect_dotted_keys(v, &full_key, keys);
+            } else if !keys.contains(&full_key) {
+                keys.push(full_key);
+            }
+        }
+    }
+}
+
+/// Resolve a dotted key path (e.g. "optimizer.lr") through nested JSON objects.
+pub fn resolve_dotted_key<'a>(value: &'a JsonValue, key: &str) -> Option<&'a JsonValue> {
+    let mut current = value;
+    for part in key.split('.') {
+        current = current.get(part)?;
+    }
+    Some(current)
+}
+
+/// Disambiguate run labels by prepending minimal distinguishing path segments.
+/// `paths` contains the experiment path segments for each run, `names` contains the base labels.
+pub fn disambiguate_labels(paths: &[Vec<String>], names: &[String]) -> Vec<String> {
+    let n = names.len();
+    let mut result = names.to_vec();
+
+    // Find duplicate labels and disambiguate by prepending path segments
+    for i in 0..n {
+        let mut depth = 0;
+        loop {
+            let has_dup = (0..n).any(|j| j != i && result[j] == result[i]);
+            if !has_dup {
+                break;
+            }
+            depth += 1;
+            let path = &paths[i];
+            if depth > path.len() {
+                break;
+            }
+            // Prepend segments from the end of the path
+            let prefix = path[path.len().saturating_sub(depth)..].join("/");
+            result[i] = format!("{}/{}", prefix, names[i]);
+        }
+    }
+
+    result
+}
+
 impl CompareRunData {
     pub fn label(&self) -> String {
         if let Some(ref name) = self.run.name {
-            return name.clone();
+            return format!("{}/{}", self.experiment_name, name);
         }
         self.experiment_name.clone()
     }
@@ -99,6 +154,7 @@ pub struct CompareData {
     pub param_names: Vec<String>,
     pub config_keys: Vec<String>,
     pub table_names: Vec<String>,
+    pub timeseries_names: Vec<String>,
     pub scroll: u16,
     pub total_lines: usize,
     pub visible_height: usize,
@@ -164,7 +220,6 @@ impl RunPickerState {
 /// State for the run browser popup (r key).
 pub struct RunBrowserState {
     pub experiment_name: String,
-    pub experiment_id: String,
     pub runs: Vec<Run>,
     pub filtered: Vec<usize>,
     pub cursor: usize,
@@ -173,11 +228,10 @@ pub struct RunBrowserState {
 }
 
 impl RunBrowserState {
-    pub fn new(experiment_name: String, experiment_id: String, runs: Vec<Run>) -> Self {
+    pub fn new(experiment_name: String, _experiment_id: String, runs: Vec<Run>) -> Self {
         let filtered = (0..runs.len()).collect();
         Self {
             experiment_name,
-            experiment_id,
             runs,
             filtered,
             cursor: 0,
@@ -643,6 +697,7 @@ impl AppState {
         let mut param_names = Vec::new();
         let mut config_keys = Vec::new();
         let mut table_names = Vec::new();
+        let mut timeseries_names = Vec::new();
 
         for rd in &runs_data {
             for m in &rd.latest_metrics {
@@ -656,25 +711,26 @@ impl AppState {
                 }
             }
             if let Some(config) = &rd.config {
-                if let Some(obj) = config.as_object() {
-                    for key in obj.keys() {
-                        if !config_keys.contains(key) {
-                            config_keys.push(key.clone());
-                        }
-                    }
-                }
+                collect_dotted_keys(config, "", &mut config_keys);
             }
             for (name, _, _) in &rd.tables {
                 if !table_names.contains(name) {
                     table_names.push(name.clone());
                 }
             }
+            for (name, _) in &rd.metric_histories {
+                if !timeseries_names.contains(name) {
+                    timeseries_names.push(name.clone());
+                }
+            }
         }
 
         metric_names.sort();
         param_names.sort();
+        config_keys.retain(|k| config::key_passes_filters(k, &self.config.info.fields));
         config_keys.sort();
         table_names.sort();
+        timeseries_names.sort();
 
         self.compare_data = Some(CompareData {
             runs: runs_data,
@@ -682,6 +738,7 @@ impl AppState {
             param_names,
             config_keys,
             table_names,
+            timeseries_names,
             scroll: 0,
             total_lines: 0,
             visible_height: 0,

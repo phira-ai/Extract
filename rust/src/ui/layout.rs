@@ -99,6 +99,26 @@ impl AppLayout {
             }
         }
 
+        // Global h/l → behave like shift-tab/tab
+        if let AppEvent::Key(key) = event {
+            if keys::matches(key, keys::NAV_RIGHT_L) {
+                // Simulate TAB
+                let tab_event = AppEvent::Key(crossterm::event::KeyEvent::new(
+                    keys::TAB,
+                    crossterm::event::KeyModifiers::NONE,
+                ));
+                return self.handle_event(&tab_event, state);
+            }
+            if keys::matches(key, keys::NAV_LEFT_H) {
+                // Simulate BACKTAB
+                let backtab_event = AppEvent::Key(crossterm::event::KeyEvent::new(
+                    keys::BACKTAB,
+                    crossterm::event::KeyModifiers::SHIFT,
+                ));
+                return self.handle_event(&backtab_event, state);
+            }
+        }
+
         if let AppEvent::Key(key) = event {
             if state.delete_confirm.is_some() {
                 if let Some(confirmed) = self.popup.handle_delete_confirm_key(key) {

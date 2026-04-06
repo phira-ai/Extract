@@ -118,7 +118,6 @@ pub struct SearchResult {
     pub experiment_id: Option<String>,
     pub label: String,
     pub matched_field: String,
-    pub snippet: String,
 }
 
 /// Returns true if lower values are better for this metric.

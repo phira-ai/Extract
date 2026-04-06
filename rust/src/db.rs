@@ -128,48 +128,6 @@ impl Db {
 
     // Metrics
 
-    pub fn get_scalar_metrics(&self, run_id: &str, name: Option<&str>) -> Result<Vec<ScalarMetric>> {
-        let mut metrics = Vec::new();
-
-        if let Some(metric_name) = name {
-            let mut stmt = self.conn.prepare(
-                "SELECT id, run_id, step, name, value, wall_time FROM scalar_metrics WHERE run_id = ? AND name = ? ORDER BY step",
-            )?;
-            let rows = stmt.query_map(params![run_id, metric_name], |row| {
-                Ok(ScalarMetric {
-                    id: row.get(0)?,
-                    run_id: row.get(1)?,
-                    step: row.get(2)?,
-                    name: row.get(3)?,
-                    value: row.get(4)?,
-                    wall_time: row.get(5)?,
-                })
-            })?;
-            for row in rows {
-                metrics.push(row?);
-            }
-        } else {
-            let mut stmt = self.conn.prepare(
-                "SELECT id, run_id, step, name, value, wall_time FROM scalar_metrics WHERE run_id = ? ORDER BY name, step",
-            )?;
-            let rows = stmt.query_map(params![run_id], |row| {
-                Ok(ScalarMetric {
-                    id: row.get(0)?,
-                    run_id: row.get(1)?,
-                    step: row.get(2)?,
-                    name: row.get(3)?,
-                    value: row.get(4)?,
-                    wall_time: row.get(5)?,
-                })
-            })?;
-            for row in rows {
-                metrics.push(row?);
-            }
-        }
-
-        Ok(metrics)
-    }
-
     pub fn get_latest_metrics(&self, run_id: &str) -> Result<Vec<ScalarMetric>> {
         let mut stmt = self.conn.prepare(
             "SELECT sm.id, sm.run_id, sm.step, sm.name, sm.value, sm.wall_time \
@@ -674,7 +632,6 @@ impl Db {
                 experiment_id: None,
                 label: path,
                 matched_field: matched.0.to_string(),
-                snippet: matched.1,
             });
         }
 
@@ -695,14 +652,14 @@ impl Db {
             ))
         })?;
         for row in rows {
-            let (id, exp_id, name, tags, notes, exp_path) = row?;
+            let (id, exp_id, name, tags, _notes, exp_path) = row?;
             let q_lower = query.to_lowercase();
-            let (field, snippet) = if name.as_deref().unwrap_or("").to_lowercase().contains(&q_lower) {
-                ("name", name.clone().unwrap_or_default())
+            let field = if name.as_deref().unwrap_or("").to_lowercase().contains(&q_lower) {
+                "name"
             } else if tags.as_deref().unwrap_or("").to_lowercase().contains(&q_lower) {
-                ("tags", tags.clone().unwrap_or_default())
+                "tags"
             } else {
-                ("notes", notes.clone().unwrap_or_default().chars().take(80).collect())
+                "notes"
             };
             let label = name.unwrap_or_else(|| format!("{exp_path} (run)"));
             results.push(crate::model::SearchResult {
@@ -711,7 +668,6 @@ impl Db {
                 experiment_id: Some(exp_id),
                 label,
                 matched_field: field.to_string(),
-                snippet,
             });
         }
 

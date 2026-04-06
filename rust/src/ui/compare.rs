@@ -203,7 +203,7 @@ impl CompareView {
         lines.push(self.separator());
 
         let label_width: usize = 16;
-        let col_width: usize = 14;
+        let col_width: usize = 18;
         let indent: usize = 2;
 
         let runs_per_row = ((available_width as usize).saturating_sub(indent + label_width) / col_width).max(1);
@@ -316,7 +316,7 @@ impl CompareView {
             .unwrap_or(8)
             .max(8)
             + 2; // padding
-        let col_width: usize = 14;
+        let col_width: usize = 18;
         let indent: usize = 2;
 
         let runs_per_row = ((available_width as usize).saturating_sub(indent + label_width) / col_width).max(1);

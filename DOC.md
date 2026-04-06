@@ -361,7 +361,7 @@ Controls the Summary tab in the Detail panel (selected via `S`).
 | `curve_smooth` | `bool` | `false` | Catmull-Rom curve interpolation |
 
 ### `[info]`
-Controls the Info tab in the Detail panel (selected via `I`). Nested configs are flattened with dot-notation (e.g. `method.lora_r`, `task.num_train_epochs`).
+Controls the Info tab in the Detail panel (selected via `I`) and the Config section in Compare/Diff views. Nested configs are flattened with dot-notation (e.g. `method.lora_r`, `task.num_train_epochs`).
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -518,7 +518,7 @@ rust/src/
 ├── db.rs            # SQLite read-only access layer
 ├── model.rs         # data structs: Experiment, Run, ScalarMetric, Artifact, Model, etc.
 ├── config.rs        # TOML config parsing, theme/color handling
-├── keys.rs          # keybinding constants and key matching
+├── keys.rs          # keybinding constants and key matching (h/l=tab, arrows=nav/cycle)
 ├── event.rs         # event handling (Key, Tick, Resize)
 ├── artifact.rs      # NumPy table loading, timeseries JSON loading, CellValue handling
 └── ui/

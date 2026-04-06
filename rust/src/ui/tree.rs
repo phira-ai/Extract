@@ -106,6 +106,62 @@ impl TreePanel {
             return Action::None;
         }
 
+        // Left arrow: always move up one node level (to parent)
+        if keys::matches(key, keys::NAV_LEFT) {
+            let selected = self.tree_state.selected().to_vec();
+            if selected.len() > 1 {
+                // Close current node if open, then move to parent
+                self.tree_state.close(&selected);
+                let mut parent = selected;
+                parent.pop();
+                self.tree_state.select(parent);
+                self.sync_selection(state);
+            }
+            return Action::None;
+        }
+
+        // Right arrow: descend to first child, or enter leaf
+        if keys::matches(key, keys::NAV_RIGHT) {
+            let selected = self.tree_state.selected().to_vec();
+            if let Some(last_id) = selected.last() {
+                let has_children = state
+                    .experiments
+                    .iter()
+                    .any(|e| e.parent_id.as_deref() == Some(last_id.as_str()));
+
+                if has_children {
+                    // Open the node, then move cursor down into first child
+                    self.tree_state.open(selected);
+                    self.tree_state.key_down();
+                    self.sync_selection(state);
+                } else {
+                    // Leaf node: act like Enter — load runs and go to Detail
+                    if let Some(idx) = state
+                        .experiments
+                        .iter()
+                        .position(|e| e.id == *last_id)
+                    {
+                        state.selected_experiment = Some(idx);
+                        let _ = state.refresh_runs();
+                        if !state.runs.is_empty() {
+                            state.selected_run = Some(state.runs.len() - 1);
+                        }
+                        if let Some(run_idx) = state.selected_run {
+                            if let Some(run) = state.runs.get(run_idx) {
+                                state.metrics = state
+                                    .db
+                                    .get_latest_metrics(&run.id)
+                                    .unwrap_or_default();
+                            }
+                        }
+                        state.focus = Focus::Detail;
+                        return Action::Navigate(View::Detail);
+                    }
+                }
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::TOGGLE_SELECT) {
             let selected = self.tree_state.selected().to_vec();
             if let Some(last_id) = selected.last() {
