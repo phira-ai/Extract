@@ -134,11 +134,16 @@ impl SummaryRenderer {
         for (i, run) in data.runs.iter().enumerate() {
             let status_style = self.status_style(&run.status);
             let date = run.started_at.get(..10).unwrap_or(&run.started_at);
+            let label = run.name.clone().unwrap_or_else(|| {
+                let id = &run.id;
+                if id.len() > 8 { id[id.len() - 8..].to_string() } else { id.clone() }
+            });
 
             let mut spans = vec![
                 Span::raw("  ".to_string()),
                 Span::styled("\u{25cf} ".to_string(), status_style),
                 Span::styled(format!("{:<11}", run.status), status_style),
+                Span::raw(format!(" {:<12}", label)),
                 Span::styled(
                     format!(" {date} "),
                     Style::default().fg(self.theme.accent_dim),
