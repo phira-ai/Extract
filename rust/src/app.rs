@@ -409,25 +409,34 @@ impl AppState {
         Ok(())
     }
 
-    /// Load all metric histories for a given run.
+    /// Load curve data for a given run.
+    /// Only timeseries artifacts are loaded — scalar metrics from run.log()
+    /// are headline-only and appear in latest_metrics, not here.
     fn load_all_metric_histories(&mut self, run_id: &str) -> Result<()> {
-        let all = self.db.get_scalar_metrics(run_id, None)?;
-        let mut names: Vec<String> = Vec::new();
-        for m in &all {
-            if !names.contains(&m.name) {
-                names.push(m.name.clone());
+        self.metric_histories.clear();
+
+        let artifacts = self.db.list_artifacts(run_id)?;
+        for artifact in artifacts.iter().filter(|a| a.kind == "timeseries") {
+            let path = self.store_root.join(&artifact.rel_path);
+            if let Ok(points) = crate::artifact::load_timeseries(&path) {
+                let history: Vec<ScalarMetric> = points
+                    .into_iter()
+                    .map(|(step, value)| ScalarMetric {
+                        id: 0,
+                        run_id: run_id.to_string(),
+                        step,
+                        name: artifact.name.clone(),
+                        value,
+                        wall_time: None,
+                    })
+                    .collect();
+                if !history.is_empty() {
+                    self.metric_histories
+                        .push((artifact.name.clone(), history));
+                }
             }
         }
-        self.metric_histories = names
-            .into_iter()
-            .map(|name| {
-                let history = self
-                    .db
-                    .get_scalar_metrics(run_id, Some(&name))
-                    .unwrap_or_default();
-                (name, history)
-            })
-            .collect();
+
         Ok(())
     }
 
@@ -549,27 +558,31 @@ impl AppState {
             let config: Option<JsonValue> =
                 run.config.as_ref().and_then(|c| serde_json::from_str(c).ok());
 
-            // Load metric histories
-            let all = self.db.get_scalar_metrics(&run.id, None)?;
-            let mut names: Vec<String> = Vec::new();
-            for m in &all {
-                if !names.contains(&m.name) {
-                    names.push(m.name.clone());
+            // Load artifacts (timeseries + tables)
+            let artifacts = self.db.list_artifacts(&run.id)?;
+
+            // Load curve data from timeseries artifacts only
+            let mut metric_histories: Vec<(String, Vec<ScalarMetric>)> = Vec::new();
+            for artifact in artifacts.iter().filter(|a| a.kind == "timeseries") {
+                let path = self.store_root.join(&artifact.rel_path);
+                if let Ok(points) = crate::artifact::load_timeseries(&path) {
+                    let history: Vec<ScalarMetric> = points
+                        .into_iter()
+                        .map(|(step, value)| ScalarMetric {
+                            id: 0,
+                            run_id: run.id.clone(),
+                            step,
+                            name: artifact.name.clone(),
+                            value,
+                            wall_time: None,
+                        })
+                        .collect();
+                    if !history.is_empty() {
+                        metric_histories.push((artifact.name.clone(), history));
+                    }
                 }
             }
-            let metric_histories: Vec<(String, Vec<ScalarMetric>)> = names
-                .into_iter()
-                .map(|name| {
-                    let history = self
-                        .db
-                        .get_scalar_metrics(&run.id, Some(&name))
-                        .unwrap_or_default();
-                    (name, history)
-                })
-                .collect();
 
-            // Load table artifacts
-            let artifacts = self.db.list_artifacts(&run.id)?;
             let mut tables = Vec::new();
             for artifact in artifacts.iter().filter(|a| a.kind == "matrix") {
                 let path = self.store_root.join(&artifact.rel_path);

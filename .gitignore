@@ -3,6 +3,7 @@
 CLAUDE.md
 
 # Python
+.python-version
 python/.venv/
 __pycache__/
 *.pyc

@@ -86,10 +86,11 @@ run.finish()
 #### Scalar Metrics
 
 **`run.log(step: int, **kwargs: float | int | str) -> None`**
-- Numeric values (int, float) → `scalar_metrics` table (time-series).
+- Numeric values (int, float) → `scalar_metrics` table (headline metrics).
 - String values → `run_params` table (categorical parameters, deduplicated by name).
 - Buffered in memory; flushed every 100 entries or on `finish()`.
 - `wall_time` is automatically recorded (seconds since run start).
+- Shown in the TUI metrics summary and comparison tables. **Not** rendered as curves — use `log_timeseries()` for curve data.
 
 ```python
 run.log(step=0, loss=2.3, accuracy=0.1, arch="resnet18")
@@ -106,6 +107,7 @@ run.log(step=1, loss=1.8, accuracy=0.3)
 **`run.log_timeseries(name: str, steps: list, values: list) -> None`**
 - Saves as JSON under `artifacts/{run_id}/timeseries/{name}.json`.
 - Format: `{"steps": [...], "values": [...]}`
+- Rendered as curves in the TUI Summary and Compare views. **Not** shown in headline metrics. Use this for curve-only data (e.g. per-task loss curves) that should not appear in the metrics summary.
 
 **`run.log_text(name: str, content: str) -> None`**
 - Saves as markdown under `artifacts/{run_id}/text/{name}.md`.
@@ -480,7 +482,7 @@ rust/src/
 ├── config.rs        # TOML config parsing, theme/color handling
 ├── keys.rs          # keybinding constants and key matching
 ├── event.rs         # event handling (Key, Tick, Resize)
-├── artifact.rs      # NumPy table loading, CellValue handling
+├── artifact.rs      # NumPy table loading, timeseries JSON loading, CellValue handling
 └── ui/
     ├── layout.rs    # main layout orchestrator + event dispatcher
     ├── tree.rs      # experiment tree navigator

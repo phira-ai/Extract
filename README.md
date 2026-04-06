@@ -40,8 +40,9 @@ exp = store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "v1
 
 # Context manager — auto-finishes on exit
 with exp.run(config={"lr": 0.001, "epochs": 100}, name="run-001") as run:
-    for step in range(100):
-        run.log(step=step, loss=0.5, accuracy=0.85, arch="resnet18")
+    run.log(step=0, accuracy=0.85, arch="resnet18")      # headline metrics (summary tables)
+    run.log_timeseries("train_loss", steps=list(range(100)),  # curve-only data (plotted, not in summary)
+                       values=[0.5 * 0.95**i for i in range(100)])
     run.log_table("confusion_matrix", np_array)
     run.tag("baseline", "production")
 
