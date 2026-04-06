@@ -341,30 +341,59 @@ Task notes scoped to global, experiment, or run.
 
 ## Configuration (`config.toml`)
 
+#### Store Setup
+
 ### `[store]`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `hierarchy` | `string` | (none) | Experiment tree levels separated by ` > `, e.g. `"benchmark > method > variant"` |
 
+#### View Layout — controls what each TUI panel/view displays
+
 ### `[summary]`
+Controls the Summary tab in the Detail panel (selected via `S`).
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `sections` | `string[]` | `["runs", "metrics", "tables", "curves"]` | Display order in detail panel |
 | `curve_width` | `int` | `80` | Chart width as % of panel (1-100) |
 | `curve_smooth` | `bool` | `false` | Catmull-Rom curve interpolation |
 
+### `[info]`
+Controls the Info tab in the Detail panel (selected via `I`). Nested configs are flattened with dot-notation (e.g. `method.lora_r`, `task.num_train_epochs`).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `fields` | `string[]` | `[]` (show all) | Glob patterns for which config keys to display |
+
+Dots act as path separators so glob semantics apply per segment:
+
+| Pattern | Matches | Does not match |
+|---------|---------|----------------|
+| `method.*` | `method.name`, `method.lora_r` | `method.deep.nested` |
+| `method.**` | `method.name`, `method.deep.nested` | `model.name` |
+| `*.name` | `method.name`, `model.name` | `method.deep.name` |
+| `**.name` | `method.name`, `method.deep.name` | `method.lora_r` |
+| `method.lora_*` | `method.lora_r`, `method.lora_alpha` | `method.name` |
+| `method.lora_?` | `method.lora_r` | `method.lora_alpha` |
+| `{method,model}.*` | `method.name`, `model.name` | `task.name` |
+| `!method.parent` | (excludes `method.parent`) | |
+
+Negation patterns (`!`) exclude matching keys. Combine with positive patterns: `["method.**", "!method.parent"]` shows everything under method except `parent`. When empty (default), all config keys are shown.
+
 ### `[compare]`
+Controls the Compare view (triggered via `c` with marked runs).
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `sections` | `string[]` | `["pivot", "config", "tables", "curves"]` | Display order in compare view |
 | `curve_width` | `int` | `50` | Chart width as % of panel (1-100) |
 
-### `[notifications]`
-| Key | Type | Default | Description |
-|-----|------|---------|-------------|
-| `timeout` | `int` | `3` | Auto-dismiss timeout in seconds |
+#### Data Interpretation — controls how metrics and table values are evaluated
 
 ### `[metrics]`
+Determines metric direction (minimize vs maximize) for ranking, comparison arrows, and improvement highlighting.
+
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | `minimize` | `string[]` | `[]` | Metrics where lower is better |
@@ -385,6 +414,8 @@ Ordered highlight rules for matrix/table cells. First match wins.
 
 Colors: `"red"`, `"green"`, `"yellow"`, `"blue"`, `"cyan"`, `"magenta"`, `"white"`, `"black"`, `"darkgray"`, `"orange"`, `"none"` (terminal default).
 
+#### Appearance
+
 ### `[theme]`
 All values are hex color strings. Omitted fields use ANSI 16-color defaults.
 
@@ -399,6 +430,11 @@ All values are hex color strings. Omitted fields use ANSI 16-color defaults.
 | `error` | `"#f38ba8"` | Error indicators |
 | `border` | `"#585b70"` | Unfocused borders |
 | `border_focused` | `"#89b4fa"` | Focused borders |
+
+### `[notifications]`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `timeout` | `int` | `3` | Auto-dismiss timeout in seconds |
 
 ---
 

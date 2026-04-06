@@ -311,7 +311,7 @@ impl DetailPanel {
     }
 
     fn render_info(&self, frame: &mut Frame, area: Rect, run: &Run, state: &mut AppState) {
-        use crate::config::key_matches_glob;
+        use crate::config::key_passes_filters;
 
         let mut lines = Vec::new();
 
@@ -419,11 +419,7 @@ impl DetailPanel {
 
                     // Apply field filter from config.
                     let filters = &state.config.info.fields;
-                    if !filters.is_empty() {
-                        flat.retain(|(k, _)| {
-                            filters.iter().any(|pat| key_matches_glob(k, pat))
-                        });
-                    }
+                    flat.retain(|(k, _)| key_passes_filters(k, filters));
 
                     let key_width =
                         flat.iter().map(|(k, _)| k.len()).max().unwrap_or(8).max(4);

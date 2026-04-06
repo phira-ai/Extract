@@ -216,18 +216,42 @@ pub fn parse_color(name: &str) -> Color {
 }
 
 /// Check if a dotted config key matches a glob pattern.
-/// Supports `*` (single segment wildcard) and `**` is not needed since `*` at the end
-/// matches the rest. E.g. "method.*" matches "method.name", "method.lora_r", etc.
+///
+/// Dots are treated as path separators so that glob semantics apply per segment:
+/// - `*` matches within a single segment (e.g. `method.*` matches `method.name` but not `method.a.b`)
+/// - `**` matches across segments (e.g. `method.**` matches `method.a.b`)
+/// - `{a,b}` alternation, `?` single char, and character classes work as expected.
+///
+/// Negation: patterns starting with `!` exclude matching keys.
 pub fn key_matches_glob(key: &str, pattern: &str) -> bool {
-    // Exact match
-    if key == pattern {
+    let (negate, pat) = if let Some(rest) = pattern.strip_prefix('!') {
+        (true, rest)
+    } else {
+        (false, pattern)
+    };
+    // Translate dots to slashes so glob_match treats them as path separators.
+    let key_path = key.replace('.', "/");
+    let pat_path = pat.replace('.', "/");
+    let matched = glob_match::glob_match(&pat_path, &key_path);
+    if negate { !matched } else { matched }
+}
+
+/// Check if a key passes a list of field filter patterns.
+/// Empty filters = pass everything. Negation patterns (`!foo`) are AND'd with positive matches.
+pub fn key_passes_filters(key: &str, filters: &[String]) -> bool {
+    if filters.is_empty() {
         return true;
     }
-    // Trailing wildcard: "method.*" matches any key starting with "method."
-    if let Some(prefix) = pattern.strip_suffix(".*") {
-        return key == prefix || key.starts_with(&format!("{prefix}."));
-    }
-    false
+    let positive: Vec<&str> = filters.iter().map(|s| s.as_str()).filter(|s| !s.starts_with('!')).collect();
+    let negative: Vec<&str> = filters.iter()
+        .filter_map(|s| s.strip_prefix('!'))
+        .collect();
+
+    // Must match at least one positive pattern (if any exist).
+    let included = positive.is_empty() || positive.iter().any(|pat| key_matches_glob(key, pat));
+    // Must not match any negation pattern (checked without the ! prefix).
+    let excluded = negative.iter().any(|pat| key_matches_glob(key, pat));
+    included && !excluded
 }
 
 #[cfg(test)]
@@ -328,14 +352,62 @@ fields = ["method.*", "task.num_train_epochs"]
         assert!(key_matches_glob("task.num_train_epochs", "task.num_train_epochs"));
         assert!(!key_matches_glob("task.num_train_epochs", "task.num_train"));
 
-        // Wildcard match
+        // * matches single segment only
         assert!(key_matches_glob("method.name", "method.*"));
         assert!(key_matches_glob("method.lora_r", "method.*"));
-        assert!(key_matches_glob("method.deep.nested", "method.*"));
+        assert!(!key_matches_glob("method.deep.nested", "method.*"));
         assert!(!key_matches_glob("model.name", "method.*"));
 
-        // Top-level wildcard matches the prefix itself
-        assert!(key_matches_glob("method", "method.*"));
+        // ** matches across segments
+        assert!(key_matches_glob("method.deep.nested", "method.**"));
+        assert!(key_matches_glob("method.name", "method.**"));
+
+        // Leading wildcard
+        assert!(key_matches_glob("method.name", "*.name"));
+        assert!(key_matches_glob("model.name", "*.name"));
+        assert!(!key_matches_glob("method.deep.name", "*.name"));
+        assert!(key_matches_glob("method.deep.name", "**.name"));
+
+        // Infix wildcard in segment
+        assert!(key_matches_glob("method.lora_r", "method.lora_*"));
+        assert!(key_matches_glob("method.lora_alpha", "method.lora_*"));
+        assert!(!key_matches_glob("method.name", "method.lora_*"));
+
+        // ? single char
+        assert!(key_matches_glob("method.lora_r", "method.lora_?"));
+        assert!(!key_matches_glob("method.lora_alpha", "method.lora_?"));
+
+        // {a,b} alternation
+        assert!(key_matches_glob("method.name", "{method,model}.name"));
+        assert!(key_matches_glob("model.name", "{method,model}.name"));
+        assert!(!key_matches_glob("task.name", "{method,model}.name"));
+
+        // Negation
+        assert!(!key_matches_glob("method.name", "!method.*"));
+        assert!(key_matches_glob("model.name", "!method.*"));
+    }
+
+    #[test]
+    fn test_key_passes_filters() {
+        // Empty filters = pass all
+        assert!(key_passes_filters("anything", &[]));
+
+        // Positive only
+        let filters = vec!["method.*".to_string(), "task.num_train_epochs".to_string()];
+        assert!(key_passes_filters("method.name", &filters));
+        assert!(key_passes_filters("task.num_train_epochs", &filters));
+        assert!(!key_passes_filters("model.name", &filters));
+
+        // Positive + negation
+        let filters = vec!["method.**".to_string(), "!method.parent".to_string()];
+        assert!(key_passes_filters("method.name", &filters));
+        assert!(key_passes_filters("method.lora.alpha", &filters));
+        assert!(!key_passes_filters("method.parent", &filters));
+
+        // Negation only (no positive = include all, then exclude)
+        let filters = vec!["!method.parent".to_string()];
+        assert!(key_passes_filters("method.name", &filters));
+        assert!(!key_passes_filters("method.parent", &filters));
     }
 }
 

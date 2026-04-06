@@ -125,35 +125,56 @@ Sync merges databases intelligently — experiments match by path, runs use ULID
 
 ## Configuration
 
-Edit `.extract/config.toml`:
+Edit `.extract/config.toml`. Settings are grouped by what they affect:
+
+### Store Setup
 
 ```toml
 [store]
 hierarchy = "benchmark > method > variant"
+```
 
+### View Layout — what each TUI panel/view displays
+
+```toml
+# Summary tab in Detail panel (S)
 [summary]
 sections = ["runs", "metrics", "tables", "curves"]
 curve_width = 80
 curve_smooth = false
 
+# Info tab in Detail panel (I)
+# Nested configs are flattened with dot-notation (method.lora_r, task.num_train_epochs)
+# Full glob syntax: * (single segment), ** (multi-segment), ? (single char), {a,b}
+# Prefix with ! to exclude: ["method.**", "!method.parent"]
+[info]
+fields = ["method.*", "task.num_train_epochs"]   # empty = show all
+
+# Compare view (c with marked runs)
 [compare]
 sections = ["pivot", "config", "tables", "curves"]
 curve_width = 50
+```
 
+### Data Interpretation — how metrics and table values are evaluated
+
+```toml
 [metrics]
 minimize = ["forgetting_rate"]    # lower is better
 maximize = ["custom_score"]       # higher is better
 # Unlisted metrics use name heuristics (e.g. "loss" → minimize)
 
-[notifications]
-timeout = 3
+# Cell highlight rules for tables (first match wins)
+# Fields: eq (exact), min (inclusive), max (exclusive), pattern (substring), color
+# Colors: red, green, yellow, blue, cyan, magenta, white, orange, none
+[[tables.highlight]]
+min = 0.7
+color = "red"
+```
 
-[tables]
-# Cell highlight rules (first match wins)
-# [[tables.highlight]]
-# min = 0.7
-# color = "red"
+### Appearance
 
+```toml
 [theme]
 fg = "#cdd6f4"
 bg = "#1e1e2e"
@@ -164,15 +185,10 @@ warning = "#f9e2af"
 error = "#f38ba8"
 border = "#585b70"
 border_focused = "#89b4fa"
+
+[notifications]
+timeout = 3
 ```
-
-### Highlight Rule Fields
-
-- `eq` — exact float match
-- `min` — inclusive lower bound
-- `max` — exclusive upper bound
-- `pattern` — substring match
-- `color` — `"red"`, `"green"`, `"yellow"`, `"blue"`, `"cyan"`, `"magenta"`, `"white"`, `"orange"`, `"none"`
 
 ## Store Structure
 
