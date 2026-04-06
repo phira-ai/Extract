@@ -303,6 +303,7 @@ impl DetailPanel {
             &sections,
             state.summary_scroll,
             state.config.summary.curve_width,
+            state.config.summary.curve_height,
             state.config.summary.curve_smooth,
             &state.config.tables,
         );

@@ -45,6 +45,7 @@ impl SummaryRenderer {
         sections: &[SummarySection],
         scroll_offset: u16,
         curve_width_pct: u8,
+        curve_height: Option<u16>,
         curve_smooth: bool,
         tables_config: &TablesConfig,
     ) -> usize {
@@ -59,7 +60,7 @@ impl SummaryRenderer {
                 SummarySection::Curves => {
                     let chart_width =
                         ((area.width as f32) * (curve_width_pct.min(100) as f32 / 100.0)) as u16;
-                    self.build_curves(&mut lines, data, chart_width.max(20), curve_smooth);
+                    self.build_curves(&mut lines, data, chart_width.max(20), curve_height, curve_smooth);
                 }
                 SummarySection::Tables => {
                     self.build_tables(&mut lines, data, tables_config);
@@ -214,19 +215,20 @@ impl SummaryRenderer {
         lines: &mut Vec<Line<'static>>,
         data: &SummaryData,
         width: u16,
+        height_override: Option<u16>,
         smooth: bool,
     ) {
         if data.metric_histories.is_empty() {
             return;
         }
 
-        // Scale chart height based on number of metrics
-        let chart_height: u16 = match data.metric_histories.len() {
+        // Use configured height or auto-scale based on number of metrics
+        let chart_height: u16 = height_override.unwrap_or_else(|| match data.metric_histories.len() {
             1 => 12,
             2 => 10,
             3 => 8,
             _ => 6,
-        };
+        });
 
         for (name, history) in data.metric_histories {
             if history.is_empty() {

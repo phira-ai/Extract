@@ -19,6 +19,8 @@ pub struct SummaryConfig {
     /// Chart width as percentage of panel width (1-100, default 80).
     #[serde(default = "default_curve_width")]
     pub curve_width: u8,
+    /// Chart height in lines. When unset, auto-scales based on number of metrics (12/10/8/6).
+    pub curve_height: Option<u16>,
     /// Smooth curves with Catmull-Rom interpolation (default false).
     #[serde(default)]
     pub curve_smooth: bool,
@@ -47,6 +49,7 @@ impl Default for SummaryConfig {
                 SummarySection::Curves,
             ],
             curve_width: default_curve_width(),
+            curve_height: None,
             curve_smooth: false,
         }
     }
@@ -101,6 +104,8 @@ pub struct CompareConfig {
     /// Chart width as percentage of panel width (1-100, default 80).
     #[serde(default = "default_curve_width")]
     pub curve_width: u8,
+    /// Chart height in lines. When unset, auto-scales based on number of metrics (12/10/8/6).
+    pub curve_height: Option<u16>,
 }
 
 impl Default for CompareConfig {
@@ -108,6 +113,7 @@ impl Default for CompareConfig {
         Self {
             sections: default_compare_sections(),
             curve_width: default_curve_width(),
+            curve_height: None,
         }
     }
 }

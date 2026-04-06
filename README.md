@@ -140,7 +140,8 @@ hierarchy = "benchmark > method > variant"
 # Summary tab in Detail panel (S)
 [summary]
 sections = ["runs", "metrics", "tables", "curves"]
-curve_width = 80
+curve_width = 80       # chart width as % of panel
+# curve_height = 10    # chart height in lines (default: auto-scales by metric count)
 curve_smooth = false
 
 # Info tab in Detail panel (I)
@@ -154,6 +155,7 @@ fields = ["method.*", "task.num_train_epochs"]   # empty = show all
 [compare]
 sections = ["pivot", "config", "tables", "curves"]
 curve_width = 50
+# curve_height = 10
 ```
 
 ### Data Interpretation — how metrics and table values are evaluated

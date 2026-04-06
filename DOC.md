@@ -357,6 +357,7 @@ Controls the Summary tab in the Detail panel (selected via `S`).
 |-----|------|---------|-------------|
 | `sections` | `string[]` | `["runs", "metrics", "tables", "curves"]` | Display order in detail panel |
 | `curve_width` | `int` | `80` | Chart width as % of panel (1-100) |
+| `curve_height` | `int` | auto | Chart height in lines (auto-scales by metric count: 12/10/8/6) |
 | `curve_smooth` | `bool` | `false` | Catmull-Rom curve interpolation |
 
 ### `[info]`
@@ -388,6 +389,7 @@ Controls the Compare view (triggered via `c` with marked runs).
 |-----|------|---------|-------------|
 | `sections` | `string[]` | `["pivot", "config", "tables", "curves"]` | Display order in compare view |
 | `curve_width` | `int` | `50` | Chart width as % of panel (1-100) |
+| `curve_height` | `int` | auto | Chart height in lines (auto-scales by metric count: 12/10/8/6) |
 
 #### Data Interpretation — controls how metrics and table values are evaluated
 

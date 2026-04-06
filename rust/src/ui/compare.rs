@@ -169,6 +169,7 @@ impl CompareView {
                             &mut lines,
                             data,
                             chart_width.max(20),
+                            state.config.compare.curve_height,
                             w,
                         )
                     }
@@ -482,6 +483,7 @@ impl CompareView {
         lines: &mut Vec<Line<'static>>,
         data: &CompareData,
         chart_width: u16,
+        height_override: Option<u16>,
         available_width: u16,
     ) {
         if data.metric_names.is_empty() {
@@ -524,13 +526,13 @@ impl CompareView {
             lines.push(Line::from(row_spans));
         }
 
-        // Then one chart per metric with ALL runs overlaid
-        let chart_height: u16 = match data.metric_names.len() {
+        // Use configured height or auto-scale based on number of metrics
+        let chart_height: u16 = height_override.unwrap_or_else(|| match data.metric_names.len() {
             1 => 12,
             2 => 10,
             3 => 8,
             _ => 6,
-        };
+        });
 
         for metric_name in &data.metric_names {
             let mut all_points: Vec<(Vec<(f64, f64)>, Color)> = Vec::new();
