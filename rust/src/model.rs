@@ -121,8 +121,18 @@ pub struct SearchResult {
     pub snippet: String,
 }
 
-/// Heuristic: returns true if lower values are better for this metric.
-pub fn is_lower_better(metric_name: &str) -> bool {
+/// Returns true if lower values are better for this metric.
+/// Checks config overrides first, then falls back to a name-based heuristic.
+pub fn is_lower_better(metric_name: &str, config: &crate::config::MetricsConfig) -> bool {
+    // Config overrides take precedence
+    if config.minimize.iter().any(|m| m == metric_name) {
+        return true;
+    }
+    if config.maximize.iter().any(|m| m == metric_name) {
+        return false;
+    }
+
+    // Heuristic fallback
     let name = metric_name.to_lowercase();
     name.contains("loss")
         || name.contains("error")

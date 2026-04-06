@@ -700,7 +700,7 @@ impl AppState {
             let mut rankings: Vec<MetricRanking> = metric_map
                 .into_iter()
                 .map(|(metric_name, entries)| {
-                    let lower = is_lower_better(&metric_name);
+                    let lower = is_lower_better(&metric_name, &self.config.metrics);
                     let mut ranked: Vec<(String, f64)> = entries
                         .iter()
                         .map(|(name, min_val, max_val)| {

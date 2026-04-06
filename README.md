@@ -139,6 +139,11 @@ curve_smooth = false
 sections = ["pivot", "config", "tables", "curves"]
 curve_width = 50
 
+[metrics]
+minimize = ["forgetting_rate"]    # lower is better
+maximize = ["custom_score"]       # higher is better
+# Unlisted metrics use name heuristics (e.g. "loss" → minimize)
+
 [notifications]
 timeout = 3
 

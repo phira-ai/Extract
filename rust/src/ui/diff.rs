@@ -10,6 +10,7 @@ use crate::app::{format_json_value, Action, AppState, CompareData, Focus, View};
 use crate::artifact::CellValue;
 use crate::event::AppEvent;
 use crate::keys;
+use crate::config::MetricsConfig;
 use crate::model::is_lower_better;
 use crate::ui::theme::Theme;
 
@@ -150,7 +151,7 @@ impl DiffView {
             let scroll = data.scroll;
             let mut lines: Vec<Line<'static>> = Vec::new();
 
-            self.build_metric_deltas(&mut lines, data, baseline_idx, inner.width);
+            self.build_metric_deltas(&mut lines, data, baseline_idx, inner.width, &state.config.metrics);
             self.build_config_changes(&mut lines, data, baseline_idx);
             self.build_delta_tables(&mut lines, data, baseline_idx, inner.width);
 
@@ -174,6 +175,7 @@ impl DiffView {
         data: &CompareData,
         baseline_idx: usize,
         available_width: u16,
+        metrics_config: &MetricsConfig,
     ) {
         if data.metric_names.is_empty() {
             return;
@@ -251,7 +253,7 @@ impl DiffView {
                     .find(|m| m.name == *metric_name)
                     .map(|m| m.value);
 
-                let lower_better = is_lower_better(metric_name);
+                let lower_better = is_lower_better(metric_name, metrics_config);
 
                 let mut spans: Vec<Span<'static>> = Vec::new();
                 spans.push(Span::raw(format!("  {:<width$}", metric_name, width = label_width)));

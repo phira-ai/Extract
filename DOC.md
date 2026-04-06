@@ -362,6 +362,14 @@ Task notes scoped to global, experiment, or run.
 |-----|------|---------|-------------|
 | `timeout` | `int` | `3` | Auto-dismiss timeout in seconds |
 
+### `[metrics]`
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `minimize` | `string[]` | `[]` | Metrics where lower is better |
+| `maximize` | `string[]` | `[]` | Metrics where higher is better |
+
+Unlisted metrics fall back to name-based heuristics (see [Metric Direction](#metric-direction)).
+
 ### `[[tables.highlight]]`
 Ordered highlight rules for matrix/table cells. First match wins.
 
@@ -392,13 +400,27 @@ All values are hex color strings. Omitted fields use ANSI 16-color defaults.
 
 ---
 
-## Metric Heuristics
+## Metric Direction
 
-The TUI recognizes "lower is better" metrics by name pattern matching. These are ranked/displayed accordingly in comparison views:
+Metric direction (minimize vs maximize) determines ranking, comparison arrows, and improvement highlighting.
+
+### Configuration
+
+Override direction for specific metrics in `config.toml`:
+
+```toml
+[metrics]
+minimize = ["forgetting_rate", "custom_loss"]
+maximize = ["custom_score"]
+```
+
+### Heuristic Fallback
+
+Metrics not listed in config use name-based heuristics. These patterns are recognized as **minimize** (lower is better):
 
 `loss`, `error`, `perplexity`, `mse`, `mae`, `rmse`, `nll`, `cer`, `wer`, `fid`, `divergence`
 
-All other metrics are treated as "higher is better".
+All other unlisted metrics default to **maximize** (higher is better).
 
 ---
 

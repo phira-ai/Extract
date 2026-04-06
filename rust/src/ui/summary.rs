@@ -141,11 +141,10 @@ impl SummaryRenderer {
 
             let mut spans = vec![
                 Span::raw("  ".to_string()),
-                Span::styled("\u{25cf} ".to_string(), status_style),
-                Span::styled(format!("{:<11}", run.status), status_style),
-                Span::raw(format!(" {:<12}", label)),
+                Span::raw(format!("{:<12}", label)),
+                Span::styled(" \u{25cf} ".to_string(), status_style),
                 Span::styled(
-                    format!(" {date} "),
+                    format!("{date} "),
                     Style::default().fg(self.theme.accent_dim),
                 ),
             ];

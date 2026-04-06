@@ -156,6 +156,16 @@ pub fn parse_hex_color(s: &str) -> Option<Color> {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+pub struct MetricsConfig {
+    /// Metrics where lower values are better (e.g. "forgetting_rate").
+    #[serde(default)]
+    pub minimize: Vec<String>,
+    /// Metrics where higher values are better (e.g. "custom_score").
+    #[serde(default)]
+    pub maximize: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub summary: SummaryConfig,
@@ -167,6 +177,8 @@ pub struct Config {
     pub notifications: NotificationsConfig,
     #[serde(default)]
     pub theme: ThemeConfig,
+    #[serde(default)]
+    pub metrics: MetricsConfig,
 }
 
 /// Parse a color name string into a ratatui Color.
