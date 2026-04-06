@@ -89,24 +89,17 @@ impl DetailPanel {
             }
         }
 
-        // Info tab: j/k navigates between runs
+        // Info tab: j/k scrolls
         if self.active_tab == DetailTab::Info {
             if keys::matches(key, keys::NAV_DOWN_J) || keys::matches(key, keys::NAV_DOWN) {
-                if let Some(idx) = state.selected_run {
-                    if idx + 1 < state.runs.len() {
-                        state.selected_run = Some(idx + 1);
-                        self.load_metrics_for_selected_run(state);
-                    }
+                let max_scroll = state.info_total_lines.saturating_sub(state.info_visible_height);
+                if (state.info_scroll as usize) < max_scroll {
+                    state.info_scroll += 1;
                 }
                 return Action::None;
             }
             if keys::matches(key, keys::NAV_UP_K) || keys::matches(key, keys::NAV_UP) {
-                if let Some(idx) = state.selected_run {
-                    if idx > 0 {
-                        state.selected_run = Some(idx - 1);
-                        self.load_metrics_for_selected_run(state);
-                    }
-                }
+                state.info_scroll = state.info_scroll.saturating_sub(1);
                 return Action::None;
             }
         }
@@ -226,12 +219,12 @@ impl DetailPanel {
             self.render_tab_bar(frame, chunks[0]);
             match self.active_tab {
                 DetailTab::Summary => self.render_summary(frame, chunks[1], state),
-                DetailTab::Info => self.render_info(frame, chunks[1], &run),
+                DetailTab::Info => self.render_info(frame, chunks[1], &run, state),
             }
         } else {
             match self.active_tab {
                 DetailTab::Summary => self.render_summary(frame, inner, state),
-                DetailTab::Info => self.render_info(frame, inner, &run),
+                DetailTab::Info => self.render_info(frame, inner, &run, state),
             }
         }
     }
@@ -317,62 +310,51 @@ impl DetailPanel {
         state.summary_visible_height = area.height as usize;
     }
 
-    fn render_info(&self, frame: &mut Frame, area: Rect, run: &Run) {
+    fn render_info(&self, frame: &mut Frame, area: Rect, run: &Run, state: &mut AppState) {
+        use crate::config::key_matches_glob;
+
         let mut lines = Vec::new();
 
-        lines.push(Line::from(vec![
-            Span::styled("Run ID: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(run.id.clone()),
-        ]));
-
+        // Build metadata rows as aligned key-value pairs.
+        let mut meta: Vec<(&str, String, Option<Style>)> = Vec::new();
+        meta.push(("Run ID", run.id.clone(), None));
         if let Some(ref name) = run.name {
-            lines.push(Line::from(vec![
-                Span::styled("Name: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(name.clone()),
-            ]));
+            meta.push(("Name", name.clone(), None));
         }
-
         let status_style = match run.status.as_str() {
-            "running" => self.theme.status_running,
-            "completed" => self.theme.status_completed,
-            "failed" => self.theme.status_failed,
-            _ => Style::default(),
+            "running" => Some(self.theme.status_running),
+            "completed" => Some(self.theme.status_completed),
+            "failed" => Some(self.theme.status_failed),
+            _ => None,
         };
-        lines.push(Line::from(vec![
-            Span::styled("Status: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(run.status.clone(), status_style),
-        ]));
-
-        lines.push(Line::from(vec![
-            Span::styled("Started: ", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(run.started_at.clone()),
-        ]));
-
+        meta.push(("Status", run.status.clone(), status_style));
+        meta.push(("Started", run.started_at.clone(), None));
         if let Some(ref ended) = run.ended_at {
-            lines.push(Line::from(vec![
-                Span::styled("Ended: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(ended.clone()),
-            ]));
+            meta.push(("Ended", ended.clone(), None));
         }
-
         if let Some(ref hostname) = run.hostname {
-            lines.push(Line::from(vec![
-                Span::styled("Host: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(hostname.clone()),
-            ]));
+            meta.push(("Host", hostname.clone(), None));
         }
-
         if let Some(ref git_sha) = run.git_sha {
-            lines.push(Line::from(vec![
-                Span::styled("Git SHA: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(git_sha.clone()),
-            ]));
+            meta.push(("Git SHA", git_sha.clone(), None));
+        }
+        if let Some(ref tags) = run.tags {
+            meta.push(("Tags", tags.clone(), None));
         }
 
-        if let Some(ref tags) = run.tags {
+        let meta_key_width = meta.iter().map(|(k, _, _)| k.len()).max().unwrap_or(4);
+        for (label, value, val_style) in &meta {
+            let val_span = if let Some(s) = val_style {
+                Span::styled(value.clone(), *s)
+            } else {
+                Span::raw(value.clone())
+            };
             lines.push(Line::from(vec![
-                Span::styled("Tags: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(tags.clone()),
+                Span::styled(
+                    format!("  {:<width$}  ", label, width = meta_key_width),
+                    Style::default().add_modifier(Modifier::BOLD),
+                ),
+                val_span,
             ]));
         }
 
@@ -393,21 +375,65 @@ impl DetailPanel {
             )));
             if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(config) {
                 if let Some(obj) = parsed.as_object() {
-                    let key_width = obj.keys().map(|k| k.len()).max().unwrap_or(8).max(4);
+                    // Flatten nested config into (dotted_key, leaf_value) pairs.
+                    let mut flat: Vec<(String, String)> = Vec::new();
+                    fn flatten(
+                        prefix: &str,
+                        value: &serde_json::Value,
+                        out: &mut Vec<(String, String)>,
+                    ) {
+                        match value {
+                            serde_json::Value::Object(map) => {
+                                for (k, v) in map {
+                                    let key = if prefix.is_empty() {
+                                        k.clone()
+                                    } else {
+                                        format!("{prefix}.{k}")
+                                    };
+                                    flatten(&key, v, out);
+                                }
+                            }
+                            serde_json::Value::String(s) => {
+                                out.push((prefix.to_string(), s.clone()));
+                            }
+                            serde_json::Value::Null => {
+                                out.push((prefix.to_string(), "null".to_string()));
+                            }
+                            serde_json::Value::Bool(b) => {
+                                out.push((prefix.to_string(), b.to_string()));
+                            }
+                            serde_json::Value::Number(n) => {
+                                out.push((prefix.to_string(), n.to_string()));
+                            }
+                            serde_json::Value::Array(arr) => {
+                                out.push((
+                                    prefix.to_string(),
+                                    serde_json::to_string(arr).unwrap_or_default(),
+                                ));
+                            }
+                        }
+                    }
                     for (k, v) in obj {
-                        let val_str = match v {
-                            serde_json::Value::String(s) => s.clone(),
-                            serde_json::Value::Null => "null".to_string(),
-                            serde_json::Value::Bool(b) => b.to_string(),
-                            serde_json::Value::Number(n) => n.to_string(),
-                            other => other.to_string(),
-                        };
+                        flatten(k, v, &mut flat);
+                    }
+
+                    // Apply field filter from config.
+                    let filters = &state.config.info.fields;
+                    if !filters.is_empty() {
+                        flat.retain(|(k, _)| {
+                            filters.iter().any(|pat| key_matches_glob(k, pat))
+                        });
+                    }
+
+                    let key_width =
+                        flat.iter().map(|(k, _)| k.len()).max().unwrap_or(8).max(4);
+                    for (k, val_str) in &flat {
                         lines.push(Line::from(vec![
                             Span::styled(
                                 format!("  {:<width$}  ", k, width = key_width),
                                 Style::default().fg(self.theme.accent_dim),
                             ),
-                            Span::raw(val_str),
+                            Span::raw(val_str.clone()),
                         ]));
                     }
                 } else {
@@ -418,7 +444,11 @@ impl DetailPanel {
             }
         }
 
-        let paragraph = Paragraph::new(lines).wrap(Wrap { trim: false });
+        state.info_total_lines = lines.len();
+        state.info_visible_height = area.height as usize;
+        let paragraph = Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((state.info_scroll, 0));
         frame.render_widget(paragraph, area);
     }
 }

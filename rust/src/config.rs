@@ -166,6 +166,14 @@ pub struct MetricsConfig {
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
+pub struct InfoConfig {
+    /// Glob patterns for which config keys to show (e.g. ["method.*", "task.num_train_epochs"]).
+    /// If empty, all keys are shown.
+    #[serde(default)]
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
     pub summary: SummaryConfig,
@@ -179,6 +187,8 @@ pub struct Config {
     pub theme: ThemeConfig,
     #[serde(default)]
     pub metrics: MetricsConfig,
+    #[serde(default)]
+    pub info: InfoConfig,
 }
 
 /// Parse a color name string into a ratatui Color.
@@ -203,6 +213,21 @@ pub fn parse_color(name: &str) -> Color {
         "lightmagenta" | "light_magenta" => Color::LightMagenta,
         _ => Color::Reset, // fallback to terminal default
     }
+}
+
+/// Check if a dotted config key matches a glob pattern.
+/// Supports `*` (single segment wildcard) and `**` is not needed since `*` at the end
+/// matches the rest. E.g. "method.*" matches "method.name", "method.lora_r", etc.
+pub fn key_matches_glob(key: &str, pattern: &str) -> bool {
+    // Exact match
+    if key == pattern {
+        return true;
+    }
+    // Trailing wildcard: "method.*" matches any key starting with "method."
+    if let Some(prefix) = pattern.strip_suffix(".*") {
+        return key == prefix || key.starts_with(&format!("{prefix}."));
+    }
+    false
 }
 
 #[cfg(test)]
@@ -279,6 +304,38 @@ sections = ["pivot", "curves"]
             config.compare.sections,
             vec![CompareSection::Pivot, CompareSection::Curves]
         );
+    }
+
+    #[test]
+    fn test_parse_info_fields() {
+        let content = r#"
+[info]
+fields = ["method.*", "task.num_train_epochs"]
+"#;
+        let config: Config = toml::from_str(content).expect("Failed to parse config");
+        assert_eq!(config.info.fields, vec!["method.*", "task.num_train_epochs"]);
+    }
+
+    #[test]
+    fn test_info_fields_default_empty() {
+        let config: Config = toml::from_str("").expect("Failed to parse empty config");
+        assert!(config.info.fields.is_empty());
+    }
+
+    #[test]
+    fn test_key_matches_glob() {
+        // Exact match
+        assert!(key_matches_glob("task.num_train_epochs", "task.num_train_epochs"));
+        assert!(!key_matches_glob("task.num_train_epochs", "task.num_train"));
+
+        // Wildcard match
+        assert!(key_matches_glob("method.name", "method.*"));
+        assert!(key_matches_glob("method.lora_r", "method.*"));
+        assert!(key_matches_glob("method.deep.nested", "method.*"));
+        assert!(!key_matches_glob("model.name", "method.*"));
+
+        // Top-level wildcard matches the prefix itself
+        assert!(key_matches_glob("method", "method.*"));
     }
 }
 

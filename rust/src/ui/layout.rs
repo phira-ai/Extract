@@ -10,7 +10,7 @@ use crate::event::AppEvent;
 use crate::keys;
 use crate::ui::compare::CompareView;
 use crate::ui::dashboard::Dashboard;
-use crate::ui::detail::DetailPanel;
+use crate::ui::detail::{DetailPanel, DetailTab};
 use crate::ui::diff::DiffView;
 use crate::ui::help::HelpOverlay;
 use crate::ui::lineage::LineageView;
@@ -298,10 +298,18 @@ impl AppLayout {
                     }
                 }
                 Focus::Detail => {
-                    if top {
-                        state.summary_scroll = 0;
+                    if self.detail.active_tab == DetailTab::Info {
+                        if top {
+                            state.info_scroll = 0;
+                        } else {
+                            state.info_scroll = state.info_total_lines.saturating_sub(state.info_visible_height) as u16;
+                        }
                     } else {
-                        state.summary_scroll = state.summary_total_lines.saturating_sub(state.summary_visible_height) as u16;
+                        if top {
+                            state.summary_scroll = 0;
+                        } else {
+                            state.summary_scroll = state.summary_total_lines.saturating_sub(state.summary_visible_height) as u16;
+                        }
                     }
                 }
                 Focus::Selection => {

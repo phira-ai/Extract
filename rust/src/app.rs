@@ -279,6 +279,9 @@ pub struct AppState {
     pub summary_scroll: u16,
     pub summary_total_lines: usize,
     pub summary_visible_height: usize,
+    pub info_scroll: u16,
+    pub info_total_lines: usize,
+    pub info_visible_height: usize,
     pub cached_table: Option<TableData>,
     pub cached_table_artifact_id: Option<String>,
     pub cached_table_axes: Option<(String, String)>,
@@ -349,6 +352,9 @@ impl AppState {
             summary_scroll: 0,
             summary_total_lines: 0,
             summary_visible_height: 0,
+            info_scroll: 0,
+            info_total_lines: 0,
+            info_visible_height: 0,
             cached_table: None,
             cached_table_artifact_id: None,
             cached_table_axes: None,
@@ -444,6 +450,7 @@ impl AppState {
     /// Uses the latest completed run, or the first run if none completed.
     pub fn refresh_leaf_preview(&mut self) -> Result<()> {
         self.summary_scroll = 0;
+        self.info_scroll = 0;
 
         if self.runs.is_empty() {
             self.metric_histories.clear();
@@ -807,6 +814,7 @@ impl AppState {
 
     pub fn load_run_preview(&mut self, run_idx: usize) -> Result<()> {
         self.summary_scroll = 0;
+        self.info_scroll = 0;
         let Some(run) = self.runs.get(run_idx) else {
             return Ok(());
         };
