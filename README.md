@@ -165,8 +165,8 @@ maximize = ["custom_score"]       # higher is better
 # Unlisted metrics use name heuristics (e.g. "loss" → minimize)
 
 # Cell highlight rules for tables (first match wins)
-# Fields: eq (exact), min (inclusive), max (exclusive), pattern (substring), color
-# Colors: red, green, yellow, blue, cyan, magenta, white, orange, none
+# Fields: eq (exact), min (inclusive), max (exclusive), pattern (substring), color (name or hex)
+# Colors: red, green, yellow, blue, cyan, magenta, white, orange, none, or hex (#ff6600)
 [[tables.highlight]]
 min = 0.7
 color = "red"

@@ -211,7 +211,7 @@ pub fn parse_color(name: &str) -> Color {
         "lightblue" | "light_blue" => Color::LightBlue,
         "lightcyan" | "light_cyan" => Color::LightCyan,
         "lightmagenta" | "light_magenta" => Color::LightMagenta,
-        _ => Color::Reset, // fallback to terminal default
+        other => parse_hex_color(other).unwrap_or(Color::Reset),
     }
 }
 

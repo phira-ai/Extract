@@ -412,7 +412,7 @@ Ordered highlight rules for matrix/table cells. First match wins.
 | `pattern` | `string` | Substring match |
 | `color` | `string` | Color name (see below) |
 
-Colors: `"red"`, `"green"`, `"yellow"`, `"blue"`, `"cyan"`, `"magenta"`, `"white"`, `"black"`, `"darkgray"`, `"orange"`, `"none"` (terminal default).
+Colors: `"red"`, `"green"`, `"yellow"`, `"blue"`, `"cyan"`, `"magenta"`, `"white"`, `"black"`, `"darkgray"`, `"orange"`, `"none"` (terminal default), or any hex color (e.g. `"#ff6600"`).
 
 #### Appearance
 
