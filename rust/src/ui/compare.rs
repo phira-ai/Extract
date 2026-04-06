@@ -202,9 +202,14 @@ impl CompareView {
         )));
         lines.push(self.separator());
 
+        let col_gap: usize = 3;
         let label_width: usize = 16;
-        let col_width: usize = 18;
         let indent: usize = 2;
+
+        // Column width = max label length + gap, with a floor
+        let max_label_len = data.runs.iter().map(|r| r.label().len()).max().unwrap_or(8);
+        let col_width: usize = max_label_len.max(10) + col_gap;
+        let content_width = col_width - col_gap;
 
         let runs_per_row = ((available_width as usize).saturating_sub(indent + label_width) / col_width).max(1);
         let run_indices: Vec<usize> = (0..data.runs.len()).collect();
@@ -214,8 +219,9 @@ impl CompareView {
             let mut header_spans = vec![Span::raw(format!("  {:<label_width$}", ""))];
             for &i in chunk {
                 let color = RUN_COLORS[i % RUN_COLORS.len()];
+                let label = data.runs[i].label();
                 header_spans.push(Span::styled(
-                    Self::truncate_label(&data.runs[i].label(), col_width),
+                    format!("{:<col_width$}", label),
                     Style::default()
                         .fg(color)
                         .add_modifier(Modifier::BOLD),
@@ -225,7 +231,6 @@ impl CompareView {
 
             // Numeric metrics
             for metric_name in &data.metric_names {
-                let mut spans = vec![Span::raw(format!("  {:<label_width$}", metric_name))];
                 let all_values: Vec<Option<f64>> = data
                     .runs
                     .iter()
@@ -243,24 +248,21 @@ impl CompareView {
                     _ => false,
                 });
 
-                for &i in chunk {
-                    let text = match all_values[i] {
-                        Some(v) => format!("{:<col_width$.4}", v),
-                        None => format!("{:<col_width$}", "-"),
-                    };
-                    let style = if !all_same {
-                        Style::default().fg(self.theme.warning)
-                    } else {
-                        Style::default()
-                    };
-                    spans.push(Span::styled(text, style));
-                }
-                lines.push(Line::from(spans));
+                let texts: Vec<String> = chunk.iter().map(|&i| {
+                    match all_values[i] {
+                        Some(v) => format!("{:.4}", v),
+                        None => "-".to_string(),
+                    }
+                }).collect();
+                let styles: Vec<Style> = chunk.iter().map(|_| {
+                    if !all_same { Style::default().fg(self.theme.warning) } else { Style::default() }
+                }).collect();
+
+                Self::emit_wrapped_row(lines, label_width, col_width, content_width, metric_name, &texts, &styles);
             }
 
             // Categorical params
             for param_name in &data.param_names {
-                let mut spans = vec![Span::raw(format!("  {:<label_width$}", param_name))];
                 let all_values: Vec<String> = data
                     .runs
                     .iter()
@@ -275,16 +277,12 @@ impl CompareView {
 
                 let all_same = all_values.windows(2).all(|w| w[0] == w[1]);
 
-                for &i in chunk {
-                    let text = format!("{:<col_width$}", all_values[i]);
-                    let style = if !all_same {
-                        Style::default().fg(self.theme.accent)
-                    } else {
-                        Style::default().fg(self.theme.accent_dim)
-                    };
-                    spans.push(Span::styled(text, style));
-                }
-                lines.push(Line::from(spans));
+                let texts: Vec<String> = chunk.iter().map(|&i| all_values[i].clone()).collect();
+                let styles: Vec<Style> = chunk.iter().map(|_| {
+                    if !all_same { Style::default().fg(self.theme.accent) } else { Style::default().fg(self.theme.accent_dim) }
+                }).collect();
+
+                Self::emit_wrapped_row(lines, label_width, col_width, content_width, param_name, &texts, &styles);
             }
 
             // Blank line between chunks
@@ -308,6 +306,8 @@ impl CompareView {
         )));
         lines.push(self.separator());
 
+        let col_gap: usize = 3;
+        let indent: usize = 2;
         let label_width: usize = data
             .config_keys
             .iter()
@@ -316,8 +316,10 @@ impl CompareView {
             .unwrap_or(8)
             .max(8)
             + 2; // padding
-        let col_width: usize = 18;
-        let indent: usize = 2;
+
+        let max_label_len = data.runs.iter().map(|r| r.label().len()).max().unwrap_or(8);
+        let col_width: usize = max_label_len.max(10) + col_gap;
+        let content_width = col_width - col_gap;
 
         let runs_per_row = ((available_width as usize).saturating_sub(indent + label_width) / col_width).max(1);
         let run_indices: Vec<usize> = (0..data.runs.len()).collect();
@@ -327,8 +329,9 @@ impl CompareView {
             let mut header_spans = vec![Span::raw(format!("  {:<label_width$}", ""))];
             for &i in chunk {
                 let color = RUN_COLORS[i % RUN_COLORS.len()];
+                let label = data.runs[i].label();
                 header_spans.push(Span::styled(
-                    Self::truncate_label(&data.runs[i].label(), col_width),
+                    format!("{:<col_width$}", label),
                     Style::default()
                         .fg(color)
                         .add_modifier(Modifier::BOLD),
@@ -337,8 +340,6 @@ impl CompareView {
             lines.push(Line::from(header_spans));
 
             for key in &data.config_keys {
-                let mut spans = vec![Span::raw(format!("  {:<label_width$}", key))];
-
                 let all_values: Vec<String> = data
                     .runs
                     .iter()
@@ -353,16 +354,12 @@ impl CompareView {
 
                 let all_same = all_values.windows(2).all(|w| w[0] == w[1]);
 
-                for &i in chunk {
-                    let text = format!("{:<col_width$}", all_values[i]);
-                    let style = if !all_same {
-                        Style::default().fg(self.theme.warning)
-                    } else {
-                        Style::default()
-                    };
-                    spans.push(Span::styled(text, style));
-                }
-                lines.push(Line::from(spans));
+                let texts: Vec<String> = chunk.iter().map(|&i| all_values[i].clone()).collect();
+                let styles: Vec<Style> = chunk.iter().map(|_| {
+                    if !all_same { Style::default().fg(self.theme.warning) } else { Style::default() }
+                }).collect();
+
+                Self::emit_wrapped_row(lines, label_width, col_width, content_width, key, &texts, &styles);
             }
 
             if chunk.last() != run_indices.last() {
@@ -669,11 +666,51 @@ impl CompareView {
         result
     }
 
-    fn truncate_label(label: &str, width: usize) -> String {
-        if label.len() <= width {
-            format!("{:<width$}", label)
-        } else {
-            format!("{:.width$}", label, width = width)
+    /// Emit a row with line-wrapping for cell values that exceed content_width.
+    /// Each cell gets `content_width` chars for text + padding to fill `col_width`.
+    fn emit_wrapped_row(
+        lines: &mut Vec<Line<'static>>,
+        label_width: usize,
+        col_width: usize,
+        content_width: usize,
+        row_label: &str,
+        texts: &[String],
+        styles: &[Style],
+    ) {
+        // Split each cell text into wrapped chunks
+        let wrapped: Vec<Vec<&str>> = texts
+            .iter()
+            .map(|t| {
+                if t.len() <= content_width {
+                    vec![t.as_str()]
+                } else {
+                    t.as_bytes()
+                        .chunks(content_width)
+                        .map(|chunk| {
+                            // Safe: we're splitting at byte boundaries of ASCII-safe content
+                            std::str::from_utf8(chunk).unwrap_or(t.as_str())
+                        })
+                        .collect()
+                }
+            })
+            .collect();
+
+        let max_lines = wrapped.iter().map(|w| w.len()).max().unwrap_or(1);
+
+        for line_idx in 0..max_lines {
+            let label = if line_idx == 0 {
+                format!("  {:<label_width$}", row_label)
+            } else {
+                format!("  {:<label_width$}", "")
+            };
+            let mut spans = vec![Span::raw(label)];
+            for (col, cell_lines) in wrapped.iter().enumerate() {
+                let text = cell_lines.get(line_idx).copied().unwrap_or("");
+                let gap = col_width - text.len().min(content_width);
+                spans.push(Span::styled(text.to_string(), styles[col]));
+                spans.push(Span::raw(" ".repeat(gap)));
+            }
+            lines.push(Line::from(spans));
         }
     }
 
