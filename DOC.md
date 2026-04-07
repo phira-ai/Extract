@@ -179,10 +179,78 @@ extract sync import <archive.tar.gz> [--root .extract]
 ### Install
 
 ```bash
-pip install extract-tracker
+pip install extract-tracker            # SDK + CLI + TUI binary
+pip install 'extract-tracker[mcp]'     # also installs the MCP server runtime
 ```
 
-Installs the Python SDK, the `extract` CLI, and the compiled TUI binary.
+The base install ships the `extract.mcp` module but not its `mcp>=1.0` runtime dependency. Add the `[mcp]` extra to use the MCP server (see below).
+
+---
+
+## MCP Server
+
+Read-only MCP (Model Context Protocol) server that exposes the store to LLM agents (Claude Code, Claude Desktop, any MCP-capable host). Lets an agent inspect experiments, runs, metrics, configs, lineage, models, and TODOs without writing Python.
+
+### Entry Point
+
+```bash
+python -m extract.mcp [--store PATH]
+```
+
+- `--store PATH` — path to the `.extract/` directory. Default: `.extract` (resolved relative to the server's cwd, which is the MCP host's cwd). Launching `claude` in a project folder automatically binds to that project's store.
+- Transport: stdio. Spawned by the MCP host as a subprocess; not invoked interactively.
+- Read-only. No tools that mutate the store in v1.
+
+### Registering with Claude Code
+
+Add a project-scoped `.mcp.json` at the project root:
+
+```json
+{
+  "mcpServers": {
+    "extract": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "extract.mcp"]
+    }
+  }
+}
+```
+
+The relative `command` resolves against Claude's cwd (= project root when launched there). For globally-installed Python: replace with the absolute path or `python` if it's on `$PATH`.
+
+### Tools
+
+All 8 tools are read-only. Run IDs are ULIDs; agents discover them via `list_runs` / `search` and pass them to other tools verbatim. Listing tools share an envelope: `{items, total, truncated}`, default `limit=50`, hard cap `500` (clamps silently with `limit_clamped: true`).
+
+**`list_experiments(prefix: str = "", limit: int = 50) -> dict`**
+- Lists experiments, optionally filtered by path prefix. Each item: `{id, path, name, node_type, parent_id, n_runs}`.
+
+**`list_runs(experiment_id: str | None = None, limit: int = 50) -> dict`**
+- All runs (newest-first) or scoped to one experiment. Each item: `{id, label, experiment_id, experiment_path, name, status, started_at, ended_at, tags, git_sha, hostname, config_summary}`. `config_summary` is `{n_keys, top_level_keys}` — call `get_run` for the full config.
+
+**`get_run(run_id: str) -> dict`**
+- Full detail: `{id, experiment_id, experiment_path, name, label, status, started_at, ended_at, hostname, git_sha, tags, notes, config, metrics_final, metrics_available, run_params, artifacts, todos}`. `metrics_final` is the last value of each scalar metric; histories not included (use `compare_runs` with `include_history=True`).
+
+**`compare_runs(run_ids: list[str], include_history: bool = False) -> dict`**
+- 2–10 runs. Returns `{runs, metrics, config_diffs}`. Per metric: `{direction, values, ranking}` plus optional `history` (a list of `[step, value]` pairs per run). `direction` is `"min"` or `"max"` from name heuristics (`loss`, `error`, `mse`, etc. → min; everything else → max). `ranking` is best-to-worst by final value. `config_diffs` only contains keys where at least two runs differ; nested configs are flattened with dot notation (`method.lora_r`).
+
+**`search(query: str = "", filters: dict | None = None, limit: int = 50) -> dict`**
+- Substring + structured filter search over runs. Returns the same shape as `list_runs`.
+- `query`: case-insensitive substring against run name, tags, notes. Empty = no text filter.
+- `filters` (all AND-combined, all optional): `tag` (str), `status` (`"running" | "completed" | "failed"`), `experiment_prefix` (str), `started_after` (ISO 8601), `started_before` (ISO 8601).
+
+**`list_todos(scope_type: str = "global", scope_id: str | None = None, include_done: bool = False, limit: int = 50) -> dict`**
+- `scope_type`: `"global" | "experiment" | "run"`. `scope_id` required for non-global scopes, must be `None` for global. `include_done=False` by default.
+
+**`get_lineage(node_type: str, node_id: str, direction: str = "both", depth: int = 2) -> dict`**
+- BFS walk of the lineage DAG. `node_type`: `"experiment" | "run" | "model"`. `direction`: `"ancestors" | "descendants" | "both"`. `depth`: 1–5. Returns flat `{root, nodes, edges}` (not a tree — handles DAG diamonds). Labels: `path#name` for runs, `path` for experiments, `name@version` for models.
+
+**`list_models(name_prefix: str = "", limit: int = 50) -> dict`**
+- Each item: `{id, name, version, run_id, framework, artifact_path, metadata, created_at}`.
+
+### Errors
+
+All tool-visible errors raise `ValueError` with agent-readable strings: `"Run not found: 'X'"`, `"compare_runs requires at least 2 run_ids (got 1)"`, `"Unknown filter: 'X'. Valid filters: tag, status, experiment_prefix, started_after, started_before"`, etc. Listing tools accept `limit > 500` and silently clamp (with `limit_clamped: true` in the response) rather than erroring — the agent can recover without retrying.
 
 ---
 
@@ -543,10 +611,11 @@ rust/src/
 
 python/src/extract/
 ├── __init__.py      # public API: Store, Experiment, Run, sync
-├── __main__.py      # CLI entry point
+├── __main__.py      # CLI entry point (extract tui / sync)
 ├── store.py         # Store class: DB, hierarchy, experiment creation
 ├── experiment.py    # Experiment class: run creation, run listing
 ├── run.py           # Run class: logging, artifacts, models, lineage
 ├── metrics.py       # helpers: save_npy, load_npy, save_timeseries, etc.
-└── sync.py          # sync: rsync, tar archives, DB merging
+├── sync.py          # sync: rsync, tar archives, DB merging
+└── mcp.py           # MCP server: 8 read-only tools over stdio
 ```

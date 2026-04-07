@@ -7,10 +7,9 @@ Built for hierarchical experiment organization (benchmark > method > variant), r
 ## Install
 
 ```bash
-pip install extract-tracker
+pip install extract-tracker            # SDK + CLI + TUI binary
+pip install 'extract-tracker[mcp]'     # also enables the MCP server (see below)
 ```
-
-This installs the Python SDK, the `extract` CLI, and the compiled TUI binary.
 
 ### Development
 
@@ -130,6 +129,48 @@ extract sync import backup.tar.gz              # restore from archive
 ```
 
 Sync merges databases intelligently — experiments match by path, runs use ULIDs so they never collide.
+
+## MCP Server
+
+Expose your store to LLM agents (Claude Code, Claude Desktop, any MCP-capable host) via a read-only MCP server. Agents can browse experiments, compare runs, search by tag, and walk lineage without you writing any glue code.
+
+```bash
+python -m extract.mcp [--store .extract]
+```
+
+Run by an MCP host as a subprocess over stdio. The default `--store .extract` resolves relative to the host's cwd, so launching `claude` in a project folder automatically binds to that project's store.
+
+### Register with Claude Code
+
+Drop a `.mcp.json` at your project root:
+
+```json
+{
+  "mcpServers": {
+    "extract": {
+      "command": ".venv/bin/python",
+      "args": ["-m", "extract.mcp"]
+    }
+  }
+}
+```
+
+Then ask the agent things like *"compare the two ewc-l1.0 runs and tell me which had the lowest final loss"* or *"what experiments are tagged production-candidate?"* — it will reach for the matching tools automatically.
+
+### Tools (all read-only)
+
+| Tool | Purpose |
+|---|---|
+| `list_experiments` | Browse the experiment hierarchy with run counts |
+| `list_runs` | List runs (all or for one experiment) with labels and config summaries |
+| `get_run` | Full detail for one run: config, final metrics, params, artifacts, todos |
+| `compare_runs` | 2–10 runs with rankings, optional histories, config diffs |
+| `search` | Substring + structured filters (tag, status, prefix, date range) |
+| `list_todos` | TODOs scoped global / experiment / run |
+| `get_lineage` | BFS walk of the lineage DAG (ancestors, descendants, or both) |
+| `list_models` | Registered models with metadata |
+
+Full schemas, response shapes, and error catalog: see [DOC.md](DOC.md#mcp-server).
 
 ## Configuration
 
