@@ -315,6 +315,60 @@ def list_models(name_prefix: str = "", limit: int = 50) -> dict:
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
 
+@_tool
+def list_todos(
+    scope_type: str = "global",
+    scope_id: str | None = None,
+    include_done: bool = False,
+    limit: int = 50,
+) -> dict:
+    """List TODOs scoped to global, experiment, or run level.
+
+    Args:
+        scope_type: "global", "experiment", or "run".
+        scope_id: Required when scope_type is "experiment" or "run";
+            must be None when scope_type is "global".
+        include_done: If False (default), excludes completed TODOs.
+        limit: Max rows (default 50, max 500).
+
+    Returns a listing envelope of todo rows, ordered by priority DESC
+    then created_at.
+    """
+    valid_scopes = ("global", "experiment", "run")
+    if scope_type not in valid_scopes:
+        raise ValueError(
+            f"scope_type must be one of: global, experiment, run "
+            f"(got {scope_type!r})"
+        )
+    if scope_type == "global":
+        if scope_id is not None:
+            raise ValueError("scope_id must be None when scope_type='global'")
+    else:
+        if scope_id is None:
+            raise ValueError(f"scope_id is required when scope_type={scope_type!r}")
+
+    if limit < 1:
+        raise ValueError(f"limit must be >= 1 (got {limit})")
+    limit, clamped = _clamp_limit(limit)
+
+    assert _store is not None
+    with _store.lock:
+        where = "scope_type = ?"
+        params: list = [scope_type]
+        if scope_id is not None:
+            where += " AND scope_id = ?"
+            params.append(scope_id)
+        if not include_done:
+            where += " AND done = 0"
+        rows = _store._conn.execute(
+            f"SELECT * FROM todos WHERE {where} ORDER BY priority DESC, created_at",
+            params,
+        ).fetchall()
+
+    items = [dict(r) for r in rows]
+    return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
+
+
 def main(argv: list[str] | None = None) -> None:
     if FastMCP is None:
         print(

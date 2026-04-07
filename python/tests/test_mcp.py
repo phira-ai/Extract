@@ -415,3 +415,60 @@ class TestListModels:
         assert set(item.keys()) == expected_keys
         assert item["framework"] == "pytorch"
         assert item["metadata"] == {"params": 1000}
+
+
+class TestListTodos:
+    def test_global_scope(self, populated_store):
+        result = mcp_mod.list_todos()
+        assert result["total"] >= 1
+        contents = [t["content"] for t in result["items"]]
+        assert "Write up results for paper" in contents
+
+    def test_run_scope(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        result = mcp_mod.list_todos(scope_type="run", scope_id=r1a_id)
+        assert result["total"] == 1
+        assert result["items"][0]["content"] == "Try lambda=0.5 next"
+        assert result["items"][0]["priority"] == 1
+
+    def test_include_done_false_excludes_completed(self, populated_store):
+        # Mark the global todo done by direct SQL.
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE todos SET done = 1 WHERE content = 'Write up results for paper'"
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_todos()
+        contents = [t["content"] for t in result["items"]]
+        assert "Write up results for paper" not in contents
+
+    def test_include_done_true_shows_completed(self, populated_store):
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE todos SET done = 1 WHERE content = 'Write up results for paper'"
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_todos(include_done=True)
+        contents = [t["content"] for t in result["items"]]
+        assert "Write up results for paper" in contents
+
+    def test_invalid_scope_type(self, populated_store):
+        with pytest.raises(ValueError, match="scope_type must be one of"):
+            mcp_mod.list_todos(scope_type="invalid")
+
+    def test_scope_id_required_for_run(self, populated_store):
+        with pytest.raises(ValueError, match="scope_id is required"):
+            mcp_mod.list_todos(scope_type="run")
+
+    def test_scope_id_forbidden_for_global(self, populated_store):
+        with pytest.raises(ValueError, match="scope_id must be None"):
+            mcp_mod.list_todos(scope_type="global", scope_id="something")
+
+    def test_item_shape(self, populated_store):
+        result = mcp_mod.list_todos()
+        item = result["items"][0]
+        expected_keys = {
+            "id", "scope_type", "scope_id", "content", "priority",
+            "done", "created_at", "completed_at",
+        }
+        assert set(item.keys()) == expected_keys
