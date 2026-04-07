@@ -461,6 +461,122 @@ def get_run(run_id: str) -> dict:
     }
 
 
+_VALID_STATUS = ("running", "completed", "failed")
+_VALID_FILTERS = {
+    "tag", "status", "experiment_prefix", "started_after", "started_before",
+}
+
+
+@_tool
+def search(
+    query: str = "",
+    filters: dict | None = None,
+    limit: int = 50,
+) -> dict:
+    """Search runs by substring + structured filters.
+
+    Args:
+        query: Case-insensitive substring matched against run name, tags,
+            and notes. Empty string means no text filter.
+        filters: Optional dict of AND-combined filters. Valid keys:
+            - tag: str — run must contain this tag
+            - status: "running" | "completed" | "failed"
+            - experiment_prefix: str — run's experiment path starts with this
+            - started_after: ISO 8601 str (runs.started_at >= value)
+            - started_before: ISO 8601 str (runs.started_at <= value)
+        limit: Max rows (default 50, max 500).
+
+    Returns a listing envelope of run rows in the same shape as list_runs.
+    """
+    if limit < 1:
+        raise ValueError(f"limit must be >= 1 (got {limit})")
+    limit, clamped = _clamp_limit(limit)
+
+    filters = filters or {}
+    unknown = set(filters.keys()) - _VALID_FILTERS
+    if unknown:
+        raise ValueError(
+            f"Unknown filter: {next(iter(unknown))!r}. "
+            f"Valid filters: tag, status, experiment_prefix, "
+            f"started_after, started_before"
+        )
+
+    if "status" in filters and filters["status"] not in _VALID_STATUS:
+        raise ValueError(
+            f"status must be one of: running, completed, failed "
+            f"(got {filters['status']!r})"
+        )
+
+    clauses: list[str] = []
+    params: list = []
+
+    if query:
+        q = f"%{query}%"
+        clauses.append(
+            "(LOWER(r.name) LIKE LOWER(?) OR "
+            "LOWER(COALESCE(r.tags, '')) LIKE LOWER(?) OR "
+            "LOWER(COALESCE(r.notes, '')) LIKE LOWER(?))"
+        )
+        params += [q, q, q]
+
+    if "tag" in filters:
+        # tags is a JSON array; match a quoted tag within it.
+        clauses.append("r.tags LIKE ?")
+        params.append(f'%"{filters["tag"]}"%')
+
+    if "status" in filters:
+        clauses.append("r.status = ?")
+        params.append(filters["status"])
+
+    if "experiment_prefix" in filters:
+        pfx = filters["experiment_prefix"]
+        clauses.append("(e.path = ? OR e.path LIKE ?)")
+        params += [pfx, pfx.rstrip("/") + "/%"]
+
+    if "started_after" in filters:
+        clauses.append("r.started_at >= ?")
+        params.append(filters["started_after"])
+
+    if "started_before" in filters:
+        clauses.append("r.started_at <= ?")
+        params.append(filters["started_before"])
+
+    where_sql = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+
+    assert _store is not None
+    with _store.lock:
+        rows = _store._conn.execute(
+            f"SELECT r.*, e.path AS experiment_path "
+            f"FROM runs r JOIN experiments e ON r.experiment_id = e.id"
+            f"{where_sql} ORDER BY r.started_at DESC",
+            params,
+        ).fetchall()
+
+    items: list[dict] = []
+    for row in rows:
+        config_dict = json.loads(row["config"]) if row["config"] else {}
+        top_keys = list(config_dict.keys())
+        items.append({
+            "id": row["id"],
+            "label": _label(row["experiment_path"], row["name"], row["id"]),
+            "experiment_id": row["experiment_id"],
+            "experiment_path": row["experiment_path"],
+            "name": row["name"],
+            "status": row["status"],
+            "started_at": row["started_at"],
+            "ended_at": row["ended_at"],
+            "tags": json.loads(row["tags"]) if row["tags"] else [],
+            "git_sha": row["git_sha"],
+            "hostname": row["hostname"],
+            "config_summary": {
+                "n_keys": len(top_keys),
+                "top_level_keys": top_keys,
+            },
+        })
+
+    return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
+
+
 def main(argv: list[str] | None = None) -> None:
     if FastMCP is None:
         print(

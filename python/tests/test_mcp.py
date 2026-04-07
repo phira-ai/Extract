@@ -529,3 +529,68 @@ class TestGetRun:
     def test_empty_id(self, populated_store):
         with pytest.raises(ValueError, match="run_id is required"):
             mcp_mod.get_run("")
+
+
+class TestSearch:
+    def test_empty_query_no_filters_returns_all(self, populated_store):
+        result = mcp_mod.search()
+        assert result["total"] == 3
+
+    def test_query_substring_name(self, populated_store):
+        result = mcp_mod.search(query="ewc-l1.0")
+        names = {i["name"] for i in result["items"]}
+        assert names == {"ewc-l1.0-a", "ewc-l1.0-b"}
+
+    def test_query_substring_tags(self, populated_store):
+        result = mcp_mod.search(query="production")
+        names = {i["name"] for i in result["items"]}
+        assert names == {"ewc-l1.0-a"}
+
+    def test_query_substring_notes(self, populated_store):
+        result = mcp_mod.search(query="Best lambda")
+        assert result["total"] == 1
+        assert result["items"][0]["name"] == "ewc-l1.0-a"
+
+    def test_filter_tag(self, populated_store):
+        result = mcp_mod.search(filters={"tag": "sweep"})
+        names = {i["name"] for i in result["items"]}
+        assert names == {"ewc-l1.0-a", "ewc-l1.0-b"}
+
+    def test_filter_status(self, populated_store):
+        result = mcp_mod.search(filters={"status": "completed"})
+        assert result["total"] == 3
+
+    def test_filter_status_invalid(self, populated_store):
+        with pytest.raises(ValueError, match="status must be one of"):
+            mcp_mod.search(filters={"status": "bogus"})
+
+    def test_filter_experiment_prefix(self, populated_store):
+        result = mcp_mod.search(filters={"experiment_prefix": "cifar100/ewc"})
+        assert result["total"] == 2
+        paths = {i["experiment_path"] for i in result["items"]}
+        assert paths == {"cifar100/ewc/lambda_1.0"}
+
+    def test_filters_combine_and(self, populated_store):
+        # tag=sweep AND experiment_prefix=cifar100/ewc AND status=completed
+        result = mcp_mod.search(
+            filters={
+                "tag": "sweep",
+                "experiment_prefix": "cifar100/ewc",
+                "status": "completed",
+            }
+        )
+        assert result["total"] == 2
+
+    def test_unknown_filter(self, populated_store):
+        with pytest.raises(ValueError, match="Unknown filter"):
+            mcp_mod.search(filters={"not_a_filter": "x"})
+
+    def test_item_shape_matches_list_runs(self, populated_store):
+        search_item = mcp_mod.search()["items"][0]
+        list_item = mcp_mod.list_runs()["items"][0]
+        assert set(search_item.keys()) == set(list_item.keys())
+
+    def test_started_after_before(self, populated_store):
+        # Started_after in the future returns nothing.
+        result = mcp_mod.search(filters={"started_after": "2099-01-01T00:00:00.000Z"})
+        assert result["total"] == 0
