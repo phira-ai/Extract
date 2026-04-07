@@ -128,3 +128,148 @@ class TestFixture:
         assert populated_store.test_ids["exp1"]
         assert populated_store.test_ids["exp2"]
         assert populated_store.test_ids["model"]
+
+
+class TestHelpers:
+    def test_label_with_name(self):
+        from extract.mcp import _label
+        assert _label("a/b", "my-run", "01HZY" + "0" * 22) == "a/b#my-run"
+
+    def test_label_without_name(self):
+        from extract.mcp import _label
+        assert _label("a/b", None, "01HZYABCDEF1234567890ABCD") == "a/b#01HZYABC"
+
+    def test_label_empty_name(self):
+        from extract.mcp import _label
+        # Empty string should be treated same as None (fall back to id prefix).
+        assert _label("a/b", "", "01HZYABCDEF1234567890ABCD") == "a/b#01HZYABC"
+
+    def test_flatten_config_flat(self):
+        from extract.mcp import _flatten_config
+        assert _flatten_config({"lr": 0.001, "epochs": 10}) == {"lr": 0.001, "epochs": 10}
+
+    def test_flatten_config_nested(self):
+        from extract.mcp import _flatten_config
+        assert _flatten_config({"method": {"lora_r": 8, "lora_alpha": 16}}) == {
+            "method.lora_r": 8,
+            "method.lora_alpha": 16,
+        }
+
+    def test_flatten_config_deep(self):
+        from extract.mcp import _flatten_config
+        assert _flatten_config({"a": {"b": {"c": 1}}}) == {"a.b.c": 1}
+
+    def test_flatten_config_lists_not_flattened(self):
+        from extract.mcp import _flatten_config
+        # Lists are leaf values, per spec §3.
+        assert _flatten_config({"layers": [64, 128, 256]}) == {"layers": [64, 128, 256]}
+
+    def test_metric_direction_loss(self):
+        from extract.mcp import _metric_direction
+        assert _metric_direction("loss") == "min"
+        assert _metric_direction("train_loss") == "min"
+        assert _metric_direction("MSE") == "min"
+        assert _metric_direction("perplexity") == "min"
+
+    def test_metric_direction_default_max(self):
+        from extract.mcp import _metric_direction
+        assert _metric_direction("accuracy") == "max"
+        assert _metric_direction("f1_score") == "max"
+        assert _metric_direction("unknown_metric") == "max"
+
+    def test_config_diffs_identical(self):
+        from extract.mcp import _config_diffs
+        pairs = [("r1", {"lr": 0.001}), ("r2", {"lr": 0.001})]
+        assert _config_diffs(pairs) == {}
+
+    def test_config_diffs_one_differ(self):
+        from extract.mcp import _config_diffs
+        pairs = [("r1", {"lr": 0.001, "epochs": 10}), ("r2", {"lr": 0.005, "epochs": 10})]
+        assert _config_diffs(pairs) == {"lr": {"r1": 0.001, "r2": 0.005}}
+
+    def test_config_diffs_missing_key(self):
+        from extract.mcp import _config_diffs
+        # One run has a key the other doesn't — that's a difference.
+        pairs = [("r1", {"lr": 0.001, "lambda": 1.0}), ("r2", {"lr": 0.001})]
+        result = _config_diffs(pairs)
+        assert result == {"lambda": {"r1": 1.0}}
+
+    def test_config_diffs_nested(self):
+        from extract.mcp import _config_diffs
+        pairs = [
+            ("r1", {"method": {"fisher": "diagonal"}}),
+            ("r2", {"method": {"fisher": "empirical"}}),
+        ]
+        assert _config_diffs(pairs) == {
+            "method.fisher": {"r1": "diagonal", "r2": "empirical"}
+        }
+
+    def test_listing_not_truncated(self):
+        from extract.mcp import _listing
+        items = [1, 2, 3]
+        assert _listing(items, total=3, limit=50) == {
+            "items": [1, 2, 3],
+            "total": 3,
+            "truncated": False,
+        }
+
+    def test_listing_truncated(self):
+        from extract.mcp import _listing
+        items = list(range(10))
+        result = _listing(items, total=10, limit=5)
+        assert result["items"] == [0, 1, 2, 3, 4]
+        assert result["total"] == 10
+        assert result["truncated"] is True
+
+    def test_listing_with_clamped(self):
+        from extract.mcp import _listing
+        result = _listing([1, 2], total=2, limit=500, limit_clamped=True)
+        assert result["limit_clamped"] is True
+
+    def test_clamp_limit_under(self):
+        from extract.mcp import _clamp_limit
+        assert _clamp_limit(50) == (50, False)
+        assert _clamp_limit(500) == (500, False)
+
+    def test_clamp_limit_over(self):
+        from extract.mcp import _clamp_limit
+        assert _clamp_limit(1000) == (500, True)
+
+    def test_row_to_dict_parses_tags(self):
+        from extract.mcp import _row_to_dict
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE t (id TEXT, tags TEXT, config TEXT, metadata TEXT)")
+        conn.execute(
+            "INSERT INTO t VALUES (?, ?, ?, ?)",
+            ("x", '["a", "b"]', '{"lr": 0.001}', None),
+        )
+        row = conn.execute("SELECT * FROM t").fetchone()
+        d = _row_to_dict(row)
+        assert d["tags"] == ["a", "b"]
+        assert d["config"] == {"lr": 0.001}
+        assert d["metadata"] is None
+
+    def test_row_to_dict_null_tags(self):
+        from extract.mcp import _row_to_dict
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE t (id TEXT, tags TEXT, config TEXT)")
+        conn.execute("INSERT INTO t VALUES (?, ?, ?)", ("x", None, None))
+        row = conn.execute("SELECT * FROM t").fetchone()
+        d = _row_to_dict(row)
+        assert d["tags"] == []
+        assert d["config"] == {}
+
+    def test_row_to_dict_no_json_columns(self):
+        from extract.mcp import _row_to_dict
+        import sqlite3
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("CREATE TABLE t (id TEXT, name TEXT)")
+        conn.execute("INSERT INTO t VALUES (?, ?)", ("x", "hello"))
+        row = conn.execute("SELECT * FROM t").fetchone()
+        d = _row_to_dict(row)
+        assert d == {"id": "x", "name": "hello"}
