@@ -280,3 +280,41 @@ class TestHelpers:
         row = conn.execute("SELECT * FROM t").fetchone()
         d = _row_to_dict(row)
         assert d == {"id": "x", "name": "hello"}
+
+
+class TestListExperiments:
+    def test_lists_all_experiments(self, populated_store):
+        result = mcp_mod.list_experiments()
+        assert "items" in result
+        assert result["total"] >= 5  # root, benchmark, method, variant levels
+        paths = [item["path"] for item in result["items"]]
+        assert "cifar100" in paths
+        assert "cifar100/ewc/lambda_1.0" in paths
+        assert "cifar100/si/variant_a" in paths
+
+    def test_prefix_filter(self, populated_store):
+        result = mcp_mod.list_experiments(prefix="cifar100/ewc")
+        paths = [item["path"] for item in result["items"]]
+        assert "cifar100/ewc" in paths
+        assert "cifar100/ewc/lambda_1.0" in paths
+        assert "cifar100/si/variant_a" not in paths
+
+    def test_n_runs_populated(self, populated_store):
+        result = mcp_mod.list_experiments(prefix="cifar100/ewc/lambda_1.0")
+        # The leaf has 2 runs (r1a, r1b).
+        leaf = next(i for i in result["items"] if i["path"] == "cifar100/ewc/lambda_1.0")
+        assert leaf["n_runs"] == 2
+        # Branch nodes have 0 runs of their own.
+        branch = next(i for i in result["items"] if i["path"] == "cifar100/ewc")
+        assert branch["n_runs"] == 0
+
+    def test_item_shape(self, populated_store):
+        result = mcp_mod.list_experiments(prefix="cifar100/ewc/lambda_1.0")
+        item = result["items"][0]
+        assert set(item.keys()) == {"id", "path", "name", "node_type", "parent_id", "n_runs"}
+
+    def test_listing_envelope(self, populated_store):
+        result = mcp_mod.list_experiments(limit=1)
+        assert len(result["items"]) == 1
+        assert result["total"] >= 1
+        assert result["truncated"] is True

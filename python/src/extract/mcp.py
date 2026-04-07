@@ -148,6 +148,68 @@ def _listing(
     return result
 
 
+# ----------------------------------------------------------------------
+# Tools
+# ----------------------------------------------------------------------
+
+
+@_tool
+def list_experiments(prefix: str = "", limit: int = 50) -> dict:
+    """List experiments, optionally filtered by a path prefix.
+
+    Args:
+        prefix: Filter to experiments whose path starts with this (e.g.
+            "cifar100/ewc"). Empty string lists all experiments.
+        limit: Max number of items to return (default 50, max 500).
+
+    Returns a listing envelope:
+        {items: [{id, path, name, node_type, parent_id, n_runs}],
+         total: int, truncated: bool, limit_clamped?: bool}
+
+    Example:
+        list_experiments(prefix="cifar100/")
+    """
+    if limit < 1:
+        raise ValueError(f"limit must be >= 1 (got {limit})")
+    limit, clamped = _clamp_limit(limit)
+
+    assert _store is not None
+    with _store.lock:
+        if prefix:
+            # Include: exact prefix match, all descendants, and all ancestors
+            # (so the full branch context is returned).
+            clean = prefix.rstrip("/")
+            rows = _store._conn.execute(
+                "SELECT id, path, name, node_type, parent_id "
+                "FROM experiments "
+                "WHERE path = ? OR path LIKE ? OR ? LIKE (path || '/%') "
+                "ORDER BY path",
+                (clean, clean + "/%", clean),
+            ).fetchall()
+        else:
+            rows = _store._conn.execute(
+                "SELECT id, path, name, node_type, parent_id "
+                "FROM experiments ORDER BY path"
+            ).fetchall()
+
+        items: list[dict] = []
+        for row in rows:
+            n_runs_row = _store._conn.execute(
+                "SELECT COUNT(*) FROM runs WHERE experiment_id = ?",
+                (row["id"],),
+            ).fetchone()
+            items.append({
+                "id": row["id"],
+                "path": row["path"],
+                "name": row["name"],
+                "node_type": row["node_type"],
+                "parent_id": row["parent_id"],
+                "n_runs": n_runs_row[0],
+            })
+
+    return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
+
+
 def main(argv: list[str] | None = None) -> None:
     if FastMCP is None:
         print(
