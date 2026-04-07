@@ -1,5 +1,6 @@
 .claude/
 .direnv/
+.mcp.json
 CLAUDE.md
 
 # Python
