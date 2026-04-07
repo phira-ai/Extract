@@ -907,3 +907,50 @@ class TestErrorMessages:
     def test_get_lineage_bad_depth(self, populated_store):
         with pytest.raises(ValueError, match=r"depth must be between 1 and 5 \(got 7\)"):
             mcp_mod.get_lineage(node_type="run", node_id="x", depth=7)
+
+
+class TestServerSmoke:
+    def test_server_boots_and_lists_experiments(self, tmp_path):
+        """Spawn the real server as a subprocess and round-trip a tool call."""
+        pytest.importorskip("mcp.client.stdio")
+
+        import asyncio
+        from mcp import ClientSession, StdioServerParameters
+        from mcp.client.stdio import stdio_client
+
+        # Build a minimal store on disk (the subprocess reads its own).
+        root = tmp_path / ".extract"
+        root.mkdir()
+        (root / "config.toml").write_text(
+            '[store]\nhierarchy = "benchmark > method > variant"\n'
+        )
+        store = extract.Store(root=root)
+        exp = store.experiment(
+            {"benchmark": "cifar100", "method": "ewc", "variant": "v1"}
+        )
+        with exp.run(config={"lr": 0.001}, name="smoke") as r:
+            r.log(step=0, loss=1.0)
+        store.close()
+
+        async def run_client() -> dict:
+            server_params = StdioServerParameters(
+                command=sys.executable,
+                args=["-m", "extract.mcp", "--store", str(root)],
+            )
+            async with stdio_client(server_params) as (read, write):
+                async with ClientSession(read, write) as session:
+                    await session.initialize()
+                    result = await session.call_tool(
+                        "list_experiments", {}
+                    )
+                    return result
+
+        result = asyncio.run(run_client())
+        # FastMCP wraps the tool return value in content blocks.
+        # We just need to assert the call didn't error and got content.
+        assert result.isError is False
+        assert result.content  # non-empty content list
+        # Content[0] is typically a TextContent with JSON text.
+        text_content = result.content[0].text
+        parsed = json.loads(text_content)
+        assert parsed["total"] >= 1
