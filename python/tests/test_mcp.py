@@ -766,3 +766,144 @@ class TestGetLineage:
     def test_unknown_root(self, populated_store):
         with pytest.raises(ValueError, match="Run not found"):
             mcp_mod.get_lineage(node_type="run", node_id="not_a_real_id")
+
+
+class TestListingEnvelope:
+    @pytest.mark.parametrize("tool_name,kwargs", [
+        ("list_experiments", {}),
+        ("list_runs", {}),
+        ("list_models", {}),
+        ("list_todos", {}),
+        ("search", {}),
+    ])
+    def test_envelope_shape(self, populated_store, tool_name, kwargs):
+        fn = getattr(mcp_mod, tool_name)
+        result = fn(**kwargs)
+        assert "items" in result
+        assert "total" in result
+        assert "truncated" in result
+        assert isinstance(result["items"], list)
+        assert isinstance(result["total"], int)
+        assert isinstance(result["truncated"], bool)
+
+    def test_truncation_flag_when_limited(self, populated_store):
+        result = mcp_mod.list_runs(limit=1)
+        assert len(result["items"]) == 1
+        assert result["total"] >= 2
+        assert result["truncated"] is True
+
+    def test_not_truncated_when_under_limit(self, populated_store):
+        result = mcp_mod.list_runs(limit=50)
+        assert result["truncated"] is False
+
+
+class TestLimitClamp:
+    def test_clamp_flag_set(self, populated_store):
+        result = mcp_mod.list_runs(limit=1000)
+        assert result.get("limit_clamped") is True
+        assert len(result["items"]) <= 500
+
+    def test_no_clamp_flag_under_cap(self, populated_store):
+        result = mcp_mod.list_runs(limit=100)
+        assert "limit_clamped" not in result
+
+    def test_limit_negative_errors(self, populated_store):
+        with pytest.raises(ValueError, match="limit must be"):
+            mcp_mod.list_runs(limit=0)
+        with pytest.raises(ValueError, match="limit must be"):
+            mcp_mod.list_runs(limit=-5)
+
+
+class TestLabelStability:
+    def test_same_label_across_tools(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+
+        list_label = next(
+            i["label"] for i in mcp_mod.list_runs()["items"] if i["id"] == r1a_id
+        )
+        get_label = mcp_mod.get_run(r1a_id)["label"]
+        compare_label = next(
+            r["label"] for r in mcp_mod.compare_runs([r1a_id, r1b_id])["runs"]
+            if r["id"] == r1a_id
+        )
+        search_label = next(
+            i["label"] for i in mcp_mod.search(query="ewc-l1.0-a")["items"]
+            if i["id"] == r1a_id
+        )
+
+        assert list_label == get_label == compare_label == search_label
+        assert list_label == "cifar100/ewc/lambda_1.0#ewc-l1.0-a"
+
+
+class TestErrorMessages:
+    """Regression protection for agent-facing error strings."""
+
+    def test_get_run_empty_id(self, populated_store):
+        with pytest.raises(ValueError, match=r"run_id is required"):
+            mcp_mod.get_run("")
+
+    def test_get_run_unknown(self, populated_store):
+        with pytest.raises(ValueError, match=r"Run not found: 'nope'"):
+            mcp_mod.get_run("nope")
+
+    def test_list_runs_unknown_experiment(self, populated_store):
+        with pytest.raises(ValueError, match=r"Experiment not found: 'nope'"):
+            mcp_mod.list_runs(experiment_id="nope")
+
+    def test_compare_runs_too_few(self, populated_store):
+        with pytest.raises(
+            ValueError,
+            match=r"compare_runs requires at least 2 run_ids \(got 1\)",
+        ):
+            mcp_mod.compare_runs(["only_one"])
+
+    def test_compare_runs_too_many(self, populated_store):
+        with pytest.raises(
+            ValueError,
+            match=r"compare_runs supports at most 10 runs per call \(got 11\)",
+        ):
+            mcp_mod.compare_runs(["x"] * 11)
+
+    def test_list_todos_bad_scope(self, populated_store):
+        with pytest.raises(
+            ValueError,
+            match=r"scope_type must be one of: global, experiment, run \(got 'bad'\)",
+        ):
+            mcp_mod.list_todos(scope_type="bad")
+
+    def test_search_bad_filter(self, populated_store):
+        with pytest.raises(
+            ValueError,
+            match=(
+                r"Unknown filter: 'nope'\. "
+                r"Valid filters: tag, status, experiment_prefix, "
+                r"started_after, started_before"
+            ),
+        ):
+            mcp_mod.search(filters={"nope": "x"})
+
+    def test_search_bad_status(self, populated_store):
+        with pytest.raises(
+            ValueError,
+            match=r"status must be one of: running, completed, failed \(got 'bogus'\)",
+        ):
+            mcp_mod.search(filters={"status": "bogus"})
+
+    def test_get_lineage_bad_node_type(self, populated_store):
+        with pytest.raises(
+            ValueError,
+            match=r"node_type must be one of: experiment, run, model \(got 'widget'\)",
+        ):
+            mcp_mod.get_lineage(node_type="widget", node_id="x")
+
+    def test_get_lineage_bad_direction(self, populated_store):
+        with pytest.raises(
+            ValueError,
+            match=r"direction must be one of: ancestors, descendants, both \(got 'up'\)",
+        ):
+            mcp_mod.get_lineage(node_type="run", node_id="x", direction="up")
+
+    def test_get_lineage_bad_depth(self, populated_store):
+        with pytest.raises(ValueError, match=r"depth must be between 1 and 5 \(got 7\)"):
+            mcp_mod.get_lineage(node_type="run", node_id="x", depth=7)
