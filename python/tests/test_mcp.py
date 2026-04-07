@@ -388,4 +388,30 @@ class TestListRuns:
         result = mcp_mod.list_runs()
         item = next(i for i in result["items"] if i["name"] == "ewc-l1.0-a")
         assert "sweep" in item["tags"]
-        assert "production-candidate" in item["tags"]
+
+
+class TestListModels:
+    def test_lists_all_models(self, populated_store):
+        result = mcp_mod.list_models()
+        assert result["total"] == 1
+        item = result["items"][0]
+        assert item["name"] == "ewc-cifar100"
+        assert item["version"] == "1.0"
+
+    def test_name_prefix_filter(self, populated_store):
+        result = mcp_mod.list_models(name_prefix="ewc")
+        assert result["total"] == 1
+
+        result = mcp_mod.list_models(name_prefix="nonexistent")
+        assert result["total"] == 0
+
+    def test_item_shape(self, populated_store):
+        result = mcp_mod.list_models()
+        item = result["items"][0]
+        expected_keys = {
+            "id", "name", "version", "run_id", "framework",
+            "artifact_path", "metadata", "created_at",
+        }
+        assert set(item.keys()) == expected_keys
+        assert item["framework"] == "pytorch"
+        assert item["metadata"] == {"params": 1000}

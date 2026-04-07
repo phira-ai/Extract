@@ -271,6 +271,50 @@ def list_runs(experiment_id: str | None = None, limit: int = 50) -> dict:
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
 
+@_tool
+def list_models(name_prefix: str = "", limit: int = 50) -> dict:
+    """List registered models, optionally filtered by name prefix.
+
+    Args:
+        name_prefix: If provided, return only models whose name starts
+            with this string.
+        limit: Max rows (default 50, max 500).
+
+    Returns a listing envelope of model rows: id, name, version, run_id,
+    framework, artifact_path, metadata, created_at.
+    """
+    if limit < 1:
+        raise ValueError(f"limit must be >= 1 (got {limit})")
+    limit, clamped = _clamp_limit(limit)
+
+    assert _store is not None
+    with _store.lock:
+        if name_prefix:
+            rows = _store._conn.execute(
+                "SELECT * FROM models WHERE name LIKE ? ORDER BY created_at DESC",
+                (name_prefix + "%",),
+            ).fetchall()
+        else:
+            rows = _store._conn.execute(
+                "SELECT * FROM models ORDER BY created_at DESC"
+            ).fetchall()
+
+    items: list[dict] = []
+    for row in rows:
+        items.append({
+            "id": row["id"],
+            "name": row["name"],
+            "version": row["version"],
+            "run_id": row["run_id"],
+            "framework": row["framework"],
+            "artifact_path": row["artifact_path"],
+            "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+            "created_at": row["created_at"],
+        })
+
+    return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
+
+
 def main(argv: list[str] | None = None) -> None:
     if FastMCP is None:
         print(
