@@ -369,6 +369,98 @@ def list_todos(
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
 
+@_tool
+def get_run(run_id: str) -> dict:
+    """Return full detail for a single run.
+
+    Args:
+        run_id: ULID of the run.
+
+    Returns a dict with id, experiment_id, experiment_path, name, label,
+    status, started_at, ended_at, hostname, git_sha, tags, notes, config
+    (full parsed dict), metrics_final (last value per metric),
+    metrics_available (list of metric names), run_params (string params),
+    artifacts (list of artifact metadata), and todos (scoped to this run).
+
+    Metric histories are NOT included — use compare_runs with
+    include_history=True on a single run if you need them.
+    """
+    if not run_id:
+        raise ValueError("run_id is required")
+
+    assert _store is not None
+    with _store.lock:
+        row = _store._conn.execute(
+            "SELECT r.*, e.path AS experiment_path "
+            "FROM runs r JOIN experiments e ON r.experiment_id = e.id "
+            "WHERE r.id = ?",
+            (run_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError(f"Run not found: {run_id!r}")
+
+        # Final value per metric: the row with the largest step per metric name.
+        metric_rows = _store._conn.execute(
+            "SELECT name, value FROM scalar_metrics sm1 WHERE run_id = ? "
+            "AND step = (SELECT MAX(step) FROM scalar_metrics sm2 "
+            "            WHERE sm2.run_id = sm1.run_id AND sm2.name = sm1.name)",
+            (run_id,),
+        ).fetchall()
+        metrics_final = {r["name"]: r["value"] for r in metric_rows}
+        metrics_available = sorted(metrics_final.keys())
+
+        param_rows = _store._conn.execute(
+            "SELECT name, value FROM run_params WHERE run_id = ?",
+            (run_id,),
+        ).fetchall()
+        run_params = {r["name"]: r["value"] for r in param_rows}
+
+        art_rows = _store._conn.execute(
+            "SELECT name, kind, step, rel_path, shape, dtype "
+            "FROM artifacts WHERE run_id = ?",
+            (run_id,),
+        ).fetchall()
+        artifacts: list[dict] = []
+        for a in art_rows:
+            artifacts.append({
+                "name": a["name"],
+                "kind": a["kind"],
+                "step": a["step"],
+                "rel_path": a["rel_path"],
+                "shape": json.loads(a["shape"]) if a["shape"] else None,
+                "dtype": a["dtype"],
+            })
+
+        todo_rows = _store._conn.execute(
+            "SELECT id, content, priority, done, created_at, completed_at "
+            "FROM todos WHERE scope_type = 'run' AND scope_id = ? "
+            "ORDER BY priority DESC, created_at",
+            (run_id,),
+        ).fetchall()
+        todos = [dict(t) for t in todo_rows]
+
+    return {
+        "id": row["id"],
+        "experiment_id": row["experiment_id"],
+        "experiment_path": row["experiment_path"],
+        "name": row["name"],
+        "label": _label(row["experiment_path"], row["name"], row["id"]),
+        "status": row["status"],
+        "started_at": row["started_at"],
+        "ended_at": row["ended_at"],
+        "hostname": row["hostname"],
+        "git_sha": row["git_sha"],
+        "tags": json.loads(row["tags"]) if row["tags"] else [],
+        "notes": row["notes"] or "",
+        "config": json.loads(row["config"]) if row["config"] else {},
+        "metrics_final": metrics_final,
+        "metrics_available": metrics_available,
+        "run_params": run_params,
+        "artifacts": artifacts,
+        "todos": todos,
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
     if FastMCP is None:
         print(

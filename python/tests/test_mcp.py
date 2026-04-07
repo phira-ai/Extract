@@ -472,3 +472,60 @@ class TestListTodos:
             "done", "created_at", "completed_at",
         }
         assert set(item.keys()) == expected_keys
+
+
+class TestGetRun:
+    def test_happy_path(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        run = mcp_mod.get_run(r1a_id)
+        assert run["id"] == r1a_id
+        assert run["name"] == "ewc-l1.0-a"
+        assert run["experiment_path"] == "cifar100/ewc/lambda_1.0"
+        assert run["label"] == "cifar100/ewc/lambda_1.0#ewc-l1.0-a"
+        assert run["status"] == "completed"
+
+    def test_full_config_parsed(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        run = mcp_mod.get_run(r1a_id)
+        assert run["config"]["lr"] == 0.001
+        assert run["config"]["lambda"] == 1.0
+        assert run["config"]["method"]["fisher"] == "diagonal"
+
+    def test_metrics_final(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        run = mcp_mod.get_run(r1a_id)
+        # Last step is 4; loss = 1.0 - 0.15*4 = 0.4
+        assert run["metrics_final"]["loss"] == pytest.approx(0.4)
+        assert run["metrics_final"]["accuracy"] == pytest.approx(0.5 + 0.08 * 4)
+
+    def test_metrics_available_list(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        run = mcp_mod.get_run(r1a_id)
+        assert "loss" in run["metrics_available"]
+        assert "accuracy" in run["metrics_available"]
+
+    def test_run_params(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        run = mcp_mod.get_run(r1a_id)
+        assert run["run_params"] == {"arch": "resnet18"}
+
+    def test_tags_and_notes(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        run = mcp_mod.get_run(r1a_id)
+        assert "sweep" in run["tags"]
+        assert "production-candidate" in run["tags"]
+        assert "Best lambda in sweep." in run["notes"]
+
+    def test_todos_for_run(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        run = mcp_mod.get_run(r1a_id)
+        contents = [t["content"] for t in run["todos"]]
+        assert "Try lambda=0.5 next" in contents
+
+    def test_unknown_id(self, populated_store):
+        with pytest.raises(ValueError, match="Run not found"):
+            mcp_mod.get_run("not_a_real_id")
+
+    def test_empty_id(self, populated_store):
+        with pytest.raises(ValueError, match="run_id is required"):
+            mcp_mod.get_run("")
