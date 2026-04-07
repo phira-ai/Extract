@@ -206,6 +206,71 @@ def list_experiments(prefix: str = "", limit: int = 50) -> dict:
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
 
+@_tool
+def list_runs(experiment_id: str | None = None, limit: int = 50) -> dict:
+    """List runs in the store, optionally scoped to one experiment.
+
+    Args:
+        experiment_id: If provided, list runs for that experiment only.
+            If omitted, list all runs newest-first.
+        limit: Max rows (default 50, max 500).
+
+    Returns a listing envelope of run rows, each with id, label,
+    experiment_id, experiment_path, name, status, started_at, ended_at,
+    tags, git_sha, hostname, and a config_summary {n_keys, top_level_keys}.
+    Call get_run(id) for the full config.
+    """
+    if limit < 1:
+        raise ValueError(f"limit must be >= 1 (got {limit})")
+    limit, clamped = _clamp_limit(limit)
+
+    assert _store is not None
+    with _store.lock:
+        if experiment_id is not None:
+            exp_row = _store._conn.execute(
+                "SELECT id, path FROM experiments WHERE id = ?",
+                (experiment_id,),
+            ).fetchone()
+            if exp_row is None:
+                raise ValueError(f"Experiment not found: {experiment_id!r}")
+            rows = _store._conn.execute(
+                "SELECT r.*, e.path AS experiment_path "
+                "FROM runs r JOIN experiments e ON r.experiment_id = e.id "
+                "WHERE r.experiment_id = ? ORDER BY r.started_at",
+                (experiment_id,),
+            ).fetchall()
+        else:
+            rows = _store._conn.execute(
+                "SELECT r.*, e.path AS experiment_path "
+                "FROM runs r JOIN experiments e ON r.experiment_id = e.id "
+                "ORDER BY r.started_at DESC"
+            ).fetchall()
+
+    items: list[dict] = []
+    for row in rows:
+        config_dict = json.loads(row["config"]) if row["config"] else {}
+        top_keys = list(config_dict.keys())
+        items.append({
+            "id": row["id"],
+            "label": _label(row["experiment_path"], row["name"], row["id"]),
+            "experiment_id": row["experiment_id"],
+            "experiment_path": row["experiment_path"],
+            "name": row["name"],
+            "status": row["status"],
+            "started_at": row["started_at"],
+            "ended_at": row["ended_at"],
+            "tags": json.loads(row["tags"]) if row["tags"] else [],
+            "git_sha": row["git_sha"],
+            "hostname": row["hostname"],
+            "config_summary": {
+                "n_keys": len(top_keys),
+                "top_level_keys": top_keys,
+            },
+        })
+
+    return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
+
+
 def main(argv: list[str] | None = None) -> None:
     if FastMCP is None:
         print(

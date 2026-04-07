@@ -319,3 +319,73 @@ class TestListExperiments:
         assert len(result["items"]) == 1
         assert result["total"] >= 1
         assert result["truncated"] is True
+
+
+class TestListRuns:
+    def test_lists_all_runs(self, populated_store):
+        result = mcp_mod.list_runs()
+        assert result["total"] == 3  # r1a, r1b, r2
+
+    def test_lists_runs_for_experiment(self, populated_store):
+        exp1_id = populated_store.test_ids["exp1"]
+        result = mcp_mod.list_runs(experiment_id=exp1_id)
+        assert result["total"] == 2
+        ids = {r["id"] for r in result["items"]}
+        assert populated_store.test_ids["r1a"] in ids
+        assert populated_store.test_ids["r1b"] in ids
+
+    def test_item_shape(self, populated_store):
+        result = mcp_mod.list_runs()
+        item = result["items"][0]
+        expected_keys = {
+            "id", "label", "experiment_id", "experiment_path", "name",
+            "status", "started_at", "ended_at", "tags", "git_sha",
+            "hostname", "config_summary",
+        }
+        assert set(item.keys()) == expected_keys
+
+    def test_label_format(self, populated_store):
+        result = mcp_mod.list_runs()
+        item = next(i for i in result["items"] if i["name"] == "ewc-l1.0-a")
+        assert item["label"] == "cifar100/ewc/lambda_1.0#ewc-l1.0-a"
+
+    def test_label_fallback_to_id(self, populated_store):
+        # Create a nameless run in the populated store.
+        exp = populated_store.experiment(
+            {"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"}
+        )
+        nameless = exp.run()
+        nameless.finish()
+        result = mcp_mod.list_runs(experiment_id=exp.id)
+        nameless_item = next(i for i in result["items"] if i["id"] == nameless.id)
+        assert nameless_item["label"].startswith("cifar100/ewc/lambda_1.0#")
+        tail = nameless_item["label"].split("#", 1)[1]
+        assert len(tail) == 8
+        assert tail == nameless.id[:8]
+
+    def test_config_summary_shape(self, populated_store):
+        result = mcp_mod.list_runs()
+        item = next(i for i in result["items"] if i["name"] == "ewc-l1.0-a")
+        cs = item["config_summary"]
+        assert cs["n_keys"] == 3  # lr, lambda, method (top-level)
+        assert set(cs["top_level_keys"]) == {"lr", "lambda", "method"}
+
+    def test_config_summary_empty_config(self, populated_store):
+        exp = populated_store.experiment(
+            {"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"}
+        )
+        nocfg = exp.run(name="no-config")
+        nocfg.finish()
+        result = mcp_mod.list_runs(experiment_id=exp.id)
+        item = next(i for i in result["items"] if i["id"] == nocfg.id)
+        assert item["config_summary"] == {"n_keys": 0, "top_level_keys": []}
+
+    def test_unknown_experiment(self, populated_store):
+        with pytest.raises(ValueError, match="Experiment not found"):
+            mcp_mod.list_runs(experiment_id="not_a_real_id")
+
+    def test_tags_parsed(self, populated_store):
+        result = mcp_mod.list_runs()
+        item = next(i for i in result["items"] if i["name"] == "ewc-l1.0-a")
+        assert "sweep" in item["tags"]
+        assert "production-candidate" in item["tags"]
