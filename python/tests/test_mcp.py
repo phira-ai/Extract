@@ -684,3 +684,85 @@ class TestCompareRuns:
         r1a_id = populated_store.test_ids["r1a"]
         with pytest.raises(ValueError, match="Run not found"):
             mcp_mod.compare_runs([r1a_id, "not_a_real_id"])
+
+
+class TestGetLineage:
+    def test_descendants_of_model(self, populated_store):
+        model_id = populated_store.test_ids["model"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.get_lineage(
+            node_type="model", node_id=model_id, direction="descendants"
+        )
+        assert result["root"]["id"] == model_id
+        assert result["root"]["type"] == "model"
+        ids = {n["id"] for n in result["nodes"]}
+        assert r1b_id in ids
+        # At least one edge connects model -> run
+        edge = next(
+            e for e in result["edges"]
+            if e["parent_type"] == "model" and e["child_id"] == r1b_id
+        )
+        assert edge["relation"] == "derived_from"
+
+    def test_ancestors_of_run(self, populated_store):
+        r1b_id = populated_store.test_ids["r1b"]
+        model_id = populated_store.test_ids["model"]
+        result = mcp_mod.get_lineage(
+            node_type="run", node_id=r1b_id, direction="ancestors"
+        )
+        ids = {n["id"] for n in result["nodes"]}
+        assert model_id in ids
+
+    def test_both_direction(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        r2_id = populated_store.test_ids["r2"]
+        result = mcp_mod.get_lineage(
+            node_type="run", node_id=r1a_id, direction="both"
+        )
+        ids = {n["id"] for n in result["nodes"]}
+        assert r2_id in ids  # descendant via branched_from
+
+    def test_depth_cap(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        result = mcp_mod.get_lineage(
+            node_type="run", node_id=r1a_id, direction="descendants", depth=1
+        )
+        # Only immediate descendants (depth=1). Should include r2.
+        r2_id = populated_store.test_ids["r2"]
+        ids = {n["id"] for n in result["nodes"]}
+        assert r2_id in ids
+
+    def test_root_shape(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        result = mcp_mod.get_lineage(
+            node_type="run", node_id=r1a_id
+        )
+        assert set(result["root"].keys()) == {"type", "id", "label"}
+        assert result["root"]["label"] == "cifar100/ewc/lambda_1.0#ewc-l1.0-a"
+
+    def test_model_label_format(self, populated_store):
+        model_id = populated_store.test_ids["model"]
+        result = mcp_mod.get_lineage(
+            node_type="model", node_id=model_id, direction="descendants"
+        )
+        assert result["root"]["label"] == "ewc-cifar100@1.0"
+
+    def test_invalid_direction(self, populated_store):
+        with pytest.raises(ValueError, match="direction must be one of"):
+            mcp_mod.get_lineage(
+                node_type="run", node_id="x", direction="sideways"
+            )
+
+    def test_invalid_node_type(self, populated_store):
+        with pytest.raises(ValueError, match="node_type must be one of"):
+            mcp_mod.get_lineage(node_type="widget", node_id="x")
+
+    def test_depth_out_of_range(self, populated_store):
+        with pytest.raises(ValueError, match="depth must be between"):
+            mcp_mod.get_lineage(node_type="run", node_id="x", depth=10)
+        with pytest.raises(ValueError, match="depth must be between"):
+            mcp_mod.get_lineage(node_type="run", node_id="x", depth=0)
+
+    def test_unknown_root(self, populated_store):
+        with pytest.raises(ValueError, match="Run not found"):
+            mcp_mod.get_lineage(node_type="run", node_id="not_a_real_id")

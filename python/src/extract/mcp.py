@@ -679,6 +679,143 @@ def compare_runs(run_ids: list[str], include_history: bool = False) -> dict:
     }
 
 
+_VALID_NODE_TYPES = ("experiment", "run", "model")
+_VALID_DIRECTIONS = ("ancestors", "descendants", "both")
+
+
+def _lookup_node_label(conn, node_type: str, node_id: str) -> str | None:
+    """Return the label for a node, or None if the node doesn't exist."""
+    if node_type == "run":
+        row = conn.execute(
+            "SELECT r.name, r.id, e.path AS path "
+            "FROM runs r JOIN experiments e ON r.experiment_id = e.id "
+            "WHERE r.id = ?",
+            (node_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _label(row["path"], row["name"], row["id"])
+    elif node_type == "experiment":
+        row = conn.execute(
+            "SELECT path FROM experiments WHERE id = ?", (node_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return row["path"]
+    elif node_type == "model":
+        row = conn.execute(
+            "SELECT name, version FROM models WHERE id = ?", (node_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return f"{row['name']}@{row['version']}"
+    return None
+
+
+@_tool
+def get_lineage(
+    node_type: str,
+    node_id: str,
+    direction: str = "both",
+    depth: int = 2,
+) -> dict:
+    """Walk the lineage DAG from a given node.
+
+    Args:
+        node_type: "experiment", "run", or "model".
+        node_id: ULID of the node.
+        direction: "ancestors", "descendants", or "both" (default).
+        depth: BFS hop cap, between 1 and 5 (default 2).
+
+    Returns a flat graph:
+        {
+          root: {type, id, label},
+          nodes: [{type, id, label}],   # discovered, excluding root
+          edges: [{parent_type, parent_id, child_type, child_id, relation}]
+        }
+    """
+    if node_type not in _VALID_NODE_TYPES:
+        raise ValueError(
+            f"node_type must be one of: experiment, run, model (got {node_type!r})"
+        )
+    if direction not in _VALID_DIRECTIONS:
+        raise ValueError(
+            f"direction must be one of: ancestors, descendants, both "
+            f"(got {direction!r})"
+        )
+    if depth < 1 or depth > 5:
+        raise ValueError(f"depth must be between 1 and 5 (got {depth})")
+    if not node_id:
+        raise ValueError(f"{node_type}_id is required")
+
+    assert _store is not None
+    with _store.lock:
+        root_label = _lookup_node_label(_store._conn, node_type, node_id)
+        if root_label is None:
+            pretty = {"run": "Run", "experiment": "Experiment", "model": "Model"}[node_type]
+            raise ValueError(f"{pretty} not found: {node_id!r}")
+
+        visited: set[tuple[str, str]] = {(node_type, node_id)}
+        edges_out: list[dict] = []
+        frontier: list[tuple[str, str]] = [(node_type, node_id)]
+
+        for _hop in range(depth):
+            next_frontier: list[tuple[str, str]] = []
+            for (nt, nid) in frontier:
+                # Descendants: I am the parent.
+                if direction in ("descendants", "both"):
+                    rows = _store._conn.execute(
+                        "SELECT parent_type, parent_id, child_type, child_id, relation "
+                        "FROM lineage WHERE parent_type = ? AND parent_id = ?",
+                        (nt, nid),
+                    ).fetchall()
+                    for e in rows:
+                        edges_out.append(dict(e))
+                        key = (e["child_type"], e["child_id"])
+                        if key not in visited:
+                            visited.add(key)
+                            next_frontier.append(key)
+                # Ancestors: I am the child.
+                if direction in ("ancestors", "both"):
+                    rows = _store._conn.execute(
+                        "SELECT parent_type, parent_id, child_type, child_id, relation "
+                        "FROM lineage WHERE child_type = ? AND child_id = ?",
+                        (nt, nid),
+                    ).fetchall()
+                    for e in rows:
+                        edges_out.append(dict(e))
+                        key = (e["parent_type"], e["parent_id"])
+                        if key not in visited:
+                            visited.add(key)
+                            next_frontier.append(key)
+            frontier = next_frontier
+            if not frontier:
+                break
+
+        # Dedupe edges in case descendants/ancestors both found the same one.
+        seen_edges: set[tuple] = set()
+        unique_edges: list[dict] = []
+        for e in edges_out:
+            key = (e["parent_type"], e["parent_id"],
+                   e["child_type"], e["child_id"], e["relation"])
+            if key not in seen_edges:
+                seen_edges.add(key)
+                unique_edges.append(e)
+
+        nodes_out: list[dict] = []
+        for (nt, nid) in visited:
+            if (nt, nid) == (node_type, node_id):
+                continue  # root is emitted separately
+            label = _lookup_node_label(_store._conn, nt, nid)
+            nodes_out.append({"type": nt, "id": nid, "label": label or ""})
+
+    return {
+        "root": {"type": node_type, "id": node_id, "label": root_label},
+        "nodes": nodes_out,
+        "edges": unique_edges,
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
     if FastMCP is None:
         print(
