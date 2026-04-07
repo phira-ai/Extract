@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
+from ulid import ULID
 
 import pytest
 
@@ -66,17 +67,15 @@ def populated_store(tmp_path, monkeypatch):
     r2_id = r2.id
 
     # --- A model derived from r1a ---
-    import shutil as _sh
     dummy_model = tmp_path / "dummy_model.pt"
     dummy_model.write_bytes(b"fake model bytes")
     # Re-open the run via a direct insert since run.register_model requires
     # an active run and we closed them above. Use the SDK via a throwaway
     # run... but simpler: insert directly.
-    from ulid import ULID as _ULID
-    model_id = str(_ULID())
+    model_id = str(ULID())
     models_dir = root / "models" / "ewc-cifar100" / "1.0"
     models_dir.mkdir(parents=True, exist_ok=True)
-    _sh.copy(dummy_model, models_dir / "dummy_model.pt")
+    shutil.copy(dummy_model, models_dir / "dummy_model.pt")
     store._conn.execute(
         "INSERT INTO models (id, name, version, run_id, artifact_path, "
         "framework, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -128,3 +127,4 @@ class TestFixture:
         assert populated_store.test_ids["r2"]
         assert populated_store.test_ids["exp1"]
         assert populated_store.test_ids["exp2"]
+        assert populated_store.test_ids["model"]
