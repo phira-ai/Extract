@@ -204,6 +204,13 @@ class TestHelpers:
             "method.fisher": {"r1": "diagonal", "r2": "empirical"}
         }
 
+    def test_config_diffs_list_values(self):
+        from extract.mcp import _config_diffs
+        # Lists are leaf values — they should survive the distinct-value
+        # comparison without crashing (lists are unhashable).
+        pairs = [("r1", {"layers": [64, 128]}), ("r2", {"layers": [64, 256]})]
+        assert _config_diffs(pairs) == {"layers": {"r1": [64, 128], "r2": [64, 256]}}
+
     def test_listing_not_truncated(self):
         from extract.mcp import _listing
         items = [1, 2, 3]

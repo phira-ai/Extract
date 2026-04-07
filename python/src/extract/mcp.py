@@ -8,6 +8,7 @@ for the full design.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 from typing import Any
@@ -47,16 +48,15 @@ _MIN_METRIC_PATTERNS = (
 
 def _row_to_dict(row) -> dict:
     """Convert a sqlite3.Row to a plain dict, parsing JSON columns."""
-    import json as _json
     d: dict = {}
     for key in row.keys():
         val = row[key]
         if key == "tags":
-            d[key] = _json.loads(val) if val else []
+            d[key] = json.loads(val) if val else []
         elif key == "config":
-            d[key] = _json.loads(val) if val else {}
+            d[key] = json.loads(val) if val else {}
         elif key == "metadata":
-            d[key] = _json.loads(val) if val else None
+            d[key] = json.loads(val) if val else None
         else:
             d[key] = val
     return d
@@ -114,7 +114,11 @@ def _config_diffs(runs_configs: list[tuple[str, dict]]) -> dict:
 
 
 def _clamp_limit(limit: int) -> tuple[int, bool]:
-    """Clamp limit to the hard cap of 500, returning (clamped, was_clamped)."""
+    """Clamp limit to the hard cap of 500, returning (limit, was_clamped).
+
+    Does not validate the lower bound — callers are expected to raise
+    ValueError for limit < 1 before calling this.
+    """
     if limit > 500:
         return 500, True
     return limit, False
@@ -126,7 +130,14 @@ def _listing(
     limit: int,
     limit_clamped: bool = False,
 ) -> dict:
-    """Wrap a list in the shared listing envelope."""
+    """Wrap a list in the shared listing envelope.
+
+    `total` must be the full row count from the DB (before LIMIT),
+    not len(items). `truncated` is computed as `total > limit`.
+    Tool implementations should run a COUNT(*) query to get `total`
+    and a separate LIMIT query to get `items`, or use len(items) only
+    when every row is known to be loaded.
+    """
     result: dict = {
         "items": items[:limit],
         "total": total,
