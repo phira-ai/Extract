@@ -176,15 +176,11 @@ def list_experiments(prefix: str = "", limit: int = 50) -> dict:
     assert _store is not None
     with _store.lock:
         if prefix:
-            # Include: exact prefix match, all descendants, and all ancestors
-            # (so the full branch context is returned).
-            clean = prefix.rstrip("/")
             rows = _store._conn.execute(
                 "SELECT id, path, name, node_type, parent_id "
-                "FROM experiments "
-                "WHERE path = ? OR path LIKE ? OR ? LIKE (path || '/%') "
+                "FROM experiments WHERE path = ? OR path LIKE ? "
                 "ORDER BY path",
-                (clean, clean + "/%", clean),
+                (prefix, prefix.rstrip("/") + "/%"),
             ).fetchall()
         else:
             rows = _store._conn.execute(

@@ -300,7 +300,8 @@ class TestListExperiments:
         assert "cifar100/si/variant_a" not in paths
 
     def test_n_runs_populated(self, populated_store):
-        result = mcp_mod.list_experiments(prefix="cifar100/ewc/lambda_1.0")
+        # Query with the branch prefix so both the branch and its descendants appear.
+        result = mcp_mod.list_experiments(prefix="cifar100/ewc")
         # The leaf has 2 runs (r1a, r1b).
         leaf = next(i for i in result["items"] if i["path"] == "cifar100/ewc/lambda_1.0")
         assert leaf["n_runs"] == 2
