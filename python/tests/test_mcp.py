@@ -594,3 +594,93 @@ class TestSearch:
         # Started_after in the future returns nothing.
         result = mcp_mod.search(filters={"started_after": "2099-01-01T00:00:00.000Z"})
         assert result["total"] == 0
+
+
+class TestCompareRuns:
+    def test_basic_two_runs(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id])
+
+        assert len(result["runs"]) == 2
+        assert {r["id"] for r in result["runs"]} == {r1a_id, r1b_id}
+        assert "loss" in result["metrics"]
+        assert "accuracy" in result["metrics"]
+
+    def test_metric_direction(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id])
+        assert result["metrics"]["loss"]["direction"] == "min"
+        assert result["metrics"]["accuracy"]["direction"] == "max"
+
+    def test_ranking_for_min_metric(self, populated_store):
+        # r1a loss final = 0.4; r1b loss final = 0.9 - 0.12*4 = 0.42
+        # Direction = min, so r1a ranks first.
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id])
+        assert result["metrics"]["loss"]["ranking"][0] == r1a_id
+        assert result["metrics"]["loss"]["ranking"][1] == r1b_id
+
+    def test_values_final_per_run(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id])
+        vals = result["metrics"]["loss"]["values"]
+        assert vals[r1a_id] == pytest.approx(0.4)
+        assert vals[r1b_id] == pytest.approx(0.42)
+
+    def test_history_omitted_by_default(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id])
+        assert "history" not in result["metrics"]["loss"]
+
+    def test_history_included_when_requested(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id], include_history=True)
+        hist = result["metrics"]["loss"]["history"]
+        assert r1a_id in hist
+        assert r1b_id in hist
+        # 5 steps logged per run.
+        assert len(hist[r1a_id]) == 5
+        # Each entry is [step, value].
+        assert hist[r1a_id][0] == [0, pytest.approx(1.0)]
+
+    def test_config_diffs_only_differing_keys(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id])
+        diffs = result["config_diffs"]
+        # lr differs: 0.001 vs 0.0005
+        assert "lr" in diffs
+        # lambda is the same (1.0 in both) — should NOT be present
+        assert "lambda" not in diffs
+        # method.fisher differs: diagonal vs empirical
+        assert "method.fisher" in diffs
+        assert diffs["method.fisher"][r1a_id] == "diagonal"
+        assert diffs["method.fisher"][r1b_id] == "empirical"
+
+    def test_three_runs(self, populated_store):
+        ids = [
+            populated_store.test_ids["r1a"],
+            populated_store.test_ids["r1b"],
+            populated_store.test_ids["r2"],
+        ]
+        result = mcp_mod.compare_runs(ids)
+        assert len(result["runs"]) == 3
+
+    def test_too_few_runs(self, populated_store):
+        with pytest.raises(ValueError, match="at least 2 run_ids"):
+            mcp_mod.compare_runs([populated_store.test_ids["r1a"]])
+
+    def test_too_many_runs(self, populated_store):
+        with pytest.raises(ValueError, match="at most 10"):
+            mcp_mod.compare_runs(["id"] * 11)
+
+    def test_unknown_run_id(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        with pytest.raises(ValueError, match="Run not found"):
+            mcp_mod.compare_runs([r1a_id, "not_a_real_id"])

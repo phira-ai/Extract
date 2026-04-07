@@ -577,6 +577,108 @@ def search(
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
 
+@_tool
+def compare_runs(run_ids: list[str], include_history: bool = False) -> dict:
+    """Compare 2-10 runs: final metric values, rankings, and config diffs.
+
+    Args:
+        run_ids: List of 2-10 run ULIDs.
+        include_history: If True, include per-metric [(step, value), ...]
+            histories for every run. Off by default to keep payloads bounded.
+
+    Returns:
+        {
+          runs: [{id, label, experiment_path, status}],
+          metrics: {
+            name: {
+              direction: "min" | "max",
+              values: {run_id: final_value},
+              ranking: [best_run_id, ..., worst_run_id],
+              history: {run_id: [[step, value], ...]}  # only if include_history
+            }
+          },
+          config_diffs: {flat_key: {run_id: value}}  # only differing keys
+        }
+    """
+    if len(run_ids) < 2:
+        raise ValueError(f"compare_runs requires at least 2 run_ids (got {len(run_ids)})")
+    if len(run_ids) > 10:
+        raise ValueError(
+            f"compare_runs supports at most 10 runs per call (got {len(run_ids)})"
+        )
+
+    assert _store is not None
+    runs_out: list[dict] = []
+    configs: list[tuple[str, dict]] = []
+    metric_values: dict[str, dict[str, float]] = {}  # name -> {run_id: final_val}
+    metric_history: dict[str, dict[str, list[list]]] = {}
+
+    with _store.lock:
+        for rid in run_ids:
+            row = _store._conn.execute(
+                "SELECT r.*, e.path AS experiment_path "
+                "FROM runs r JOIN experiments e ON r.experiment_id = e.id "
+                "WHERE r.id = ?",
+                (rid,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"Run not found: {rid!r}")
+
+            runs_out.append({
+                "id": row["id"],
+                "label": _label(row["experiment_path"], row["name"], row["id"]),
+                "experiment_path": row["experiment_path"],
+                "status": row["status"],
+            })
+            cfg = json.loads(row["config"]) if row["config"] else {}
+            configs.append((rid, cfg))
+
+            # Final per-metric value.
+            metric_rows = _store._conn.execute(
+                "SELECT name, value FROM scalar_metrics sm1 WHERE run_id = ? "
+                "AND step = (SELECT MAX(step) FROM scalar_metrics sm2 "
+                "            WHERE sm2.run_id = sm1.run_id AND sm2.name = sm1.name)",
+                (rid,),
+            ).fetchall()
+            for mr in metric_rows:
+                metric_values.setdefault(mr["name"], {})[rid] = mr["value"]
+
+            # Full history if requested.
+            if include_history:
+                hist_rows = _store._conn.execute(
+                    "SELECT name, step, value FROM scalar_metrics "
+                    "WHERE run_id = ? ORDER BY name, step",
+                    (rid,),
+                ).fetchall()
+                for h in hist_rows:
+                    metric_history.setdefault(h["name"], {}).setdefault(rid, []).append(
+                        [h["step"], h["value"]]
+                    )
+
+    # Build the metrics dict.
+    metrics_out: dict[str, dict] = {}
+    for name, vals in metric_values.items():
+        direction = _metric_direction(name)
+        reverse = (direction == "max")
+        ranking = [rid for rid, _ in sorted(
+            vals.items(), key=lambda kv: kv[1], reverse=reverse
+        )]
+        entry = {
+            "direction": direction,
+            "values": vals,
+            "ranking": ranking,
+        }
+        if include_history and name in metric_history:
+            entry["history"] = metric_history[name]
+        metrics_out[name] = entry
+
+    return {
+        "runs": runs_out,
+        "metrics": metrics_out,
+        "config_diffs": _config_diffs(configs),
+    }
+
+
 def main(argv: list[str] | None = None) -> None:
     if FastMCP is None:
         print(
