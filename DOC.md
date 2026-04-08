@@ -20,15 +20,11 @@ store = Store()  # reads from .extract/ in current directory
 - `root: str | Path` — path to `.extract/` directory. Created if absent. Default: `".extract"`.
 - Hierarchy is read from `config.toml` (`[store] hierarchy = "..."`).
 
-**`store.experiment(spec: dict[str, str] | str) -> Experiment`**
-- Dict spec (preferred): keys must be hierarchy levels in order from root. Creates intermediate nodes. Values cannot skip levels.
+**`store.experiment(spec: dict[str, str]) -> Experiment`**
+- Keys must be hierarchy levels in order from root. Creates intermediate nodes. Values cannot skip levels.
   ```python
-  store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "v1"})
-  store.experiment({"benchmark": "cifar100"})  # partial — stops at benchmark level
-  ```
-- String spec (legacy): slash-delimited path, no `node_type` set.
-  ```python
-  store.experiment("cifar100/ewc/v1")
+  store.experiment({"benchmark": "imagenet", "model": "resnet50", "variant": "v1"})
+  store.experiment({"benchmark": "imagenet"})  # partial — stops at benchmark level
   ```
 
 **`store.list_experiments(prefix="") -> list[Experiment]`**
@@ -169,6 +165,7 @@ from extract import sync
 ### CLI
 
 ```bash
+extract init [path] [--hierarchy "a > b > c"] [--no-gitignore]
 extract tui [--store .extract]
 extract sync push <remote> [--root .extract]
 extract sync pull <remote> [--root .extract]
@@ -176,14 +173,13 @@ extract sync export <output.tar.gz> [--root .extract]
 extract sync import <archive.tar.gz> [--root .extract]
 ```
 
+**`extract init`** — Bootstrap a `.extract/` store with a hierarchy. Interactive by default; use `--hierarchy` for non-interactive/CI use. Refuses if the store is already configured.
+
 ### Install
 
 ```bash
-pip install extract-tracker            # SDK + CLI + TUI binary
-pip install 'extract-tracker[mcp]'     # also installs the MCP server runtime
+pip install extract-tracker            # SDK + CLI + TUI binary + MCP server
 ```
-
-The base install ships the `extract.mcp` module but not its `mcp>=1.0` runtime dependency. Add the `[mcp]` extra to use the MCP server (see below).
 
 ---
 
@@ -264,7 +260,7 @@ Hierarchical namespace nodes.
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | TEXT PK | ULID |
-| `path` | TEXT NOT NULL | slash-delimited, e.g. `"cifar100/ewc/v1"` |
+| `path` | TEXT NOT NULL | slash-delimited, e.g. `"imagenet/resnet50/v1"` |
 | `name` | TEXT NOT NULL | leaf name of this node |
 | `parent_id` | TEXT FK → experiments | NULL for root nodes |
 | `created_at` | TEXT | ISO 8601 |
@@ -414,7 +410,7 @@ Task notes scoped to global, experiment, or run.
 ### `[store]`
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `hierarchy` | `string` | (none) | Experiment tree levels separated by ` > `, e.g. `"benchmark > method > variant"` |
+| `hierarchy` | `string` | (none) | Experiment tree levels separated by ` > `, e.g. `"benchmark > model > variant"` |
 
 #### View Layout — controls what each TUI panel/view displays
 
@@ -534,7 +530,7 @@ All other unlisted metrics default to **maximize** (higher is better).
 
 ## Full Usage Example
 
-Assumes `config.toml` has `[store] hierarchy = "benchmark > method > variant"`.
+Assumes `config.toml` has `[store] hierarchy = "benchmark > model > variant"`.
 
 ```python
 import numpy as np
@@ -544,27 +540,27 @@ store = Store()
 
 # Create experiment hierarchy
 exp = store.experiment({
-    "benchmark": "cifar100",
-    "method": "ewc",
-    "variant": "lambda-sweep"
+    "benchmark": "imagenet",
+    "model": "resnet50",
+    "variant": "lr-sweep"
 })
 
 # Context manager approach
-with exp.run(config={"lr": 0.001, "lambda": 1.0, "epochs": 50}, name="ewc-l1.0") as run:
+with exp.run(config={"lr": 0.001, "bs": 32, "epochs": 50}, name="resnet50-lr1e3") as run:
     for step in range(50):
         run.log(step=step, loss=2.3 - step * 0.04, accuracy=step * 0.018)
-    run.log(step=0, arch="resnet18", optimizer="adam")
-    run.log_table("confusion_matrix", np.random.rand(10, 10), axes={"rows": "true", "cols": "predicted"})
+    run.log(step=0, arch="resnet50", optimizer="sgd")
+    run.log_table("confusion_matrix", np.random.rand(1000, 1000), axes={"rows": "true", "cols": "predicted"})
     run.log_timeseries("lr_schedule", steps=list(range(50)), values=[0.001 * (0.95 ** i) for i in range(50)])
-    run.log_text("notes", "## Observations\nEWC with lambda=1.0 shows stable forgetting curve.")
+    run.log_text("notes", "## Observations\nResNet50 with lr=1e-3 converges stably.")
     run.tag("sweep", "production-candidate")
-    run.note("Best lambda value in sweep")
-    run.todo("Try lambda=0.5 next", priority=1)
-    run.register_model("ewc-cifar100", "v1.0", "/tmp/model.pt", framework="pytorch")
-    run.derived_from(model="baseline-cifar100", version="v0.9")
+    run.note("Best learning rate in sweep")
+    run.todo("Try lr=0.005 next", priority=1)
+    run.register_model("resnet50-imagenet", "v1.0", "/tmp/model.pt", framework="pytorch")
+    run.derived_from(model="baseline-imagenet", version="v0.9")
 
 # Direct call approach — run spans multiple scopes
-run = exp.run(config={"lr": 0.005}, name="ewc-l0.5")
+run = exp.run(config={"lr": 0.005}, name="resnet50-lr5e3")
 run.log(step=0, loss=2.1)
 run.tag("sweep")
 run.finish()          # explicit finalize (idempotent)
