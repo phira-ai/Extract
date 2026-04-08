@@ -100,7 +100,7 @@ run.log(step=1, loss=1.8, accuracy=0.3)
 - Numeric values only — strings raise `TypeError`. `bool` is also rejected (Python's `bool <: int` would otherwise silently coerce to `1.0`/`0.0`).
 - Writes to the `curve_points` table, which is **physically separate** from `scalar_metrics`. Headline-summary surfaces (Summary panel, branch rankings, MCP `compare_runs` headline columns) never see this data.
 - The TUI's chart panel reads from `curve_points`. Use this for the high-frequency per-step training values that drive a live chart but should not clutter the run summary.
-- Buffered with a smaller threshold (10 points) plus a wall-clock fallback (~2 seconds) so slow training loops still feel live in the TUI. Flushed at threshold, after the wall-clock window, or on `finish()`.
+- Buffered with a smaller threshold (10 points) plus a wall-clock fallback (~2 seconds) so slow training loops still feel live in the TUI. Flushed at threshold, after the wall-clock window, or on `finish()`. Like `run.log()`, buffered points are lost on hard process kill (SIGKILL) — always use a `with` block so `finish()` flushes on exit.
 - `wall_time` is automatically recorded.
 - Combined with `total_steps=N` on `experiment.run(...)`, the TUI chart's x-axis is pinned at `[0, N-1]` and the curve fills left-to-right.
 

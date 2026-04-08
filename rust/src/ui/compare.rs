@@ -485,7 +485,7 @@ impl CompareView {
         height_override: Option<u16>,
         available_width: u16,
     ) {
-        if data.timeseries_names.is_empty() {
+        if data.curve_names.is_empty() {
             return;
         }
 
@@ -526,14 +526,14 @@ impl CompareView {
         }
 
         // Use configured height or auto-scale based on number of timeseries
-        let chart_height: u16 = height_override.unwrap_or_else(|| match data.timeseries_names.len() {
+        let chart_height: u16 = height_override.unwrap_or_else(|| match data.curve_names.len() {
             1 => 12,
             2 => 10,
             3 => 8,
             _ => 6,
         });
 
-        for metric_name in &data.timeseries_names {
+        for metric_name in &data.curve_names {
             let mut all_points: Vec<(Vec<(f64, f64)>, Color)> = Vec::new();
             let mut has_data = false;
 

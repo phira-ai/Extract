@@ -27,6 +27,17 @@ impl Db {
         Ok(v)
     }
 
+    /// Returns true if any run in the store is currently in 'running' status.
+    /// Used by the TUI status bar to show a global ● LIVE indicator.
+    pub fn has_running_runs(&self) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM runs WHERE status = 'running' LIMIT 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     // Experiments
 
     pub fn list_experiments(&self) -> Result<Vec<Experiment>> {
@@ -512,6 +523,7 @@ impl Db {
 
         let tx = conn.unchecked_transaction()?;
         tx.execute("DELETE FROM scalar_metrics WHERE run_id = ?", params![run_id])?;
+        tx.execute("DELETE FROM curve_points WHERE run_id = ?", params![run_id])?;
         tx.execute("DELETE FROM run_params WHERE run_id = ?", params![run_id])?;
         tx.execute("DELETE FROM artifacts WHERE run_id = ?", params![run_id])?;
         tx.execute("DELETE FROM lineage WHERE (parent_type = 'run' AND parent_id = ?) OR (child_type = 'run' AND child_id = ?)", params![run_id, run_id])?;
@@ -558,6 +570,7 @@ impl Db {
         // Delete run data for all collected runs.
         for rid in &run_ids {
             tx.execute("DELETE FROM scalar_metrics WHERE run_id = ?", params![rid])?;
+            tx.execute("DELETE FROM curve_points WHERE run_id = ?", params![rid])?;
             tx.execute("DELETE FROM run_params WHERE run_id = ?", params![rid])?;
             tx.execute("DELETE FROM artifacts WHERE run_id = ?", params![rid])?;
             tx.execute("DELETE FROM lineage WHERE (parent_type = 'run' AND parent_id = ?) OR (child_type = 'run' AND child_id = ?)", params![rid, rid])?;
@@ -1062,5 +1075,36 @@ mod tests {
         let db = test_db();
         let points = db.list_curve_points("r1", "nonexistent").unwrap();
         assert!(points.is_empty());
+    }
+
+    #[test]
+    fn test_delete_run_with_curve_points_succeeds() {
+        // Regression: ensure delete_run also clears curve_points (FK on run_id).
+        // The seed data has 5 curve_points rows for r1 (3 train_loss + 2 lr_schedule).
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path();
+
+        // Initialize schema and seed data via a writable connection.
+        let writer = Connection::open(path).unwrap();
+        writer
+            .execute_batch(include_str!("../../schema/migrations/001_init.sql"))
+            .unwrap();
+        writer.execute_batch(
+            "INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark');
+             INSERT INTO runs VALUES ('r1', 'e1', 'run1', NULL, '2026-01-01T00:00:00Z', NULL, 'running', NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO curve_points VALUES ('r1', 'loss', 0, 1.0, 0.0);
+             INSERT INTO curve_points VALUES ('r1', 'loss', 1, 0.8, 0.5);"
+        ).unwrap();
+        drop(writer);
+
+        // delete_run must succeed despite the FK from curve_points → runs.
+        Db::delete_run(path, "r1").expect("delete_run should clean up curve_points");
+
+        // Confirm the run and its curve_points are gone.
+        let reader = Connection::open(path).unwrap();
+        let run_count: i64 = reader.query_row("SELECT COUNT(*) FROM runs WHERE id = 'r1'", [], |r| r.get(0)).unwrap();
+        let curve_count: i64 = reader.query_row("SELECT COUNT(*) FROM curve_points WHERE run_id = 'r1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(run_count, 0);
+        assert_eq!(curve_count, 0);
     }
 }

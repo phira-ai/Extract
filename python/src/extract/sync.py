@@ -136,7 +136,9 @@ def merge_db(src_path: Path, dst_path: Path) -> dict[str, int]:
             new_runs += 1
         stats["runs"] = new_runs
 
-        # --- AUTOINCREMENT tables: exclude integer PK, let dst assign new ids ---
+        # --- Tables with dedup via UNIQUE constraints; exclude any integer id PK
+        #     so dst can reassign autoincrement (no-op for curve_points which has
+        #     no surrogate id column). ---
         for table in ("scalar_metrics", "run_params", "curve_points"):
             cols_info = dst.execute(f"PRAGMA table_info({table})").fetchall()
             cols = [c[1] for c in cols_info if c[1] != "id"]

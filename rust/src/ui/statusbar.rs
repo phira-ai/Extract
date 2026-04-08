@@ -127,10 +127,14 @@ impl StatusBar {
             }
         }
 
-        // ● LIVE indicator — visible whenever any visible run is actively running.
-        // We check the currently-loaded runs list (the ones the detail panel
-        // would see) rather than all runs in the store.
-        if state.runs.iter().any(|r| r.status == "running") {
+        // ● LIVE indicator — visible whenever any run in the store is actively
+        // running, regardless of which experiment the user is currently viewing.
+        // Falls back to the in-memory check if the DB query fails (defensive).
+        let any_running = state
+            .db
+            .has_running_runs()
+            .unwrap_or_else(|_| state.runs.iter().any(|r| r.status == "running"));
+        if any_running {
             spans.push(Span::raw("  "));
             spans.push(Span::styled(
                 "\u{25cf} LIVE",

@@ -154,7 +154,7 @@ pub struct CompareData {
     pub param_names: Vec<String>,
     pub config_keys: Vec<String>,
     pub table_names: Vec<String>,
-    pub timeseries_names: Vec<String>,
+    pub curve_names: Vec<String>,
     pub scroll: u16,
     pub total_lines: usize,
     pub visible_height: usize,
@@ -722,7 +722,7 @@ impl AppState {
         let mut param_names = Vec::new();
         let mut config_keys = Vec::new();
         let mut table_names = Vec::new();
-        let mut timeseries_names = Vec::new();
+        let mut curve_names = Vec::new();
 
         for rd in &runs_data {
             for m in &rd.latest_metrics {
@@ -744,8 +744,8 @@ impl AppState {
                 }
             }
             for (name, _) in &rd.metric_histories {
-                if !timeseries_names.contains(name) {
-                    timeseries_names.push(name.clone());
+                if !curve_names.contains(name) {
+                    curve_names.push(name.clone());
                 }
             }
         }
@@ -755,7 +755,7 @@ impl AppState {
         config_keys.retain(|k| config::key_passes_filters(k, &self.config.info.fields));
         config_keys.sort();
         table_names.sort();
-        timeseries_names.sort();
+        curve_names.sort();
 
         // Preserve the user's scroll position across soft reloads.
         // (The hard wrapper resets scroll back to 0 explicitly.)
@@ -768,7 +768,7 @@ impl AppState {
             param_names,
             config_keys,
             table_names,
-            timeseries_names,
+            curve_names,
             scroll: preserved_scroll,
             total_lines: 0,
             visible_height: preserved_visible_height,
