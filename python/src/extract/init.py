@@ -148,10 +148,10 @@ def _snake_case(s: str) -> str:
 def _build_quickstart_snippet(levels: list[str]) -> str:
     """Render QUICKSTART_TEMPLATE with sample values for each level.
 
-    Each line of the dict body is `    "key": "value",` aligned so that
-    the values column is consistent. Levels not in SAMPLE_VALUES fall
-    back to `"<level>_value"` so any custom hierarchy still produces a
-    runnable snippet.
+    Each dict line is formatted as `    "key": "value",` with a single
+    space after the colon, regardless of key length. Levels not in
+    SAMPLE_VALUES fall back to `"<level>_value"` so any custom hierarchy
+    still produces a runnable snippet.
     """
     if not levels:
         # Empty hierarchy is invalid upstream; produce something readable anyway
