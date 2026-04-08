@@ -25,6 +25,7 @@ pub struct Run {
     pub git_sha: Option<String>,
     pub tags: Option<String>,
     pub notes: Option<String>,
+    pub total_steps: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

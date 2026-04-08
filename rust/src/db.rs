@@ -77,7 +77,7 @@ impl Db {
 
     pub fn list_runs(&self, experiment_id: &str) -> Result<Vec<Run>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, experiment_id, name, config, started_at, ended_at, status, hostname, git_sha, tags, notes FROM runs WHERE experiment_id = ? ORDER BY started_at",
+            "SELECT id, experiment_id, name, config, started_at, ended_at, status, hostname, git_sha, tags, notes, total_steps FROM runs WHERE experiment_id = ? ORDER BY started_at",
         )?;
         let rows = stmt.query_map(params![experiment_id], |row| {
             Ok(Run {
@@ -92,6 +92,7 @@ impl Db {
                 git_sha: row.get(8)?,
                 tags: row.get(9)?,
                 notes: row.get(10)?,
+                total_steps: row.get(11)?,
             })
         })?;
         let mut runs = Vec::new();
@@ -103,7 +104,7 @@ impl Db {
 
     pub fn get_run(&self, id: &str) -> Result<Option<Run>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, experiment_id, name, config, started_at, ended_at, status, hostname, git_sha, tags, notes FROM runs WHERE id = ?",
+            "SELECT id, experiment_id, name, config, started_at, ended_at, status, hostname, git_sha, tags, notes, total_steps FROM runs WHERE id = ?",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
             Ok(Run {
@@ -118,6 +119,7 @@ impl Db {
                 git_sha: row.get(8)?,
                 tags: row.get(9)?,
                 notes: row.get(10)?,
+                total_steps: row.get(11)?,
             })
         })?;
         match rows.next() {
@@ -296,7 +298,7 @@ impl Db {
     pub fn recent_runs(&self, limit: i64) -> Result<Vec<Run>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, experiment_id, name, config, started_at, ended_at, status, \
-                    hostname, git_sha, tags, notes \
+                    hostname, git_sha, tags, notes, total_steps \
              FROM runs ORDER BY started_at DESC LIMIT ?",
         )?;
         let rows = stmt.query_map(params![limit], |row| {
@@ -312,6 +314,7 @@ impl Db {
                 git_sha: row.get(8)?,
                 tags: row.get(9)?,
                 notes: row.get(10)?,
+                total_steps: row.get(11)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
