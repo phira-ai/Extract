@@ -591,6 +591,13 @@ impl CompareView {
         height: u16,
         total_steps_max: Option<i64>,
     ) -> Vec<Line<'static>> {
+        // Defensive: caller already filters via has_data, but if a future call
+        // site forgets, return early rather than rendering a chart with garbage
+        // bounds (every fold accumulator would stay at f64::MIN/MAX).
+        if runs_data.iter().all(|(d, _)| d.is_empty()) {
+            return Vec::new();
+        }
+
         // Compute observed Y bounds; X is pinned to declared total_steps when
         // present (extending on overflow), else falls back to observed max.
         let mut observed_x_max = f64::MIN;
@@ -605,17 +612,7 @@ impl CompareView {
             }
         }
 
-        let x_min = 0.0_f64;
-        let x_max = match total_steps_max.filter(|n| *n > 0) {
-            Some(n) => ((n - 1) as f64).max(observed_x_max).max(1.0),
-            None => {
-                if observed_x_max <= x_min {
-                    x_min + 1.0
-                } else {
-                    observed_x_max
-                }
-            }
-        };
+        let (x_min, x_max) = crate::ui::summary::pinned_x_bounds(observed_x_max, total_steps_max);
 
         let y_range = y_max - y_min;
         let y_pad = if y_range > 0.0 { y_range * 0.1 } else { 0.1 };
