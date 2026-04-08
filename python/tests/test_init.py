@@ -291,3 +291,116 @@ class TestUpdateGitignore:
         content = (tmp_path / ".gitignore").read_text()
         # The result should have *.pyc on its own line and .extract/ on the next
         assert content == "*.pyc\n.extract/\n"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Non-interactive run() tests
+
+
+def _make_args(path, hierarchy=None, no_gitignore=False):
+    """Helper to construct an argparse.Namespace like __main__.py would."""
+    import argparse
+    return argparse.Namespace(
+        command="init",
+        path=str(path),
+        hierarchy=hierarchy,
+        no_gitignore=no_gitignore,
+    )
+
+
+class TestRunNonInteractive:
+    def test_happy_path(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy="benchmark > model > variant",
+                          no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 0
+        assert (store_root / "config.toml").exists()
+
+        # Verify the config opens via Store()
+        import extract
+        store = extract.Store(root=store_root)
+        assert store._hierarchy == ["benchmark", "model", "variant"]
+
+    def test_invalid_hierarchy_flag_uppercase(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy="Foo > Bar", no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 1
+        assert not store_root.exists()
+
+    def test_invalid_hierarchy_flag_reserved(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy="benchmark > models > variant",
+                          no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 1
+        assert not store_root.exists()
+
+    def test_invalid_hierarchy_flag_empty_level(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy="a > > b", no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 1
+
+    def test_existing_configured_store_refused(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        (store_root / "config.toml").write_text(
+            '[store]\nhierarchy = "x > y"\n'
+        )
+        args = _make_args(store_root, hierarchy="benchmark > model > variant",
+                          no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 1
+        # Original config untouched
+        assert (store_root / "config.toml").read_text() == '[store]\nhierarchy = "x > y"\n'
+
+    def test_completes_bootstrap_when_dir_exists(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()  # Pre-create the dir, no config inside
+        args = _make_args(store_root, hierarchy="benchmark > model > variant",
+                          no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 0
+        assert (store_root / "config.toml").exists()
+
+    def test_creates_gitignore_when_in_git_repo(self, tmp_path):
+        # Set up git repo
+        (tmp_path / ".git").mkdir()
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy="benchmark > model > variant",
+                          no_gitignore=False)
+        rc = init.run(args)
+        assert rc == 0
+        gi = tmp_path / ".gitignore"
+        assert gi.exists()
+        assert ".extract/" in gi.read_text()
+
+    def test_skips_gitignore_when_no_git_repo(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy="benchmark > model > variant",
+                          no_gitignore=False)
+        rc = init.run(args)
+        assert rc == 0
+        # No .gitignore created (no git repo detected)
+        assert not (tmp_path / ".gitignore").exists()
+
+    def test_skips_gitignore_with_flag(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy="benchmark > model > variant",
+                          no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 0
+        # --no-gitignore beats the git-repo detection
+        assert not (tmp_path / ".gitignore").exists()
+
+    def test_tty_check_errors_without_hierarchy(self, tmp_path, monkeypatch):
+        # Force isatty to return False so the TTY check trips
+        monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy=None, no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 2  # usage error
+        assert not store_root.exists()

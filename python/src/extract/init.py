@@ -12,6 +12,8 @@ import re
 import sys
 from pathlib import Path
 
+from rich.console import Console
+
 # ──────────────────────────────────────────────────────────────────────────
 # Constants
 
@@ -289,8 +291,16 @@ def _render_status_lines(
     console, path: "Path", levels: list[str],
     path_was_created: bool, gitignore_modified: bool,
 ) -> None:
-    """Screen 5: ✓ Created / ✓ Wrote / ✓ Updated status lines."""
-    raise NotImplementedError
+    """Print the ✓ Created / ✓ Wrote / ✓ Updated status lines from screen 5."""
+    verb = "Created" if path_was_created else "Using"
+    pretty_hierarchy = " › ".join(levels)
+    console.print(f"[ansigreen]✓[/ansigreen] {verb} [ansicyan]{path}[/ansicyan]")
+    console.print(
+        f"[ansigreen]✓[/ansigreen] Wrote [ansicyan]{path}/config.toml[/ansicyan] "
+        f"[dim](hierarchy: {pretty_hierarchy})[/dim]"
+    )
+    if gitignore_modified:
+        console.print(f"[ansigreen]✓[/ansigreen] Updated [ansicyan].gitignore[/ansicyan]")
 
 
 def _render_quickstart(console, levels: list[str]) -> None:
@@ -301,5 +311,88 @@ def _render_quickstart(console, levels: list[str]) -> None:
 # Public entry point
 
 def run(args: argparse.Namespace) -> int:
-    """Execute extract init. Returns the exit code."""
-    raise NotImplementedError
+    """Execute extract init. Returns the exit code.
+
+    Exit codes:
+      0  success (or user clean-aborted at preview confirm)
+      1  refused / invalid hierarchy / write failure
+      2  usage error (non-TTY without --hierarchy)
+      130 user pressed Ctrl-C
+    """
+    console = Console()
+
+    # TTY check: in non-interactive mode, --hierarchy is required
+    interactive = sys.stdin.isatty()
+    if not interactive and args.hierarchy is None:
+        print(
+            "error: extract init requires --hierarchy when running "
+            "non-interactively.\n"
+            "       Example: extract init --hierarchy "
+            '"benchmark > model > variant"',
+            file=sys.stderr,
+        )
+        return 2
+
+    store_root = Path(args.path).resolve()
+
+    # Pre-flight: refuse if already configured
+    try:
+        _preflight(store_root)
+    except ConfigExistsError as e:
+        console.print(f"[ansired]error:[/ansired] {e}")
+        return 1
+
+    # Resolve hierarchy: from --hierarchy flag or interactive picker
+    if args.hierarchy is not None:
+        try:
+            from extract.store import _parse_hierarchy
+            levels = _parse_hierarchy(args.hierarchy)
+            validate_hierarchy_levels(levels)
+        except ValueError as e:
+            console.print(f"[ansired]error:[/ansired] {e}")
+            return 1
+    else:
+        # Interactive picker — implemented in Phase 6
+        try:
+            levels = _pick_hierarchy_interactive()
+        except KeyboardInterrupt:
+            return 130
+
+    # Resolve gitignore decision
+    git_root = None if args.no_gitignore else _find_git_root(store_root.parent)
+    if git_root is not None and interactive:
+        try:
+            wants_gitignore = _confirm_gitignore(git_root)
+        except KeyboardInterrupt:
+            return 130
+    else:
+        wants_gitignore = git_root is not None  # Auto-yes in non-interactive when in repo
+
+    # Confirm preview (interactive only — non-interactive auto-confirms)
+    if interactive:
+        try:
+            if not _confirm_write_config(console, store_root, levels):
+                console.print("Aborted. No files written.")
+                return 0
+        except KeyboardInterrupt:
+            return 130
+
+    # Write phase
+    try:
+        path_was_created = _write_config(store_root, levels)
+        gitignore_modified = (
+            _update_gitignore(git_root) if (wants_gitignore and git_root) else False
+        )
+    except OSError as e:
+        console.print(f"[ansired]error:[/ansired] write failed: {e}")
+        return 1
+
+    # Status lines
+    _render_status_lines(console, store_root, levels, path_was_created, gitignore_modified)
+
+    # Quickstart panel (only in interactive mode — non-interactive output should
+    # stay tight for scripts and CI logs)
+    if interactive:
+        _render_quickstart(console, levels)
+
+    return 0
