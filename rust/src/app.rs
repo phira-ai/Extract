@@ -481,31 +481,30 @@ impl AppState {
     }
 
     /// Load curve data for a given run.
-    /// Only timeseries artifacts are loaded — scalar metrics from run.log()
-    /// are headline-only and appear in latest_metrics, not here.
+    /// Reads from the curve_points table (populated by run.curve() in the SDK).
+    /// Headline metrics from run.log() live in scalar_metrics and are surfaced
+    /// elsewhere — they don't appear in metric_histories.
     fn load_all_metric_histories(&mut self, run_id: &str) -> Result<()> {
         self.metric_histories.clear();
 
-        let artifacts = self.db.list_artifacts(run_id)?;
-        for artifact in artifacts.iter().filter(|a| a.kind == "timeseries") {
-            let path = self.store_root.join(&artifact.rel_path);
-            if let Ok(points) = crate::artifact::load_timeseries(&path) {
-                let history: Vec<ScalarMetric> = points
-                    .into_iter()
-                    .map(|(step, value)| ScalarMetric {
-                        id: 0,
-                        run_id: run_id.to_string(),
-                        step,
-                        name: artifact.name.clone(),
-                        value,
-                        wall_time: None,
-                    })
-                    .collect();
-                if !history.is_empty() {
-                    self.metric_histories
-                        .push((artifact.name.clone(), history));
-                }
+        let names = self.db.list_curve_names(run_id)?;
+        for name in names {
+            let points = self.db.list_curve_points(run_id, &name)?;
+            if points.is_empty() {
+                continue;
             }
+            let history: Vec<ScalarMetric> = points
+                .into_iter()
+                .map(|(step, value, wall_time)| ScalarMetric {
+                    id: 0,
+                    run_id: run_id.to_string(),
+                    step,
+                    name: name.clone(),
+                    value,
+                    wall_time,
+                })
+                .collect();
+            self.metric_histories.push((name, history));
         }
 
         Ok(())
@@ -633,26 +632,26 @@ impl AppState {
             // Load artifacts (timeseries + tables)
             let artifacts = self.db.list_artifacts(&run.id)?;
 
-            // Load curve data from timeseries artifacts only
+            // Load curve data from curve_points table
             let mut metric_histories: Vec<(String, Vec<ScalarMetric>)> = Vec::new();
-            for artifact in artifacts.iter().filter(|a| a.kind == "timeseries") {
-                let path = self.store_root.join(&artifact.rel_path);
-                if let Ok(points) = crate::artifact::load_timeseries(&path) {
-                    let history: Vec<ScalarMetric> = points
-                        .into_iter()
-                        .map(|(step, value)| ScalarMetric {
-                            id: 0,
-                            run_id: run.id.clone(),
-                            step,
-                            name: artifact.name.clone(),
-                            value,
-                            wall_time: None,
-                        })
-                        .collect();
-                    if !history.is_empty() {
-                        metric_histories.push((artifact.name.clone(), history));
-                    }
+            let curve_names = self.db.list_curve_names(&run.id)?;
+            for name in curve_names {
+                let points = self.db.list_curve_points(&run.id, &name)?;
+                if points.is_empty() {
+                    continue;
                 }
+                let history: Vec<ScalarMetric> = points
+                    .into_iter()
+                    .map(|(step, value, wall_time)| ScalarMetric {
+                        id: 0,
+                        run_id: run.id.clone(),
+                        step,
+                        name: name.clone(),
+                        value,
+                        wall_time,
+                    })
+                    .collect();
+                metric_histories.push((name, history));
             }
 
             let mut tables = Vec::new();

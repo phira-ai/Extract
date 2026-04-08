@@ -1,4 +1,3 @@
-use std::fs;
 use std::path::Path;
 
 use color_eyre::Result;
@@ -37,35 +36,6 @@ pub struct TableData {
     pub rows: usize,
     pub cols: usize,
     pub values: Vec<Vec<CellValue>>,
-}
-
-/// Load a timeseries JSON artifact: {"steps": [...], "values": [...]}.
-/// Returns (step, value) pairs.
-pub fn load_timeseries(path: &Path) -> Result<Vec<(i64, f64)>> {
-    let data = fs::read_to_string(path)?;
-    let parsed: serde_json::Value = serde_json::from_str(&data)?;
-
-    let steps = parsed["steps"]
-        .as_array()
-        .ok_or_else(|| color_eyre::eyre::eyre!("missing 'steps' array"))?;
-    let values = parsed["values"]
-        .as_array()
-        .ok_or_else(|| color_eyre::eyre::eyre!("missing 'values' array"))?;
-
-    steps
-        .iter()
-        .zip(values.iter())
-        .map(|(s, v)| {
-            let step = s
-                .as_i64()
-                .or_else(|| s.as_f64().map(|f| f as i64))
-                .ok_or_else(|| color_eyre::eyre::eyre!("invalid step value"))?;
-            let value = v
-                .as_f64()
-                .ok_or_else(|| color_eyre::eyre::eyre!("invalid metric value"))?;
-            Ok((step, value))
-        })
-        .collect()
 }
 
 /// Load a .npy file as a TableData, trying multiple dtypes.
