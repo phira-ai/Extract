@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     metadata    TEXT,
     status      TEXT NOT NULL DEFAULT 'created',
-    node_type   TEXT
+    node_type   TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_experiments_path      ON experiments(path);
