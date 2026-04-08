@@ -565,8 +565,21 @@ impl CompareView {
                     .add_modifier(Modifier::BOLD),
             )));
 
-            let chart_lines =
-                self.render_overlay_chart_to_lines(&all_points, chart_width.max(20), chart_height);
+            // Pin the compare-view x-axis to the largest total_steps across
+            // the runs being compared, so all curves share a single axis and
+            // each terminates at its own training endpoint.
+            let total_steps_max: Option<i64> = data
+                .runs
+                .iter()
+                .filter_map(|rd| rd.run.total_steps)
+                .max();
+
+            let chart_lines = self.render_overlay_chart_to_lines(
+                &all_points,
+                chart_width.max(20),
+                chart_height,
+                total_steps_max,
+            );
             lines.extend(chart_lines);
         }
     }
@@ -576,25 +589,33 @@ impl CompareView {
         runs_data: &[(Vec<(f64, f64)>, Color)],
         width: u16,
         height: u16,
+        total_steps_max: Option<i64>,
     ) -> Vec<Line<'static>> {
-        // Compute global bounds
-        let mut x_min = f64::MAX;
-        let mut x_max = f64::MIN;
+        // Compute observed Y bounds; X is pinned to declared total_steps when
+        // present (extending on overflow), else falls back to observed max.
+        let mut observed_x_max = f64::MIN;
         let mut y_min = f64::MAX;
         let mut y_max = f64::MIN;
 
         for (data, _) in runs_data {
             for &(x, y) in data {
-                x_min = x_min.min(x);
-                x_max = x_max.max(x);
+                observed_x_max = observed_x_max.max(x);
                 y_min = y_min.min(y);
                 y_max = y_max.max(y);
             }
         }
 
-        if x_min >= x_max {
-            x_max = x_min + 1.0;
-        }
+        let x_min = 0.0_f64;
+        let x_max = match total_steps_max.filter(|n| *n > 0) {
+            Some(n) => ((n - 1) as f64).max(observed_x_max).max(1.0),
+            None => {
+                if observed_x_max <= x_min {
+                    x_min + 1.0
+                } else {
+                    observed_x_max
+                }
+            }
+        };
 
         let y_range = y_max - y_min;
         let y_pad = if y_range > 0.0 { y_range * 0.1 } else { 0.1 };
