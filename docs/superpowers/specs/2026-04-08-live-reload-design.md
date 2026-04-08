@@ -94,12 +94,16 @@ pub fn list_curve_points(&self, run_id: &str, name: &str)
 
 ### 2a. Other consumers that touch metric histories
 
-Two non-TUI code paths read time-series-shaped data and need to migrate to `curve_points`:
+Mental model clarification: `scalar_metrics` is **not** restricted to single-step headline rows. It still allows multiple `(step, value)` rows per `(run_id, name)` — the user simply *intends* it for "discrete checkpoint values" (rare, headline-worthy) rather than "high-frequency stream points" (the new `curve_points` lane). The Summary panel takes `MAX(step)` per name. Whether to call `run.log()` with N steps or `run.curve()` with N steps is a matter of intent: do you want this metric to appear in the Summary/rankings/MCP-headline columns?
 
-- **MCP `compare_runs(include_history=True)`** in `python/src/extract/mcp.py:638-642` currently SELECTs `name, step, value FROM scalar_metrics WHERE run_id = ?`. After the split, that table only contains single-step headline rows, so the histories would come back empty. Switch the SELECT to read from `curve_points` instead. The response shape (`history: {run_id: [[step, value], ...]}`) is unchanged.
-- **`extract sync`** in `python/src/extract/sync.py:139` merges a fixed list of tables (`scalar_metrics`, `run_params`). Add `curve_points` to that list so live curves propagate when pushing/pulling stores between machines. The merge logic is by-row so the new table needs no special handling beyond inclusion.
+Given that, only one consumer needs structural changes:
 
-The MCP `get_run` tool already excludes histories by design (mcp.py:375-376), so it requires no change. The `compare_runs` headline-metric path (mcp.py:634) reads `latest_metrics` which still comes from `scalar_metrics` — that's correct and unchanged.
+- **`extract sync`** in `python/src/extract/sync.py:139` merges a fixed list of tables (`scalar_metrics`, `run_params`). Add `curve_points` to that list so live curves propagate when pushing/pulling stores between machines. The merge loop is generic (it inspects `PRAGMA table_info` and uses `INSERT OR IGNORE`), so adding `curve_points` to the tuple is the only change needed — `curve_points` has no `id` column, and its `UNIQUE(run_id, name, step)` constraint provides the dedup key.
+
+Two consumers stay unchanged:
+
+- **MCP `compare_runs(include_history=True)`** in `python/src/extract/mcp.py:638-642` already reads histories from `scalar_metrics`. It continues to expose the discrete-checkpoint history of headline metrics — which is the correct semantic for an LLM agent comparing runs. Curves are TUI-facing, not LLM-facing in v1. If exposing curves to MCP becomes useful later, it can be a separate `compare_runs(include_curves=True)` flag — non-breaking follow-up.
+- **MCP `get_run`** already excludes histories by design (mcp.py:375-376) — no change.
 
 ### 3. Live refresh, scroll preservation, fixed x-axis
 
@@ -201,7 +205,7 @@ These stay frozen until the user re-enters the view. Adding any of them is a one
 - *Rust DB test* — `data_version` increments when a separate connection writes; `list_curve_points` returns rows in step order; `list_curve_names` returns distinct names; existing aggregation tests in `db.rs` are unaffected.
 - *Rust app integration test* — simulate a write from a second connection, call `refresh_live` on the AppState, verify curves appear in detail-panel state. Set scroll to nonzero, write data, refresh, assert scroll unchanged. Verify the no-op path: calling `refresh_live` twice in a row with no DB change returns without re-querying on the second call (`data_version` matches).
 - *Chart axis test* — render with `total_steps = 1000` and a single point at step 5, assert the X axis extends to 1000 not 5. Render with `total_steps = None` and the same point, assert auto-fit. Render with `total_steps = 1000` and a point at step 1500, assert the axis extends to 1500.
-- *MCP smoke test* — `compare_runs(include_history=False)` and `get_run` still return only headline metrics, not curve data (no leakage to LLM agents). `compare_runs(include_history=True)` returns curve points from `curve_points`, not empty arrays.
+- *MCP smoke test* — `compare_runs(include_history=False)` and `get_run` still return only headline metrics. `compare_runs(include_history=True)` continues to return `scalar_metrics` history (unchanged behavior) — curve_points data does NOT leak into MCP responses.
 - *Sync smoke test* — push a store with `curve_points` rows to a temp destination, pull it back, verify the curves round-trip.
 
 **Risks and mitigations:**
@@ -220,7 +224,7 @@ These stay frozen until the user re-enters the view. Adding any of them is a one
 1. Schema migration + Rust `model::Run.total_steps` field + DB column reads. Compiles + passes existing tests.
 2. New `db::Db` methods (`data_version`, `list_curve_points`, `list_curve_names`) with unit tests.
 3. Python SDK: `Experiment.run(total_steps=...)`, `Run.curve()` (with smaller flush threshold + wall-clock fallback), removal of `Run.log_timeseries`. SDK tests.
-4. MCP `compare_runs` history path switched to `curve_points`. `extract sync` table list updated. Smoke tests.
+4. `extract sync` table list updated to include `curve_points`. Sync round-trip smoke test.
 5. Rust app: split hard/soft loaders, wire `last_data_version` and `refresh_live`, gate the tick on `data_version`. Existing tests still pass.
 6. Chart: fixed x-axis from `total_steps` in summary view + compare view.
 7. Status bar `● LIVE` indicator.
