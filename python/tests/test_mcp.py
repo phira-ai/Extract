@@ -27,17 +27,17 @@ def populated_store(tmp_path, monkeypatch):
     root.mkdir(parents=True)
     # Write config.toml so the hierarchy is registered.
     (root / "config.toml").write_text(
-        '[store]\nhierarchy = "benchmark > method > variant"\n'
+        '[store]\nhierarchy = "benchmark > model > variant"\n'
     )
     store = extract.Store(root=root)
 
-    # --- Experiment 1: cifar100/ewc/lambda_1.0, two runs ---
+    # --- Experiment 1: imagenet/resnet50/lr_0.01, two runs ---
     exp1 = store.experiment(
-        {"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"}
+        {"benchmark": "imagenet", "model": "resnet50", "variant": "lr_0.01"}
     )
     with exp1.run(
         config={"lr": 0.001, "lambda": 1.0, "method": {"fisher": "diagonal"}},
-        name="ewc-l1.0-a",
+        name="resnet-lr01-a",
     ) as r1a:
         for step in range(5):
             r1a.log(step=step, loss=1.0 - 0.15 * step, accuracy=0.5 + 0.08 * step)
@@ -49,18 +49,18 @@ def populated_store(tmp_path, monkeypatch):
 
     with exp1.run(
         config={"lr": 0.0005, "lambda": 1.0, "method": {"fisher": "empirical"}},
-        name="ewc-l1.0-b",
+        name="resnet-lr01-b",
     ) as r1b:
         for step in range(5):
             r1b.log(step=step, loss=0.9 - 0.12 * step, accuracy=0.55 + 0.07 * step)
         r1b.tag("sweep")
     r1b_id = r1b.id
 
-    # --- Experiment 2: cifar100/si/variant_a, one run ---
+    # --- Experiment 2: imagenet/vit_base/default, one run ---
     exp2 = store.experiment(
-        {"benchmark": "cifar100", "method": "si", "variant": "variant_a"}
+        {"benchmark": "imagenet", "model": "vit_base", "variant": "default"}
     )
-    with exp2.run(config={"lr": 0.01, "c": 0.1}, name="si-a") as r2:
+    with exp2.run(config={"lr": 0.01, "c": 0.1}, name="vit-default") as r2:
         for step in range(5):
             r2.log(step=step, loss=1.2 - 0.10 * step, accuracy=0.45 + 0.09 * step)
         r2.tag("baseline")
@@ -73,13 +73,13 @@ def populated_store(tmp_path, monkeypatch):
     # an active run and we closed them above. Use the SDK via a throwaway
     # run... but simpler: insert directly.
     model_id = str(ULID())
-    models_dir = root / "models" / "ewc-cifar100" / "1.0"
+    models_dir = root / "models" / "resnet-imagenet" / "1.0"
     models_dir.mkdir(parents=True, exist_ok=True)
     shutil.copy(dummy_model, models_dir / "dummy_model.pt")
     store._conn.execute(
         "INSERT INTO models (id, name, version, run_id, artifact_path, "
         "framework, metadata) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (model_id, "ewc-cifar100", "1.0", r1a_id,
+        (model_id, "resnet-imagenet", "1.0", r1a_id,
          str(models_dir / "dummy_model.pt"), "pytorch",
          json.dumps({"params": 1000})),
     )
@@ -286,31 +286,31 @@ class TestListExperiments:
     def test_lists_all_experiments(self, populated_store):
         result = mcp_mod.list_experiments()
         assert "items" in result
-        assert result["total"] >= 5  # root, benchmark, method, variant levels
+        assert result["total"] >= 5  # root, benchmark, model, variant levels
         paths = [item["path"] for item in result["items"]]
-        assert "cifar100" in paths
-        assert "cifar100/ewc/lambda_1.0" in paths
-        assert "cifar100/si/variant_a" in paths
+        assert "imagenet" in paths
+        assert "imagenet/resnet50/lr_0.01" in paths
+        assert "imagenet/vit_base/default" in paths
 
     def test_prefix_filter(self, populated_store):
-        result = mcp_mod.list_experiments(prefix="cifar100/ewc")
+        result = mcp_mod.list_experiments(prefix="imagenet/resnet50")
         paths = [item["path"] for item in result["items"]]
-        assert "cifar100/ewc" in paths
-        assert "cifar100/ewc/lambda_1.0" in paths
-        assert "cifar100/si/variant_a" not in paths
+        assert "imagenet/resnet50" in paths
+        assert "imagenet/resnet50/lr_0.01" in paths
+        assert "imagenet/vit_base/default" not in paths
 
     def test_n_runs_populated(self, populated_store):
         # Query with the branch prefix so both the branch and its descendants appear.
-        result = mcp_mod.list_experiments(prefix="cifar100/ewc")
+        result = mcp_mod.list_experiments(prefix="imagenet/resnet50")
         # The leaf has 2 runs (r1a, r1b).
-        leaf = next(i for i in result["items"] if i["path"] == "cifar100/ewc/lambda_1.0")
+        leaf = next(i for i in result["items"] if i["path"] == "imagenet/resnet50/lr_0.01")
         assert leaf["n_runs"] == 2
         # Branch nodes have 0 runs of their own.
-        branch = next(i for i in result["items"] if i["path"] == "cifar100/ewc")
+        branch = next(i for i in result["items"] if i["path"] == "imagenet/resnet50")
         assert branch["n_runs"] == 0
 
     def test_item_shape(self, populated_store):
-        result = mcp_mod.list_experiments(prefix="cifar100/ewc/lambda_1.0")
+        result = mcp_mod.list_experiments(prefix="imagenet/resnet50/lr_0.01")
         item = result["items"][0]
         assert set(item.keys()) == {"id", "path", "name", "node_type", "parent_id", "n_runs"}
 
@@ -346,33 +346,33 @@ class TestListRuns:
 
     def test_label_format(self, populated_store):
         result = mcp_mod.list_runs()
-        item = next(i for i in result["items"] if i["name"] == "ewc-l1.0-a")
-        assert item["label"] == "cifar100/ewc/lambda_1.0#ewc-l1.0-a"
+        item = next(i for i in result["items"] if i["name"] == "resnet-lr01-a")
+        assert item["label"] == "imagenet/resnet50/lr_0.01#resnet-lr01-a"
 
     def test_label_fallback_to_id(self, populated_store):
         # Create a nameless run in the populated store.
         exp = populated_store.experiment(
-            {"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"}
+            {"benchmark": "imagenet", "model": "resnet50", "variant": "lr_0.01"}
         )
         nameless = exp.run()
         nameless.finish()
         result = mcp_mod.list_runs(experiment_id=exp.id)
         nameless_item = next(i for i in result["items"] if i["id"] == nameless.id)
-        assert nameless_item["label"].startswith("cifar100/ewc/lambda_1.0#")
+        assert nameless_item["label"].startswith("imagenet/resnet50/lr_0.01#")
         tail = nameless_item["label"].split("#", 1)[1]
         assert len(tail) == 8
         assert tail == nameless.id[:8]
 
     def test_config_summary_shape(self, populated_store):
         result = mcp_mod.list_runs()
-        item = next(i for i in result["items"] if i["name"] == "ewc-l1.0-a")
+        item = next(i for i in result["items"] if i["name"] == "resnet-lr01-a")
         cs = item["config_summary"]
         assert cs["n_keys"] == 3  # lr, lambda, method (top-level)
         assert set(cs["top_level_keys"]) == {"lr", "lambda", "method"}
 
     def test_config_summary_empty_config(self, populated_store):
         exp = populated_store.experiment(
-            {"benchmark": "cifar100", "method": "ewc", "variant": "lambda_1.0"}
+            {"benchmark": "imagenet", "model": "resnet50", "variant": "lr_0.01"}
         )
         nocfg = exp.run(name="no-config")
         nocfg.finish()
@@ -386,7 +386,7 @@ class TestListRuns:
 
     def test_tags_parsed(self, populated_store):
         result = mcp_mod.list_runs()
-        item = next(i for i in result["items"] if i["name"] == "ewc-l1.0-a")
+        item = next(i for i in result["items"] if i["name"] == "resnet-lr01-a")
         assert "sweep" in item["tags"]
 
 
@@ -395,11 +395,11 @@ class TestListModels:
         result = mcp_mod.list_models()
         assert result["total"] == 1
         item = result["items"][0]
-        assert item["name"] == "ewc-cifar100"
+        assert item["name"] == "resnet-imagenet"
         assert item["version"] == "1.0"
 
     def test_name_prefix_filter(self, populated_store):
-        result = mcp_mod.list_models(name_prefix="ewc")
+        result = mcp_mod.list_models(name_prefix="resnet")
         assert result["total"] == 1
 
         result = mcp_mod.list_models(name_prefix="nonexistent")
@@ -479,9 +479,9 @@ class TestGetRun:
         r1a_id = populated_store.test_ids["r1a"]
         run = mcp_mod.get_run(r1a_id)
         assert run["id"] == r1a_id
-        assert run["name"] == "ewc-l1.0-a"
-        assert run["experiment_path"] == "cifar100/ewc/lambda_1.0"
-        assert run["label"] == "cifar100/ewc/lambda_1.0#ewc-l1.0-a"
+        assert run["name"] == "resnet-lr01-a"
+        assert run["experiment_path"] == "imagenet/resnet50/lr_0.01"
+        assert run["label"] == "imagenet/resnet50/lr_0.01#resnet-lr01-a"
         assert run["status"] == "completed"
 
     def test_full_config_parsed(self, populated_store):
@@ -537,24 +537,24 @@ class TestSearch:
         assert result["total"] == 3
 
     def test_query_substring_name(self, populated_store):
-        result = mcp_mod.search(query="ewc-l1.0")
+        result = mcp_mod.search(query="resnet-lr01")
         names = {i["name"] for i in result["items"]}
-        assert names == {"ewc-l1.0-a", "ewc-l1.0-b"}
+        assert names == {"resnet-lr01-a", "resnet-lr01-b"}
 
     def test_query_substring_tags(self, populated_store):
         result = mcp_mod.search(query="production")
         names = {i["name"] for i in result["items"]}
-        assert names == {"ewc-l1.0-a"}
+        assert names == {"resnet-lr01-a"}
 
     def test_query_substring_notes(self, populated_store):
         result = mcp_mod.search(query="Best lambda")
         assert result["total"] == 1
-        assert result["items"][0]["name"] == "ewc-l1.0-a"
+        assert result["items"][0]["name"] == "resnet-lr01-a"
 
     def test_filter_tag(self, populated_store):
         result = mcp_mod.search(filters={"tag": "sweep"})
         names = {i["name"] for i in result["items"]}
-        assert names == {"ewc-l1.0-a", "ewc-l1.0-b"}
+        assert names == {"resnet-lr01-a", "resnet-lr01-b"}
 
     def test_filter_status(self, populated_store):
         result = mcp_mod.search(filters={"status": "completed"})
@@ -565,17 +565,17 @@ class TestSearch:
             mcp_mod.search(filters={"status": "bogus"})
 
     def test_filter_experiment_prefix(self, populated_store):
-        result = mcp_mod.search(filters={"experiment_prefix": "cifar100/ewc"})
+        result = mcp_mod.search(filters={"experiment_prefix": "imagenet/resnet50"})
         assert result["total"] == 2
         paths = {i["experiment_path"] for i in result["items"]}
-        assert paths == {"cifar100/ewc/lambda_1.0"}
+        assert paths == {"imagenet/resnet50/lr_0.01"}
 
     def test_filters_combine_and(self, populated_store):
-        # tag=sweep AND experiment_prefix=cifar100/ewc AND status=completed
+        # tag=sweep AND experiment_prefix=imagenet/resnet50 AND status=completed
         result = mcp_mod.search(
             filters={
                 "tag": "sweep",
-                "experiment_prefix": "cifar100/ewc",
+                "experiment_prefix": "imagenet/resnet50",
                 "status": "completed",
             }
         )
@@ -738,14 +738,14 @@ class TestGetLineage:
             node_type="run", node_id=r1a_id
         )
         assert set(result["root"].keys()) == {"type", "id", "label"}
-        assert result["root"]["label"] == "cifar100/ewc/lambda_1.0#ewc-l1.0-a"
+        assert result["root"]["label"] == "imagenet/resnet50/lr_0.01#resnet-lr01-a"
 
     def test_model_label_format(self, populated_store):
         model_id = populated_store.test_ids["model"]
         result = mcp_mod.get_lineage(
             node_type="model", node_id=model_id, direction="descendants"
         )
-        assert result["root"]["label"] == "ewc-cifar100@1.0"
+        assert result["root"]["label"] == "resnet-imagenet@1.0"
 
     def test_invalid_direction(self, populated_store):
         with pytest.raises(ValueError, match="direction must be one of"):
@@ -828,12 +828,12 @@ class TestLabelStability:
             if r["id"] == r1a_id
         )
         search_label = next(
-            i["label"] for i in mcp_mod.search(query="ewc-l1.0-a")["items"]
+            i["label"] for i in mcp_mod.search(query="resnet-lr01-a")["items"]
             if i["id"] == r1a_id
         )
 
         assert list_label == get_label == compare_label == search_label
-        assert list_label == "cifar100/ewc/lambda_1.0#ewc-l1.0-a"
+        assert list_label == "imagenet/resnet50/lr_0.01#resnet-lr01-a"
 
 
 class TestErrorMessages:
@@ -922,11 +922,11 @@ class TestServerSmoke:
         root = tmp_path / ".extract"
         root.mkdir()
         (root / "config.toml").write_text(
-            '[store]\nhierarchy = "benchmark > method > variant"\n'
+            '[store]\nhierarchy = "benchmark > model > variant"\n'
         )
         store = extract.Store(root=root)
         exp = store.experiment(
-            {"benchmark": "cifar100", "method": "ewc", "variant": "v1"}
+            {"benchmark": "cifar10", "model": "convnext", "variant": "v1"}
         )
         with exp.run(config={"lr": 0.001}, name="smoke") as r:
             r.log(step=0, loss=1.0)
