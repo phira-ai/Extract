@@ -17,7 +17,9 @@ from extract.metrics import save_npy, save_text, save_timeseries
 if TYPE_CHECKING:
     from extract.store import Store
 
-_FLUSH_THRESHOLD = 100
+_FLUSH_THRESHOLD = 100              # scalar_metrics (headline)
+_CURVE_FLUSH_THRESHOLD = 10         # curve_points (streaming) — smaller for live UX
+_CURVE_FLUSH_INTERVAL_SEC = 2.0     # wall-clock fallback for slow training loops
 
 
 class Run:
@@ -33,7 +35,11 @@ class Run:
         self._id = run_id
         self._start_time = time.time()
         self._finished = False
+        # Headline (scalar_metrics) buffer.
         self._buffer: list[tuple[str, int, str, float, float]] = []  # (run_id, step, name, value, wall_time)
+        # Streaming-curve (curve_points) buffer + wall-clock flush bookkeeping.
+        self._curve_buffer: list[tuple[str, int, str, float, float]] = []
+        self._curve_last_flush: float = time.monotonic()
 
     @property
     def id(self) -> str:
@@ -64,6 +70,7 @@ class Run:
             return
         self._finished = True
         self._flush()
+        self._flush_curves()
         with self._store.lock:
             self._store._conn.execute(
                 "UPDATE runs SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), "
@@ -97,6 +104,35 @@ class Run:
         if len(self._buffer) >= _FLUSH_THRESHOLD:
             self._flush()
 
+    def curve(self, step: int, **kwargs: float | int) -> None:
+        """Log streaming-curve points at a given step.
+
+        Unlike `log()`, curve points are stored in a separate table that the
+        TUI's chart panel reads but headline-summary queries do not. Use this
+        for high-frequency training values (per-step loss, accuracy) that
+        should drive a live chart but should NOT clutter the run summary.
+
+        Numeric values only — strings raise TypeError. Buffered and flushed
+        in batches of `_CURVE_FLUSH_THRESHOLD` or after `_CURVE_FLUSH_INTERVAL_SEC`
+        seconds, whichever comes first.
+        """
+        self._check_active()
+        wall_time = time.time() - self._start_time
+        for name, value in kwargs.items():
+            if isinstance(value, str) or not isinstance(value, (int, float)):
+                raise TypeError(
+                    f"curve() values must be numeric, got {type(value).__name__} for {name!r}"
+                )
+            self._curve_buffer.append((self._id, step, name, float(value), wall_time))
+
+        # Threshold flush.
+        if len(self._curve_buffer) >= _CURVE_FLUSH_THRESHOLD:
+            self._flush_curves()
+            return
+        # Wall-clock flush — keeps slow training loops feeling live in the TUI.
+        if time.monotonic() - self._curve_last_flush >= _CURVE_FLUSH_INTERVAL_SEC:
+            self._flush_curves()
+
     def _log_param(self, name: str, value: str) -> None:
         """Store a categorical/string parameter for this run."""
         with self._store.lock:
@@ -121,6 +157,24 @@ class Run:
             self._store._conn.commit()
 
         self._buffer.clear()
+
+    def _flush_curves(self) -> None:
+        """Flush the streaming-curve buffer to the database."""
+        if not self._curve_buffer:
+            return
+
+        with self._store.lock:
+            self._store._conn.executemany(
+                "INSERT OR REPLACE INTO curve_points "
+                "(run_id, name, step, value, wall_time) VALUES (?, ?, ?, ?, ?)",
+                # Reorder: buffer is (run_id, step, name, value, wall_time);
+                # the table expects (run_id, name, step, value, wall_time).
+                [(rid, name, step, val, wt) for (rid, step, name, val, wt) in self._curve_buffer],
+            )
+            self._store._conn.commit()
+
+        self._curve_buffer.clear()
+        self._curve_last_flush = time.monotonic()
 
     # ------------------------------------------------------------------
     # Artifact helpers
