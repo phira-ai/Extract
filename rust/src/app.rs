@@ -375,6 +375,9 @@ pub struct AppState {
     pub show_help: bool,
     /// True when `g` was pressed once, waiting for second `g` to go to top.
     pub g_pending: bool,
+    /// SQLite data_version watermark — used to skip tick refresh work when
+    /// the database hasn't changed since the last tick.
+    pub last_data_version: i64,
 }
 
 pub struct TodoScopePicker {
@@ -443,6 +446,7 @@ impl AppState {
             search: None,
             show_help: false,
             g_pending: false,
+            last_data_version: 0,
         })
     }
 

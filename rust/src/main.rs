@@ -51,13 +51,20 @@ async fn main() -> color_eyre::Result<()> {
 
         match &event {
             AppEvent::Tick => {
-                // Periodically refresh data from DB
-                let _ = app.refresh_experiments();
-                if app.selected_experiment.is_some() {
-                    let _ = app.refresh_runs();
+                // Only do refresh work when the DB has actually changed.
+                // PRAGMA data_version is a free in-memory counter that ticks
+                // whenever any other connection commits to the database file.
+                if let Ok(v) = app.db.data_version() {
+                    if v != app.last_data_version {
+                        app.last_data_version = v;
+                        let _ = app.refresh_experiments();
+                        if app.selected_experiment.is_some() {
+                            let _ = app.refresh_runs();
+                        }
+                        let _ = app.refresh_selection_summary();
+                    }
                 }
-                let _ = app.refresh_selection_summary();
-                // Clear expired notifications
+                // Clear expired notifications (always — independent of DB state).
                 app.clear_expired_notification(app.config.notifications.timeout);
             }
             AppEvent::Resize((), ()) => {
