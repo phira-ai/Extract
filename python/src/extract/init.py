@@ -12,6 +12,7 @@ import re
 import sys
 from pathlib import Path
 
+import questionary
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
@@ -51,6 +52,20 @@ SAMPLE_VALUES: dict[str, str] = {
     "seed": "42",
     "optimizer": "adam",
 }
+
+# Sentinel used as the value for the "Define my own" option in the picker.
+_CUSTOM_SENTINEL = "__custom__"
+
+# All styling uses ANSI-named colors so the user's terminal theme applies.
+QUESTIONARY_STYLE = questionary.Style.from_dict({
+    "qmark":       "ansigreen bold",
+    "question":    "bold",
+    "answer":      "ansicyan bold",
+    "pointer":     "ansicyan bold",
+    "highlighted": "ansicyan bold",
+    "selected":    "ansicyan",
+    "instruction": "",
+})
 
 # Comments below reflect the actual config schema parsed in
 # rust/src/config.rs (Config struct, ~line 183). Sections shown
@@ -268,8 +283,68 @@ def _update_gitignore(git_root: "Path") -> bool:
 # Interactive prompts (filled in during Phase 6)
 
 def _pick_hierarchy_interactive() -> list[str]:
-    """Run screens 2 and 3. Returns the chosen hierarchy levels."""
-    raise NotImplementedError
+    """Run screens 2 and 3. Returns the chosen hierarchy levels.
+
+    Raises KeyboardInterrupt if the user presses Esc/Ctrl-C at any prompt.
+    """
+    from extract.store import _parse_hierarchy
+
+    # Build the picker choices: each preset, then the "Define my own" option.
+    choices = []
+    for hierarchy_str, label in PRESETS:
+        choices.append(
+            questionary.Choice(
+                title=f"{hierarchy_str.replace(' > ', ' › ')}    — {label}",
+                value=hierarchy_str,
+            )
+        )
+    choices.append(
+        questionary.Choice(
+            title="✎ Define my own    — type a custom hierarchy",
+            value=_CUSTOM_SENTINEL,
+        )
+    )
+
+    # Screen 2: preset picker
+    answer = questionary.select(
+        "Pick a hierarchy or define your own:",
+        choices=choices,
+        style=QUESTIONARY_STYLE,
+        instruction="(Use arrow keys)",
+    ).ask()
+
+    # questionary returns None on Esc — treat as Ctrl-C
+    if answer is None:
+        raise KeyboardInterrupt()
+
+    if answer != _CUSTOM_SENTINEL:
+        # Preset chosen — parse it directly
+        return _parse_hierarchy(answer)
+
+    # Screen 3: custom text input with live validation
+    def _validate(text: str) -> bool | str:
+        if not text.strip():
+            return "Hierarchy cannot be empty"
+        try:
+            levels = _parse_hierarchy(text)
+        except ValueError as e:
+            return str(e)
+        try:
+            validate_hierarchy_levels(levels)
+        except ValueError as e:
+            return str(e)
+        return True
+
+    custom = questionary.text(
+        "Hierarchy levels (separated by ' > '):",
+        validate=_validate,
+        style=QUESTIONARY_STYLE,
+    ).ask()
+
+    if custom is None:
+        raise KeyboardInterrupt()
+
+    return _parse_hierarchy(custom)
 
 
 def _confirm_gitignore(git_root: "Path") -> bool:

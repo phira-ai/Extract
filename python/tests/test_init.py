@@ -404,3 +404,89 @@ class TestRunNonInteractive:
         rc = init.run(args)
         assert rc == 2  # usage error
         assert not store_root.exists()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Interactive picker tests (mock questionary)
+
+
+class FakeQuestionaryPrompt:
+    """Helper that mimics questionary's chained .ask() pattern.
+
+    Use as: monkeypatch.setattr(questionary, "select", lambda *a, **k: FakeQuestionaryPrompt(value))
+    """
+    def __init__(self, value):
+        self._value = value
+
+    def ask(self):
+        if isinstance(self._value, BaseException):
+            raise self._value
+        return self._value
+
+
+class TestPickHierarchyInteractive:
+    def test_picks_first_preset(self, monkeypatch):
+        import questionary
+        # Mock select() to return the recommended preset's full label
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt("benchmark > model > variant"),
+        )
+        levels = init._pick_hierarchy_interactive()
+        assert levels == ["benchmark", "model", "variant"]
+
+    def test_picks_seed_preset(self, monkeypatch):
+        import questionary
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt("dataset > model > seed"),
+        )
+        levels = init._pick_hierarchy_interactive()
+        assert levels == ["dataset", "model", "seed"]
+
+    def test_picks_custom_then_text(self, monkeypatch):
+        import questionary
+        # First call (select): pick custom
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt(init._CUSTOM_SENTINEL),
+        )
+        # Second call (text): provide a custom hierarchy
+        monkeypatch.setattr(
+            questionary, "text",
+            lambda *a, **k: FakeQuestionaryPrompt("task > model > seed"),
+        )
+        levels = init._pick_hierarchy_interactive()
+        assert levels == ["task", "model", "seed"]
+
+    def test_keyboard_interrupt_in_select(self, monkeypatch):
+        import questionary
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt(KeyboardInterrupt()),
+        )
+        with pytest.raises(KeyboardInterrupt):
+            init._pick_hierarchy_interactive()
+
+    def test_keyboard_interrupt_in_text(self, monkeypatch):
+        import questionary
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt(init._CUSTOM_SENTINEL),
+        )
+        monkeypatch.setattr(
+            questionary, "text",
+            lambda *a, **k: FakeQuestionaryPrompt(KeyboardInterrupt()),
+        )
+        with pytest.raises(KeyboardInterrupt):
+            init._pick_hierarchy_interactive()
+
+    def test_select_returns_none_on_esc(self, monkeypatch):
+        """questionary returns None when the user presses Esc; we treat as KeyboardInterrupt."""
+        import questionary
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt(None),
+        )
+        with pytest.raises(KeyboardInterrupt):
+            init._pick_hierarchy_interactive()
