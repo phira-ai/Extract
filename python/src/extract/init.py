@@ -146,8 +146,27 @@ def _snake_case(s: str) -> str:
 
 
 def _build_quickstart_snippet(levels: list[str]) -> str:
-    """Render QUICKSTART_TEMPLATE with sample values for each level."""
-    raise NotImplementedError
+    """Render QUICKSTART_TEMPLATE with sample values for each level.
+
+    Each line of the dict body is `    "key": "value",` aligned so that
+    the values column is consistent. Levels not in SAMPLE_VALUES fall
+    back to `"<level>_value"` so any custom hierarchy still produces a
+    runnable snippet.
+    """
+    if not levels:
+        # Empty hierarchy is invalid upstream; produce something readable anyway
+        return QUICKSTART_TEMPLATE.format(dict_lines='    # (no levels)')
+
+    pairs: list[tuple[str, str]] = []
+    for level in levels:
+        value = SAMPLE_VALUES.get(level, f"{level}_value")
+        pairs.append((level, value))
+
+    dict_lines_list = []
+    for k, v in pairs:
+        dict_lines_list.append(f'    "{k}": "{v}",')
+    dict_lines = "\n".join(dict_lines_list)
+    return QUICKSTART_TEMPLATE.format(dict_lines=dict_lines)
 
 
 def _find_git_root(start: "Path") -> "Path | None":
