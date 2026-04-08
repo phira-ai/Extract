@@ -127,6 +127,19 @@ impl StatusBar {
             }
         }
 
+        // ● LIVE indicator — visible whenever any visible run is actively running.
+        // We check the currently-loaded runs list (the ones the detail panel
+        // would see) rather than all runs in the store.
+        if state.runs.iter().any(|r| r.status == "running") {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                "\u{25cf} LIVE",
+                Style::default()
+                    .fg(self.theme.success)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+
         let line = Line::from(spans);
         let bar = Paragraph::new(line).style(Style::default().fg(self.theme.accent_dim));
         frame.render_widget(bar, area);
