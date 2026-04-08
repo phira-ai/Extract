@@ -236,8 +236,29 @@ def _write_config(path: "Path", levels: list[str]) -> bool:
 
 
 def _update_gitignore(git_root: "Path") -> bool:
-    """Append .extract/ to .gitignore if not present. Returns True if modified."""
-    raise NotImplementedError
+    """Append `.extract/` to `git_root/.gitignore` if not already present.
+
+    Idempotent: matches existing entries that are `.extract`, `.extract/`,
+    or surrounded by whitespace. Preserves the existing file otherwise —
+    no reformatting, no added comments. Returns True if the file was modified.
+    """
+    gitignore = git_root / ".gitignore"
+
+    if gitignore.exists():
+        content = gitignore.read_text()
+        for line in content.splitlines():
+            stripped = line.strip().rstrip("/")
+            if stripped == ".extract":
+                return False
+        # Need to append. Ensure there's a newline before our addition.
+        if content and not content.endswith("\n"):
+            content += "\n"
+        content += ".extract/\n"
+        gitignore.write_text(content)
+        return True
+    else:
+        gitignore.write_text(".extract/\n")
+        return True
 
 
 # Interactive prompts (filled in during Phase 6)

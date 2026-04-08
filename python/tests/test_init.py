@@ -245,3 +245,49 @@ class TestWriteConfig:
         with open(store_root / "config.toml", "rb") as f:
             parsed = tomllib.load(f)
         assert parsed["store"]["hierarchy"] == "benchmark > model > variant"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# _update_gitignore
+
+
+class TestUpdateGitignore:
+    def test_creates_new_file(self, tmp_path):
+        modified = init._update_gitignore(tmp_path)
+        assert modified is True
+        assert (tmp_path / ".gitignore").read_text() == ".extract/\n"
+
+    def test_appends_when_missing(self, tmp_path):
+        (tmp_path / ".gitignore").write_text("*.pyc\n__pycache__/\n")
+        modified = init._update_gitignore(tmp_path)
+        assert modified is True
+        content = (tmp_path / ".gitignore").read_text()
+        assert "*.pyc\n" in content
+        assert "__pycache__/\n" in content
+        assert ".extract/\n" in content
+        # Order preserved: existing entries before the new one
+        assert content.index("*.pyc") < content.index(".extract/")
+
+    def test_idempotent_when_present(self, tmp_path):
+        (tmp_path / ".gitignore").write_text("*.pyc\n.extract/\n")
+        modified = init._update_gitignore(tmp_path)
+        assert modified is False
+        # File unchanged
+        assert (tmp_path / ".gitignore").read_text() == "*.pyc\n.extract/\n"
+
+    def test_idempotent_with_trailing_whitespace(self, tmp_path):
+        (tmp_path / ".gitignore").write_text(".extract/  \n")
+        modified = init._update_gitignore(tmp_path)
+        assert modified is False
+
+    def test_idempotent_without_trailing_slash(self, tmp_path):
+        (tmp_path / ".gitignore").write_text(".extract\n")
+        modified = init._update_gitignore(tmp_path)
+        assert modified is False
+
+    def test_appends_newline_if_file_missing_one(self, tmp_path):
+        (tmp_path / ".gitignore").write_text("*.pyc")  # No trailing newline
+        init._update_gitignore(tmp_path)
+        content = (tmp_path / ".gitignore").read_text()
+        # The result should have *.pyc on its own line and .extract/ on the next
+        assert content == "*.pyc\n.extract/\n"
