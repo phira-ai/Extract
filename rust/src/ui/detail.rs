@@ -282,6 +282,21 @@ impl DetailPanel {
                 _ => return,
             };
 
+        // Resolve the preview run's total_steps for the chart x-axis pin.
+        // The leaf preview picks "latest completed or first" run; the per-run
+        // detail view uses state.selected_run if set.
+        let preview_total_steps = if let Some(idx) = state.selected_run {
+            state.runs.get(idx).and_then(|r| r.total_steps)
+        } else {
+            state
+                .runs
+                .iter()
+                .rev()
+                .find(|r| r.status == "completed")
+                .or(state.runs.first())
+                .and_then(|r| r.total_steps)
+        };
+
         let data = SummaryData {
             name: &name,
             runs: &runs,
@@ -296,6 +311,7 @@ impl DetailPanel {
                 .cached_table_axes
                 .as_ref()
                 .map(|(r, c)| (r.as_str(), c.as_str())),
+            preview_total_steps,
         };
 
         let sections = state.config.summary.sections.clone();

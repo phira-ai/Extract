@@ -71,6 +71,7 @@ impl Dashboard {
                         .cached_table_axes
                         .as_ref()
                         .map(|(r, c)| (r.as_str(), c.as_str())),
+                    preview_total_steps: None,
                 };
                 let total = self.summary.render(
                     frame,

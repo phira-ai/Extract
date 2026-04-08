@@ -23,6 +23,10 @@ pub struct SummaryData<'a> {
     pub table: Option<&'a TableData>,
     pub table_title: Option<&'a str>,
     pub table_axes: Option<(&'a str, &'a str)>,
+    /// If set, the curve chart's X axis is pinned at [0, total_steps - 1]
+    /// (extending if observed steps overflow). If None, falls back to the
+    /// legacy auto-fit-to-max-step behavior.
+    pub preview_total_steps: Option<i64>,
 }
 
 pub struct SummaryRenderer {
@@ -243,7 +247,13 @@ impl SummaryRenderer {
                     .add_modifier(Modifier::BOLD),
             )));
 
-            let chart_lines = self.render_chart_to_lines(history, width, chart_height, smooth);
+            let chart_lines = self.render_chart_to_lines(
+                history,
+                width,
+                chart_height,
+                smooth,
+                data.preview_total_steps,
+            );
             lines.extend(chart_lines);
         }
     }
@@ -254,6 +264,7 @@ impl SummaryRenderer {
         width: u16,
         height: u16,
         smooth: bool,
+        total_steps: Option<i64>,
     ) -> Vec<Line<'static>> {
         let raw_points: Vec<(f64, f64)> = history
             .iter()
@@ -266,11 +277,17 @@ impl SummaryRenderer {
             raw_points
         };
 
-        let (x_min, x_max) = points
+        let observed_max_x = points
             .iter()
-            .fold((f64::MAX, f64::MIN), |(min, max), (x, _)| {
-                (min.min(*x), max.max(*x))
-            });
+            .map(|(x, _)| *x)
+            .fold(f64::MIN, f64::max);
+
+        // X axis: pin to declared total_steps if present, extend on overflow.
+        let x_min = 0.0_f64;
+        let x_max = match total_steps.filter(|n| *n > 0) {
+            Some(n) => ((n - 1) as f64).max(observed_max_x).max(1.0),
+            None => observed_max_x.max(1.0),
+        };
         let (y_min, y_max) = points
             .iter()
             .fold((f64::MAX, f64::MIN), |(min, max), (_, y)| {
