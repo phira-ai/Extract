@@ -13,27 +13,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-try:
-    from mcp.server.fastmcp import FastMCP
-except ImportError:
-    FastMCP = None  # type: ignore[assignment,misc]
+from mcp.server.fastmcp import FastMCP
 
 from extract.store import Store
 
 # Module-level state. Set by main() at startup; monkey-patched by tests.
 _store: Store | None = None
-mcp_server: Any = FastMCP("extract") if FastMCP else None
+mcp_server = FastMCP("extract")
 
 
 def _tool(fn):
-    """Register a function with the FastMCP server if it's available.
-
-    When `mcp` isn't installed, this is a no-op — the function is still
-    defined at module level so unit tests can call it directly.
-    """
-    if mcp_server is not None:
-        return mcp_server.tool()(fn)
-    return fn
+    """Register a function with the FastMCP server."""
+    return mcp_server.tool()(fn)
 
 
 # ----------------------------------------------------------------------
