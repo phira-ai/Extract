@@ -16,6 +16,17 @@ impl Db {
         Ok(Self { conn })
     }
 
+    /// Returns SQLite's `PRAGMA data_version` counter, which increments whenever
+    /// any other connection commits to the database file. Cheap (no I/O) — safe
+    /// to call from a tight tick loop. Used by the TUI to skip refresh work
+    /// when the store hasn't changed.
+    pub fn data_version(&self) -> Result<i64> {
+        let v: i64 = self
+            .conn
+            .query_row("PRAGMA data_version", [], |row| row.get(0))?;
+        Ok(v)
+    }
+
     // Experiments
 
     pub fn list_experiments(&self) -> Result<Vec<Experiment>> {
@@ -953,5 +964,37 @@ mod tests {
         let exp = db.list_todos(Some("experiment"), Some("e_b")).unwrap();
         assert_eq!(exp.len(), 1);
         assert_eq!(exp[0].content, "Exp todo");
+    }
+
+    #[test]
+    fn test_data_version_increments_on_external_write() {
+        // Use a temp file (not in-memory) so a second connection can see writes.
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path();
+
+        // Initialize the schema via a writable connection.
+        let writer = Connection::open(path).unwrap();
+        writer
+            .execute_batch(include_str!("../../schema/migrations/001_init.sql"))
+            .unwrap();
+
+        // Open the read-only Db (the same way the TUI does).
+        let db = Db::open(path).unwrap();
+        let v1 = db.data_version().unwrap();
+
+        // Write something via the other connection.
+        writer
+            .execute(
+                "INSERT INTO experiments (id, path, name, node_type) VALUES ('e1', 'a', 'a', 'benchmark')",
+                [],
+            )
+            .unwrap();
+
+        let v2 = db.data_version().unwrap();
+        assert!(v2 > v1, "data_version should increment after external write (v1={v1}, v2={v2})");
+
+        // Same connection, no changes — should NOT tick again.
+        let v3 = db.data_version().unwrap();
+        assert_eq!(v2, v3);
     }
 }
