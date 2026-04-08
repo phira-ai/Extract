@@ -52,6 +52,24 @@ def main(argv: list[str] | None = None) -> None:
     tui_parser = sub.add_parser("tui", help="Launch the TUI explorer")
     tui_parser.add_argument("--store", default=".extract", help="Path to .extract/ directory")
 
+    # --- init ---
+    init_parser = sub.add_parser(
+        "init", help="Bootstrap a .extract/ store with a hierarchy"
+    )
+    init_parser.add_argument(
+        "path", nargs="?", default=".extract",
+        help="Path to create the store at (default: .extract)"
+    )
+    init_parser.add_argument(
+        "--hierarchy", default=None,
+        help="Skip the interactive picker; use this hierarchy "
+             "(e.g. 'benchmark > model > variant')"
+    )
+    init_parser.add_argument(
+        "--no-gitignore", action="store_true",
+        help="Do not add .extract/ to .gitignore"
+    )
+
     # --- sync ---
     sync_parser = sub.add_parser("sync", help="Sync .extract/ between machines")
     sync_sub = sync_parser.add_subparsers(dest="action")
@@ -85,6 +103,10 @@ def main(argv: list[str] | None = None) -> None:
             )
             sys.exit(1)
         os.execvp(binary, [binary, "--store", args.store])
+
+    elif args.command == "init":
+        from extract import init  # lazy import — pulls in rich/questionary only when needed
+        sys.exit(init.run(args))
 
     elif args.command == "sync":
         from extract.sync import export_archive, import_archive, pull, push
