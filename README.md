@@ -40,7 +40,7 @@ with exp.run(config={"lr": 0.01}, total_steps=1000) as run:
     for step in range(1000):
         loss, acc = train_step(...)
         run.curve(step=step, train_loss=loss, train_acc=acc)   # streams to live chart
-    run.log(final_acc=0.92)                                    # headline metric
+    run.log(step=0, final_acc=acc)                             # headline metric
 
 # Browse with: extract tui
 ```

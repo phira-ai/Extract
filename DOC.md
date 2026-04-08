@@ -45,7 +45,7 @@ store = Store()  # reads from .extract/ in current directory
 
 Returned by `store.experiment()`. Properties: `id: str`, `path: str`, `name: str`.
 
-**`experiment.run(config=None, name=None) -> Run`**
+**`experiment.run(config=None, name=None, total_steps=None) -> Run`**
 - `config: dict | None` — JSON-serializable config dict. Stored as JSON string.
 - `name: str | None` — human-readable run name.
 - `total_steps: int | None` — declares the training-loop length so the TUI's curve chart can pin its x-axis at `[0, total_steps - 1]` from the moment the chart appears (curve fills left-to-right rather than rescaling). Optional; when unset, the chart auto-fits to the largest observed step.
@@ -109,7 +109,7 @@ with experiment.run(config={"lr": 0.01}, total_steps=1000) as run:
     for step in range(1000):
         loss, acc = train_step(...)
         run.curve(step=step, train_loss=loss, train_acc=acc)
-    run.log(final_acc=acc)   # one headline metric for the Summary
+    run.log(step=0, final_acc=acc)   # one headline metric for the Summary
 ```
 
 #### Artifacts
@@ -578,7 +578,7 @@ with exp.run(config={"lr": 0.001, "bs": 32, "epochs": 50}, name="resnet50-lr1e3"
         # Streaming curve points — drive the live chart, not the headline summary.
         run.curve(step=step, train_loss=2.3 - step * 0.04, train_acc=step * 0.018)
     # Headline metric — appears in Summary panel and rankings.
-    run.log(final_acc=0.92)
+    run.log(step=0, final_acc=0.92)
     run.log(step=0, arch="resnet50", optimizer="sgd")
     run.log_table("confusion_matrix", np.random.rand(1000, 1000), axes={"rows": "true", "cols": "predicted"})
     run.log_text("notes", "## Observations\nResNet50 with lr=1e-3 converges stably.")
