@@ -349,12 +349,39 @@ def _pick_hierarchy_interactive() -> list[str]:
 
 def _confirm_gitignore(git_root: "Path") -> bool:
     """Screen 4a: ask whether to add .extract/ to .gitignore. Default Yes."""
-    raise NotImplementedError
+    return questionary.confirm(
+        f"Add .extract/ to .gitignore? (detected git repo at {git_root})",
+        default=True,
+        style=QUESTIONARY_STYLE,
+    ).ask() or False  # questionary returns None on Esc; treat as no
 
 
-def _confirm_write_config(console, path: "Path", levels: list[str]) -> bool:
-    """Screen 4b: render preview, ask whether to write. Default Yes."""
-    raise NotImplementedError
+def _confirm_write_config(
+    console: Console, path: "Path", levels: list[str]
+) -> bool:
+    """Screen 4b: render the preview panel and ask whether to write. Default Yes."""
+    hierarchy_str = " > ".join(levels)
+    content = CONFIG_TEMPLATE.format(hierarchy=hierarchy_str)
+
+    syntax = Syntax(
+        content, "toml", theme="ansi_dark", background_color="default"
+    )
+    panel = Panel(
+        syntax,
+        title=f"[cyan bold]Preview: {path}/config.toml[/cyan bold]",
+        title_align="left",
+        border_style="blue",
+        padding=(0, 1),
+    )
+    console.print()
+    console.print(panel)
+    console.print()
+
+    return questionary.confirm(
+        "Write this config?",
+        default=True,
+        style=QUESTIONARY_STYLE,
+    ).ask() or False
 
 
 # Rich rendering (filled in during Phase 6)

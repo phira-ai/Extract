@@ -490,3 +490,63 @@ class TestPickHierarchyInteractive:
         )
         with pytest.raises(KeyboardInterrupt):
             init._pick_hierarchy_interactive()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Confirm prompts
+
+
+class TestConfirmGitignore:
+    def test_returns_true_when_user_says_yes(self, tmp_path, monkeypatch):
+        import questionary
+        monkeypatch.setattr(
+            questionary, "confirm",
+            lambda *a, **k: FakeQuestionaryPrompt(True),
+        )
+        result = init._confirm_gitignore(tmp_path)
+        assert result is True
+
+    def test_returns_false_when_user_says_no(self, tmp_path, monkeypatch):
+        import questionary
+        monkeypatch.setattr(
+            questionary, "confirm",
+            lambda *a, **k: FakeQuestionaryPrompt(False),
+        )
+        assert init._confirm_gitignore(tmp_path) is False
+
+    def test_keyboard_interrupt(self, tmp_path, monkeypatch):
+        import questionary
+        monkeypatch.setattr(
+            questionary, "confirm",
+            lambda *a, **k: FakeQuestionaryPrompt(KeyboardInterrupt()),
+        )
+        with pytest.raises(KeyboardInterrupt):
+            init._confirm_gitignore(tmp_path)
+
+
+class TestConfirmWriteConfig:
+    def test_returns_true_when_user_says_yes(self, tmp_path, monkeypatch):
+        import questionary
+        from rich.console import Console
+        monkeypatch.setattr(
+            questionary, "confirm",
+            lambda *a, **k: FakeQuestionaryPrompt(True),
+        )
+        console = Console()
+        result = init._confirm_write_config(
+            console, tmp_path / ".extract", ["benchmark", "model", "variant"]
+        )
+        assert result is True
+
+    def test_returns_false_when_user_says_no(self, tmp_path, monkeypatch):
+        import questionary
+        from rich.console import Console
+        monkeypatch.setattr(
+            questionary, "confirm",
+            lambda *a, **k: FakeQuestionaryPrompt(False),
+        )
+        console = Console()
+        result = init._confirm_write_config(
+            console, tmp_path / ".extract", ["a", "b"]
+        )
+        assert result is False
