@@ -190,3 +190,58 @@ class TestPreflight:
         )
         with pytest.raises(init.ConfigExistsError, match="already configured"):
             init._preflight(store_root)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# _write_config
+
+
+class TestWriteConfig:
+    def test_creates_directory_if_missing(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        assert not store_root.exists()
+
+        created = init._write_config(store_root, ["benchmark", "model", "variant"])
+        assert created is True
+        assert store_root.is_dir()
+        assert (store_root / "config.toml").is_file()
+
+    def test_returns_false_if_directory_existed(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+
+        created = init._write_config(store_root, ["a", "b"])
+        assert created is False
+        assert (store_root / "config.toml").is_file()
+
+    def test_writes_hierarchy_in_store_section(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        init._write_config(store_root, ["benchmark", "model", "variant"])
+
+        content = (store_root / "config.toml").read_text()
+        assert '[store]' in content
+        assert 'hierarchy = "benchmark > model > variant"' in content
+
+    def test_writes_commented_default_sections(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        init._write_config(store_root, ["a", "b"])
+
+        content = (store_root / "config.toml").read_text()
+        # Each of the seven sections from rust/src/config.rs appears as a comment
+        for section in ["[summary]", "[tables]", "[compare]", "[notifications]",
+                        "[theme]", "[metrics]", "[info]"]:
+            assert f"# {section}" in content, f"missing commented section {section}"
+
+    def test_round_trips_via_tomllib(self, tmp_path):
+        """The config we write must be parseable as valid TOML."""
+        try:
+            import tomllib
+        except ImportError:
+            import tomli as tomllib
+
+        store_root = tmp_path / ".extract"
+        init._write_config(store_root, ["benchmark", "model", "variant"])
+
+        with open(store_root / "config.toml", "rb") as f:
+            parsed = tomllib.load(f)
+        assert parsed["store"]["hierarchy"] == "benchmark > model > variant"

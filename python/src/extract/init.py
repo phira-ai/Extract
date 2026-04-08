@@ -221,8 +221,18 @@ def _preflight(path: "Path") -> None:
 
 
 def _write_config(path: "Path", levels: list[str]) -> bool:
-    """Create path if needed, write config.toml. Returns True if path was newly created."""
-    raise NotImplementedError
+    """Create `path` if needed, write `path/config.toml` from CONFIG_TEMPLATE.
+
+    Returns True if `path` did not exist before this call (i.e. we created it),
+    False if it already existed.
+    """
+    created = not path.exists()
+    path.mkdir(parents=True, exist_ok=True)
+
+    hierarchy_str = " > ".join(levels)
+    content = CONFIG_TEMPLATE.format(hierarchy=hierarchy_str)
+    (path / "config.toml").write_text(content)
+    return created
 
 
 def _update_gitignore(git_root: "Path") -> bool:
