@@ -12,10 +12,10 @@ dependencies = [
     "numpy>=1.21",
     "typing-extensions>=4.15.0",
     "tomli>=2.0; python_version < '3.11'",
+    "mcp>=1.0",
+    "rich>=13.0",
+    "questionary>=2.0",
 ]
-
-[project.optional-dependencies]
-mcp = ["mcp>=1.0"]
 
 [project.scripts]
 extract = "extract.__main__:main"
