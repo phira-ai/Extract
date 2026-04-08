@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 from ulid import ULID
 
-from extract.metrics import save_npy, save_text, save_timeseries
+from extract.metrics import save_npy, save_text
 
 if TYPE_CHECKING:
     from extract.store import Store
@@ -219,24 +219,6 @@ class Run:
                     str(data.dtype),
                     json.dumps(metadata) if metadata else None,
                 ),
-            )
-            self._store._conn.commit()
-
-    def log_timeseries(self, name: str, steps: list, values: list) -> None:
-        """Save a timeseries as a JSON artifact."""
-        self._check_active()
-        rel_dir = Path("artifacts") / self._id / "timeseries"
-        rel_path = rel_dir / f"{name}.json"
-        abs_path = self._store.root / rel_path
-
-        save_timeseries(steps, values, abs_path)
-
-        artifact_id = str(ULID())
-        with self._store.lock:
-            self._store._conn.execute(
-                "INSERT INTO artifacts "
-                "(id, run_id, name, kind, rel_path) VALUES (?, ?, ?, 'timeseries', ?)",
-                (artifact_id, self._id, name, str(rel_path)),
             )
             self._store._conn.commit()
 

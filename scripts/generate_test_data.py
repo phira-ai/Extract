@@ -43,7 +43,7 @@ def main():
 
     # ResNet50 variants
     with store.experiment({"benchmark": "imagenet", "model": "resnet50", "variant": "lr_0.01"}).run(
-        config={"lr": 0.001, "weight_decay": 0.0}
+        config={"lr": 0.001, "weight_decay": 0.0}, total_steps=50
     ) as run:
         # Categorical params logged alongside numeric metrics
         run.log(step=0, arch="resnet18", fisher_label="empirical")
@@ -61,14 +61,13 @@ def main():
         run.log_table("accuracy_matrix", acc_matrix, step=49,
                        axes={"rows": "evaluated_on", "cols": "trained_up_to"})
 
-        # Log loss timeseries artifact
-        steps_list = list(range(50))
-        loss_values = [1.0 / (s + 1) for s in steps_list]
-        run.log_timeseries("loss_curve", steps_list, loss_values)
+        # Stream loss as curve points (TUI live-chart lane).
+        for s in range(50):
+            run.curve(step=s, loss_curve=1.0 / (s + 1))
 
     # Second run for lr_0.01 with different hyperparams (for comparison testing)
     with store.experiment({"benchmark": "imagenet", "model": "resnet50", "variant": "lr_0.01"}).run(
-        config={"lr": 0.0005, "weight_decay": 0.0}
+        config={"lr": 0.0005, "weight_decay": 0.0}, total_steps=50
     ) as run:
         run.log(step=0, arch="resnet18", fisher_label="diagonal")
         for step in range(50):
@@ -85,14 +84,14 @@ def main():
                        axes={"rows": "evaluated_on", "cols": "trained_up_to"})
 
     with store.experiment({"benchmark": "imagenet", "model": "resnet50", "variant": "lr_0.005"}).run(
-        config={"lr": 0.001, "weight_decay": 0.0, "use_momentum": True}
+        config={"lr": 0.001, "weight_decay": 0.0, "use_momentum": True}, total_steps=50
     ) as run:
         for step in range(50):
             run.log(step=step, loss=0.9 / (step + 1), accuracy=0.5 + 0.33 * (step / 49))
 
     # ViT Base
     with store.experiment({"benchmark": "imagenet", "model": "vit_base", "variant": "lr_0.001"}).run(
-        config={"lr": 0.001, "weight_decay": 0.01}
+        config={"lr": 0.001, "weight_decay": 0.01}, total_steps=50
     ) as run:
         for step in range(50):
             run.log(step=step, loss=1.2 / (step + 1), accuracy=0.5 + 0.30 * (step / 49))
@@ -107,13 +106,12 @@ def main():
         run.log_table("accuracy_matrix", acc_matrix, step=49,
                        axes={"rows": "evaluated_on", "cols": "trained_up_to"})
 
-        steps_list = list(range(50))
-        loss_values = [1.2 / (s + 1) for s in steps_list]
-        run.log_timeseries("loss_curve", steps_list, loss_values)
+        for s in range(50):
+            run.curve(step=s, loss_curve=1.2 / (s + 1))
 
     # ConvNeXt
     with store.experiment({"benchmark": "cifar10", "model": "convnext", "variant": "bs_64"}).run(
-        config={"lr": 0.001, "batch_size": 500}
+        config={"lr": 0.001, "batch_size": 500}, total_steps=50
     ) as run:
         for step in range(50):
             run.log(step=step, loss=0.8 / (step + 1), accuracy=0.5 + 0.32 * (step / 49))
@@ -121,13 +119,13 @@ def main():
     # --- CIFAR10 experiments ---
 
     with store.experiment({"benchmark": "cifar10", "model": "convnext", "variant": "bs_128"}).run(
-        config={"lr": 0.0005, "batch_size": 1000}
+        config={"lr": 0.0005, "batch_size": 1000}, total_steps=30
     ) as run:
         for step in range(30):
             run.log(step=step, loss=1.5 / (step + 1), accuracy=0.4 + 0.25 * (step / 29))
 
     with store.experiment({"benchmark": "cifar10", "model": "resnet50", "variant": "lr_0.005"}).run(
-        config={"lr": 0.0005, "weight_decay": 0.01}
+        config={"lr": 0.0005, "weight_decay": 0.01}, total_steps=30
     ) as run:
         for step in range(30):
             run.log(step=step, loss=1.8 / (step + 1), accuracy=0.4 + 0.20 * (step / 29))
