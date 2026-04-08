@@ -23,6 +23,8 @@ impl Dashboard {
     }
 
     pub fn render(&self, frame: &mut Frame, area: Rect, state: &mut AppState) {
+        // Compute before the match to avoid conflicting borrows on state.
+        let leaf_preview_total_steps = state.leaf_preview_run().and_then(|r| r.total_steps);
         match &state.selection_summary {
             SelectionSummary::Root {
                 total_experiments,
@@ -71,7 +73,7 @@ impl Dashboard {
                         .cached_table_axes
                         .as_ref()
                         .map(|(r, c)| (r.as_str(), c.as_str())),
-                    preview_total_steps: None,
+                    preview_total_steps: leaf_preview_total_steps,
                 };
                 let total = self.summary.render(
                     frame,

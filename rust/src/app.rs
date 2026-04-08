@@ -480,6 +480,18 @@ impl AppState {
         Ok(())
     }
 
+    /// The run whose data populates `metric_histories` in the leaf-preview path:
+    /// the latest completed run, or the first run if none have completed.
+    /// Used by the leaf-preview loader and by chart-axis-pinning code that
+    /// needs to match the loaded run exactly.
+    pub fn leaf_preview_run(&self) -> Option<&Run> {
+        self.runs
+            .iter()
+            .rev()
+            .find(|r| r.status == "completed")
+            .or(self.runs.first())
+    }
+
     /// Load curve data for a given run.
     /// Reads from the curve_points table (populated by run.curve() in the SDK).
     /// Headline metrics from run.log() live in scalar_metrics and are surfaced
@@ -531,15 +543,7 @@ impl AppState {
             return Ok(());
         }
 
-        // Pick a preview run: latest completed, or first
-        let preview_run = self
-            .runs
-            .iter()
-            .rev()
-            .find(|r| r.status == "completed")
-            .or(self.runs.first());
-
-        let Some(run) = preview_run else {
+        let Some(run) = self.leaf_preview_run() else {
             return Ok(());
         };
         let run_id = run.id.clone();

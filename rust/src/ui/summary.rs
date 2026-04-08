@@ -277,12 +277,21 @@ impl SummaryRenderer {
             raw_points
         };
 
+        // Defensive: caller should already filter empty histories, but if a
+        // future call site forgets, return early rather than rendering a
+        // degenerate [0, 1] x-range chart with no data.
+        if points.is_empty() {
+            return Vec::new();
+        }
+
         let observed_max_x = points
             .iter()
             .map(|(x, _)| *x)
             .fold(f64::MIN, f64::max);
 
         // X axis: pin to declared total_steps if present, extend on overflow.
+        // The .max(1.0) clamps the degenerate "single point at step 0" case
+        // where an empty [0, 0] range would break the chart widget.
         let x_min = 0.0_f64;
         let x_max = match total_steps.filter(|n| *n > 0) {
             Some(n) => ((n - 1) as f64).max(observed_max_x).max(1.0),
