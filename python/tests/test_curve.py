@@ -121,8 +121,15 @@ class TestRunCurveBasic:
     def test_curve_rejects_string_values(self, tmp_store):
         run = _make_run(tmp_store, total_steps=10)
         with run as r:
-            with pytest.raises((TypeError, ValueError)):
+            with pytest.raises(TypeError, match="numeric"):
                 r.curve(step=0, label="not a number")
+
+    def test_curve_rejects_bool_values(self, tmp_store):
+        """bool is a subclass of int — must be rejected explicitly."""
+        run = _make_run(tmp_store, total_steps=10)
+        with run as r:
+            with pytest.raises(TypeError, match="numeric"):
+                r.curve(step=0, finished=True)
 
     def test_curve_after_finish_raises(self, tmp_store):
         run = _make_run(tmp_store, total_steps=10)

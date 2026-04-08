@@ -38,7 +38,8 @@ class Run:
         # Headline (scalar_metrics) buffer.
         self._buffer: list[tuple[str, int, str, float, float]] = []  # (run_id, step, name, value, wall_time)
         # Streaming-curve (curve_points) buffer + wall-clock flush bookkeeping.
-        self._curve_buffer: list[tuple[str, int, str, float, float]] = []
+        # Tuple order matches curve_points column order: (run_id, name, step, value, wall_time)
+        self._curve_buffer: list[tuple[str, str, int, float, float]] = []
         self._curve_last_flush: float = time.monotonic()
 
     @property
@@ -119,11 +120,11 @@ class Run:
         self._check_active()
         wall_time = time.time() - self._start_time
         for name, value in kwargs.items():
-            if isinstance(value, str) or not isinstance(value, (int, float)):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
                 raise TypeError(
                     f"curve() values must be numeric, got {type(value).__name__} for {name!r}"
                 )
-            self._curve_buffer.append((self._id, step, name, float(value), wall_time))
+            self._curve_buffer.append((self._id, name, step, float(value), wall_time))
 
         # Threshold flush.
         if len(self._curve_buffer) >= _CURVE_FLUSH_THRESHOLD:
@@ -167,9 +168,7 @@ class Run:
             self._store._conn.executemany(
                 "INSERT OR REPLACE INTO curve_points "
                 "(run_id, name, step, value, wall_time) VALUES (?, ?, ?, ?, ?)",
-                # Reorder: buffer is (run_id, step, name, value, wall_time);
-                # the table expects (run_id, name, step, value, wall_time).
-                [(rid, name, step, val, wt) for (rid, step, name, val, wt) in self._curve_buffer],
+                self._curve_buffer,
             )
             self._store._conn.commit()
 
