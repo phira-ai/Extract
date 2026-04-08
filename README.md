@@ -36,11 +36,42 @@ exp = store.experiment({
     "model":     "resnet50",
     "variant":   "lr_0.01",
 })
-with exp.run(config={"lr": 0.01}) as run:
-    run.log(step=0, loss=2.3, accuracy=0.1)
+with exp.run(config={"lr": 0.01}, total_steps=1000) as run:
+    for step in range(1000):
+        loss, acc = train_step(...)
+        run.curve(step=step, train_loss=loss, train_acc=acc)   # streams to live chart
+    run.log(final_acc=0.92)                                    # headline metric
 
 # Browse with: extract tui
 ```
+
+`run.curve()` streams high-frequency points to the live chart panel.
+`run.log()` records headline metrics that show up in the Summary tab and in
+ranking comparisons. The two write to physically separate tables, so streaming
+training losses never clutter your headline-metric surfaces.
+
+`total_steps=N` declares the training loop length so the chart's x-axis is
+pinned at `[0, N-1]` from the moment the chart appears — the curve fills
+left-to-right rather than rescaling.
+
+## Live Watching
+
+While a run is training, the TUI updates the detail and compare panels in
+place — curves fill in along their fixed axis, latest metrics tick over, and
+the status bar shows a `● LIVE` badge whenever any visible run is `running`.
+No keybinding to enable; the tick loop polls SQLite's `data_version` and only
+re-queries when the database has actually changed, so it stays cheap on idle
+TUIs and large stores.
+
+Open the TUI in a second terminal while training is running:
+
+```bash
+extract tui
+```
+
+Navigate to a leaf experiment and the curves will fill in as the training
+loop calls `run.curve(...)`. Mark two runs with `Space` and press `c` to
+watch parallel variants race in the compare view.
 
 ## TUI Keybindings
 
@@ -234,7 +265,6 @@ timeout = 3
 ├── artifacts/
 │   └── {run_id}/
 │       ├── matrices/*.npy
-│       ├── timeseries/*.json
 │       └── text/*.md
 └── models/
     └── {name}/{version}/
@@ -244,5 +274,5 @@ timeout = 3
 
 - **TUI**: Rust + ratatui + crossterm + rusqlite
 - **SDK**: Python 3.10+ + numpy + ulid
-- **Storage**: SQLite (WAL mode) + .npy / .json artifacts
+- **Storage**: SQLite (WAL mode) + .npy artifacts
 - **Dev**: Nix flake
