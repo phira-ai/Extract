@@ -954,3 +954,24 @@ class TestServerSmoke:
         text_content = result.content[0].text
         parsed = json.loads(text_content)
         assert parsed["total"] >= 1
+
+
+class TestMCPBundling:
+    def test_module_loads_without_optional_extra(self):
+        """After bundling, mcp.py imports cleanly with no conditional checks."""
+        from extract import mcp as mcp_mod
+        assert mcp_mod.mcp_server is not None
+        assert mcp_mod.FastMCP is not None
+
+    def test_no_try_except_importerror_for_mcp(self):
+        """The conditional import fallback should be gone."""
+        from pathlib import Path
+        src = Path(__file__).parent.parent / "src" / "extract" / "mcp.py"
+        content = src.read_text()
+        assert "except ImportError" not in content, (
+            "try/except ImportError fallback should be removed from mcp.py "
+            "now that mcp is a base dependency"
+        )
+        assert "if FastMCP" not in content, (
+            "Conditional `if FastMCP else None` should be removed"
+        )
