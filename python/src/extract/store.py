@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS runs (
     hostname      TEXT,
     git_sha       TEXT,
     tags          TEXT,
-    notes         TEXT
+    notes         TEXT,
+    total_steps   INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_experiment_id ON runs(experiment_id);
@@ -69,6 +70,18 @@ CREATE TABLE IF NOT EXISTS scalar_metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_scalar_metrics_run_name ON scalar_metrics(run_id, name);
+
+CREATE TABLE IF NOT EXISTS curve_points (
+    run_id    TEXT    NOT NULL REFERENCES runs(id),
+    name      TEXT    NOT NULL,
+    step      INTEGER NOT NULL,
+    value     REAL    NOT NULL,
+    wall_time REAL,
+    UNIQUE(run_id, name, step)
+);
+
+CREATE INDEX IF NOT EXISTS idx_curve_points_run_name_step
+    ON curve_points(run_id, name, step);
 
 CREATE TABLE IF NOT EXISTS artifacts (
     id         TEXT PRIMARY KEY,
@@ -181,6 +194,12 @@ class Store:
 
         with self.lock:
             self._conn.executescript(_SCHEMA)
+            # Idempotent migration for legacy DBs created before total_steps existed.
+            # CREATE TABLE IF NOT EXISTS won't add columns to an existing table, so
+            # we check PRAGMA table_info and ALTER if needed.
+            cols = [r[1] for r in self._conn.execute("PRAGMA table_info(runs)").fetchall()]
+            if "total_steps" not in cols:
+                self._conn.execute("ALTER TABLE runs ADD COLUMN total_steps INTEGER")
             self._conn.commit()
 
         # Sync hierarchy to DB (write-through cache).

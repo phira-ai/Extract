@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS runs (
     hostname      TEXT,
     git_sha       TEXT,
     tags          TEXT,
-    notes         TEXT
+    notes         TEXT,
+    total_steps   INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_runs_experiment_id ON runs(experiment_id);
@@ -45,6 +46,19 @@ CREATE TABLE IF NOT EXISTS scalar_metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_scalar_metrics_run_name ON scalar_metrics(run_id, name);
+
+-- curve_points: streaming curve data for live chart updates
+CREATE TABLE IF NOT EXISTS curve_points (
+    run_id    TEXT    NOT NULL REFERENCES runs(id),
+    name      TEXT    NOT NULL,
+    step      INTEGER NOT NULL,
+    value     REAL    NOT NULL,
+    wall_time REAL,
+    UNIQUE(run_id, name, step)
+);
+
+CREATE INDEX IF NOT EXISTS idx_curve_points_run_name_step
+    ON curve_points(run_id, name, step);
 
 -- artifacts: files or blobs associated with a run
 CREATE TABLE IF NOT EXISTS artifacts (
