@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pytest
 
 from extract import init
@@ -621,3 +624,26 @@ class TestRunInteractiveFullFlow:
         rc = init.run(args)
         assert rc == 130
         assert not store_root.exists()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Theme inheritance regression
+
+
+class TestThemeInheritance:
+    def test_no_hex_colors_in_init_module(self):
+        """Theme inheritance: rich/questionary must use ANSI-named colors only.
+
+        Hex literals (#RRGGBB or #RRGGBBAA) hardcode TrueColor values that
+        ignore the user's terminal theme. The init wizard must inherit
+        whatever colors the terminal is configured to use.
+        """
+        src = Path(__file__).parent.parent / "src" / "extract" / "init.py"
+        content = src.read_text()
+        # Match "#RRGGBB" or "#RRGGBBAA" inside string literals (single or double quoted)
+        hex_pattern = re.compile(r'["\']#[0-9a-fA-F]{6,8}["\']')
+        matches = hex_pattern.findall(content)
+        assert not matches, (
+            f"Hex color literals found in init.py: {matches}. "
+            f"Use ANSI-named colors (ansicyan, ansigreen, etc.) instead."
+        )
