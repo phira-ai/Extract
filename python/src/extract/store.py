@@ -16,6 +16,14 @@ from ulid import ULID
 
 from extract.experiment import Experiment
 
+
+class MissingHierarchyError(Exception):
+    """Raised when Store() is opened against a path that has no configured hierarchy.
+
+    Recovery: run `extract init` in the store directory to write config.toml.
+    """
+
+
 _SCHEMA = """\
 PRAGMA journal_mode=WAL;
 PRAGMA foreign_keys=ON;

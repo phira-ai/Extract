@@ -1,111 +1,122 @@
-"""Tests for hierarchy config and dict-based experiment creation."""
+"""Tests for Store hierarchy loading and dict-spec experiment creation.
 
-import sqlite3
-import tempfile
-from pathlib import Path
+These tests use the post-init SDK contract:
+  - Store(root) requires root/config.toml with [store] hierarchy
+  - There is no Store(hierarchy=...) constructor kwarg; bootstrap is via
+    extract init (or test fixtures pre-writing config.toml)
+  - The legacy path-string API on store.experiment() is gone
+"""
+
+from __future__ import annotations
 
 import pytest
 
 import extract
+from extract.store import MissingHierarchyError, _parse_hierarchy
+
+
+def _bootstrap(root, hierarchy="benchmark > model > variant"):
+    """Helper: create root/config.toml with the given hierarchy line."""
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "config.toml").write_text(f'[store]\nhierarchy = "{hierarchy}"\n')
 
 
 @pytest.fixture
 def tmp_store(tmp_path):
-    """Create a Store with a standard hierarchy in a temp directory."""
-    return extract.Store(
-        root=tmp_path / ".extract",
-        hierarchy="benchmark > method > variant",
-    )
+    """Create a Store with the standard hierarchy in a temp directory."""
+    root = tmp_path / ".extract"
+    _bootstrap(root)
+    return extract.Store(root=root)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Hierarchy loading
 
 
 class TestHierarchyConfig:
-    def test_hierarchy_stored_in_db(self, tmp_store):
-        levels = tmp_store._load_hierarchy()
-        assert levels == ["benchmark", "method", "variant"]
+    def test_hierarchy_loaded_from_config(self, tmp_store):
+        assert tmp_store._hierarchy == ["benchmark", "model", "variant"]
 
-    def test_hierarchy_persists_across_opens(self, tmp_path):
+    def test_hierarchy_persists_in_db(self, tmp_path):
         root = tmp_path / ".extract"
-        extract.Store(root=root, hierarchy="benchmark > method > variant")
+        _bootstrap(root)
+        extract.Store(root=root)  # First open writes hierarchy table
+
         store2 = extract.Store(root=root)
-        assert store2._hierarchy == ["benchmark", "method", "variant"]
+        assert store2._load_hierarchy() == ["benchmark", "model", "variant"]
 
     def test_hierarchy_mismatch_raises(self, tmp_path):
         root = tmp_path / ".extract"
-        extract.Store(root=root, hierarchy="benchmark > method > variant")
-        with pytest.raises(ValueError, match="cannot change"):
-            extract.Store(root=root, hierarchy="method > benchmark")
+        _bootstrap(root, "benchmark > model > variant")
+        extract.Store(root=root)  # First open populates DB
 
-    def test_no_hierarchy_legacy_mode(self, tmp_path):
-        store = extract.Store(root=tmp_path / ".extract")
-        assert store._hierarchy == []
-        # Legacy string path still works
-        exp = store.experiment("a/b/c")
-        assert exp.path == "a/b/c"
+        # Now corrupt the config to a different hierarchy
+        (root / "config.toml").write_text(
+            '[store]\nhierarchy = "model > benchmark"\n'
+        )
+        with pytest.raises(ValueError, match="mismatch"):
+            extract.Store(root=root)
 
     def test_parse_hierarchy_strips_whitespace(self):
-        from extract.store import _parse_hierarchy
         assert _parse_hierarchy("  a > b  >c ") == ["a", "b", "c"]
 
     def test_parse_hierarchy_empty_level_raises(self):
-        from extract.store import _parse_hierarchy
         with pytest.raises(ValueError, match="empty level"):
             _parse_hierarchy("a > > b")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Dict-spec experiment creation
 
 
 class TestDictExperiment:
     def test_creates_path_in_hierarchy_order(self, tmp_store):
         # Dict keys in arbitrary order, path follows hierarchy config
         exp = tmp_store.experiment({
-            "variant": "lambda_1.0",
-            "benchmark": "cifar100",
-            "method": "ewc",
+            "variant": "lr_0.01",
+            "benchmark": "imagenet",
+            "model": "resnet50",
         })
-        assert exp.path == "cifar100/ewc/lambda_1.0"
-        assert exp.name == "lambda_1.0"
+        assert exp.path == "imagenet/resnet50/lr_0.01"
+        assert exp.name == "lr_0.01"
 
     def test_ancestors_have_correct_node_type(self, tmp_store):
         tmp_store.experiment({
-            "benchmark": "cifar100",
-            "method": "ewc",
-            "variant": "lambda_1.0",
+            "benchmark": "imagenet",
+            "model": "resnet50",
+            "variant": "lr_0.01",
         })
-        conn = tmp_store._conn
-        rows = conn.execute(
+        rows = tmp_store._conn.execute(
             "SELECT path, node_type FROM experiments ORDER BY path"
         ).fetchall()
         types = {r["path"]: r["node_type"] for r in rows}
-        assert types["cifar100"] == "benchmark"
-        assert types["cifar100/ewc"] == "method"
-        assert types["cifar100/ewc/lambda_1.0"] == "variant"
+        assert types["imagenet"] == "benchmark"
+        assert types["imagenet/resnet50"] == "model"
+        assert types["imagenet/resnet50/lr_0.01"] == "variant"
 
     def test_partial_spec_creates_partial_hierarchy(self, tmp_store):
         exp = tmp_store.experiment({
-            "benchmark": "cifar100",
-            "method": "ewc",
+            "benchmark": "imagenet",
+            "model": "resnet50",
         })
-        assert exp.path == "cifar100/ewc"
-        assert exp.name == "ewc"
+        assert exp.path == "imagenet/resnet50"
+        assert exp.name == "resnet50"
 
     def test_reuses_existing_ancestors(self, tmp_store):
-        tmp_store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "v1"})
-        tmp_store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "v2"})
-        conn = tmp_store._conn
-        count = conn.execute("SELECT COUNT(*) FROM experiments WHERE path = 'cifar100'").fetchone()[0]
-        assert count == 1  # cifar100 created only once
+        tmp_store.experiment({"benchmark": "imagenet", "model": "resnet50", "variant": "v1"})
+        tmp_store.experiment({"benchmark": "imagenet", "model": "resnet50", "variant": "v2"})
+        count = tmp_store._conn.execute(
+            "SELECT COUNT(*) FROM experiments WHERE path = 'imagenet'"
+        ).fetchone()[0]
+        assert count == 1  # imagenet created only once
 
     def test_skipped_level_raises(self, tmp_store):
-        # Can't skip "method" between "benchmark" and "variant"
         with pytest.raises(ValueError, match="Cannot skip"):
-            tmp_store.experiment({"benchmark": "cifar100", "variant": "lambda_1.0"})
+            tmp_store.experiment({"benchmark": "imagenet", "variant": "lr_0.01"})
 
     def test_unknown_level_raises(self, tmp_store):
         with pytest.raises(ValueError, match="Unknown hierarchy levels"):
-            tmp_store.experiment({"benchmark": "cifar100", "dataset": "oops"})
-
-    def test_dict_without_hierarchy_raises(self, tmp_path):
-        store = extract.Store(root=tmp_path / ".extract")
-        with pytest.raises(ValueError, match="without hierarchy"):
-            store.experiment({"benchmark": "cifar100"})
+            tmp_store.experiment({"benchmark": "imagenet", "dataset": "oops"})
 
     def test_empty_spec_raises(self, tmp_store):
         with pytest.raises(ValueError, match="at least one"):
@@ -113,9 +124,9 @@ class TestDictExperiment:
 
     def test_runs_work_on_dict_experiments(self, tmp_store):
         exp = tmp_store.experiment({
-            "benchmark": "cifar100",
-            "method": "ewc",
-            "variant": "lambda_1.0",
+            "benchmark": "imagenet",
+            "model": "resnet50",
+            "variant": "lr_0.01",
         })
         with exp.run(config={"lr": 0.001}) as run:
             run.log(step=0, loss=0.5, accuracy=0.7)
@@ -123,3 +134,61 @@ class TestDictExperiment:
         runs = exp.list_runs()
         assert len(runs) == 1
         assert runs[0]["status"] == "completed"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Hard requirement: Store() must have config.toml
+
+
+class TestMissingHierarchy:
+    def test_raises_without_config_toml(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        # No config.toml at all
+        with pytest.raises(MissingHierarchyError, match="config.toml"):
+            extract.Store(root=store_root)
+
+    def test_raises_with_empty_store_section(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        (store_root / "config.toml").write_text("[store]\n")
+        with pytest.raises(MissingHierarchyError):
+            extract.Store(root=store_root)
+
+    def test_raises_with_no_store_section(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        (store_root / "config.toml").write_text("[other]\nkey = 1\n")
+        with pytest.raises(MissingHierarchyError):
+            extract.Store(root=store_root)
+
+    def test_error_message_mentions_path(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        with pytest.raises(MissingHierarchyError) as exc_info:
+            extract.Store(root=store_root)
+        assert str(store_root) in str(exc_info.value)
+        assert "extract init" in str(exc_info.value)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Legacy API removal regressions
+
+
+class TestLegacyAPIRemoved:
+    def test_path_string_api_raises(self, tmp_store):
+        # The legacy "string spec" branch is gone
+        with pytest.raises((TypeError, AttributeError)):
+            tmp_store.experiment("foo/bar/baz")  # type: ignore[arg-type]
+
+    def test_experiment_by_path_method_gone(self):
+        # The private method is removed entirely
+        from extract.store import Store
+        assert not hasattr(Store, "_experiment_by_path")
+
+    def test_alter_table_migration_gone(self):
+        """Grep store.py source for the dropped runtime migration."""
+        from pathlib import Path
+        src = Path(__file__).parent.parent / "src" / "extract" / "store.py"
+        content = src.read_text()
+        assert "ADD COLUMN node_type" not in content
