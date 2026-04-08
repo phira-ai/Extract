@@ -510,12 +510,18 @@ impl AppState {
         Ok(())
     }
 
-    /// Load preview data (metric history + matrix) for a leaf experiment.
-    /// Uses the latest completed run, or the first run if none completed.
+    /// Hard reload — used when the user navigates to a new leaf experiment.
+    /// Resets scroll positions to the top.
     pub fn refresh_leaf_preview(&mut self) -> Result<()> {
         self.summary_scroll = 0;
         self.info_scroll = 0;
+        self.reload_leaf_preview_data()
+    }
 
+    /// Soft reload — used on data_version tick. Preserves scroll positions
+    /// so the leaf summary view doesn't jump to the top while training
+    /// writes new data.
+    pub fn reload_leaf_preview_data(&mut self) -> Result<()> {
         if self.runs.is_empty() {
             self.metric_histories.clear();
             self.run_params.clear();
@@ -588,7 +594,19 @@ impl AppState {
         Ok(())
     }
 
+    /// Hard reload — used when the user enters compare view via `c`.
+    /// Resets scroll position to the top.
     pub fn load_compare_data(&mut self) -> Result<()> {
+        self.reload_compare_data()?;
+        if let Some(ref mut data) = self.compare_data {
+            data.scroll = 0;
+        }
+        Ok(())
+    }
+
+    /// Soft reload — used on data_version tick. Preserves the user's scroll
+    /// position in the compare view while curves continue to grow.
+    pub fn reload_compare_data(&mut self) -> Result<()> {
         let ids = self.selected_runs_for_compare.clone();
         let mut runs_data = Vec::new();
         let mut seen_run_ids = Vec::new();
@@ -735,6 +753,11 @@ impl AppState {
         table_names.sort();
         timeseries_names.sort();
 
+        // Preserve the user's scroll position across soft reloads.
+        // (The hard wrapper resets scroll back to 0 explicitly.)
+        let preserved_scroll = self.compare_data.as_ref().map(|d| d.scroll).unwrap_or(0);
+        let preserved_visible_height = self.compare_data.as_ref().map(|d| d.visible_height).unwrap_or(0);
+
         self.compare_data = Some(CompareData {
             runs: runs_data,
             metric_names,
@@ -742,9 +765,9 @@ impl AppState {
             config_keys,
             table_names,
             timeseries_names,
-            scroll: 0,
+            scroll: preserved_scroll,
             total_lines: 0,
-            visible_height: 0,
+            visible_height: preserved_visible_height,
         });
 
         Ok(())
@@ -838,6 +861,37 @@ impl AppState {
         Ok(())
     }
 
+    /// Single entry point for live refresh, called by the tick loop when
+    /// PRAGMA data_version has incremented. Re-runs every visible query
+    /// using the SOFT loaders so user scroll positions are preserved.
+    pub fn refresh_live(&mut self) -> Result<()> {
+        self.refresh_experiments()?;
+        if self.selected_experiment.is_some() {
+            self.refresh_runs()?;
+        }
+        self.refresh_selection_summary()?;
+        // Detail panel — soft reload (preserves scroll).
+        if let Some(idx) = self.selected_run {
+            self.reload_run_preview_data(idx)?;
+        } else if let Some(exp_idx) = self.selected_experiment {
+            // Leaf preview path: only fires if the selected experiment is a leaf.
+            let is_leaf = if let Some(exp) = self.experiments.get(exp_idx) {
+                let exp_id = exp.id.clone();
+                !self.experiments.iter().any(|e| e.parent_id.as_deref() == Some(exp_id.as_str()))
+            } else {
+                false
+            };
+            if is_leaf {
+                self.reload_leaf_preview_data()?;
+            }
+        }
+        // Compare view — soft reload (preserves scroll), only if active.
+        if self.compare_data.is_some() {
+            self.reload_compare_data()?;
+        }
+        Ok(())
+    }
+
     pub fn refresh_marked_experiments(&mut self) {
         self.marked_experiment_ids.clear();
         for run_id in &self.selected_runs_for_compare {
@@ -911,9 +965,18 @@ impl AppState {
         Ok(())
     }
 
+    /// Hard reload — used on user navigation (cycle to a new run, etc.).
+    /// Resets scroll positions to the top.
     pub fn load_run_preview(&mut self, run_idx: usize) -> Result<()> {
         self.summary_scroll = 0;
         self.info_scroll = 0;
+        self.reload_run_preview_data(run_idx)
+    }
+
+    /// Soft reload — used on data_version tick. Preserves scroll positions
+    /// so the user's view doesn't jump to the top every 500ms while training
+    /// writes new curve points.
+    pub fn reload_run_preview_data(&mut self, run_idx: usize) -> Result<()> {
         let Some(run) = self.runs.get(run_idx) else {
             return Ok(());
         };
