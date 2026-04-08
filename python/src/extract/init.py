@@ -461,6 +461,10 @@ def run(args: argparse.Namespace) -> int:
         )
         return 2
 
+    # Welcome banner only in interactive mode (suppressed when --hierarchy given)
+    if interactive and args.hierarchy is None:
+        _render_welcome(console)
+
     store_root = Path(args.path).resolve()
 
     # Pre-flight: refuse if already configured

@@ -550,3 +550,74 @@ class TestConfirmWriteConfig:
             console, tmp_path / ".extract", ["a", "b"]
         )
         assert result is False
+
+
+class TestRunInteractiveFullFlow:
+    def test_full_interactive_happy_path(self, tmp_path, monkeypatch):
+        """Mock all prompts; verify the full flow writes the config."""
+        import questionary
+        # Force isatty True so we go down the interactive path
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+        # Each questionary primitive returns True (or the first preset for select)
+        select_calls = iter(["benchmark > model > variant"])
+        confirm_calls = iter([True, True])  # gitignore=yes, write=yes
+
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt(next(select_calls)),
+        )
+        monkeypatch.setattr(
+            questionary, "confirm",
+            lambda *a, **k: FakeQuestionaryPrompt(next(confirm_calls)),
+        )
+
+        store_root = tmp_path / ".extract"
+        # Pre-create .git/ at tmp_path so the gitignore branch fires
+        (tmp_path / ".git").mkdir()
+
+        args = _make_args(store_root, hierarchy=None, no_gitignore=False)
+        rc = init.run(args)
+        assert rc == 0
+        assert (store_root / "config.toml").exists()
+        assert ".extract/" in (tmp_path / ".gitignore").read_text()
+
+    def test_full_interactive_user_aborts_at_preview(self, tmp_path, monkeypatch):
+        import questionary
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt("benchmark > model > variant"),
+        )
+        # gitignore prompt: yes, write prompt: NO
+        confirm_calls = iter([True, False])
+        monkeypatch.setattr(
+            questionary, "confirm",
+            lambda *a, **k: FakeQuestionaryPrompt(next(confirm_calls)),
+        )
+
+        store_root = tmp_path / ".extract"
+        (tmp_path / ".git").mkdir()
+
+        args = _make_args(store_root, hierarchy=None, no_gitignore=False)
+        rc = init.run(args)
+        assert rc == 0
+        # Aborted at preview confirm — no files written
+        assert not store_root.exists()
+        assert not (tmp_path / ".gitignore").exists()
+
+    def test_full_interactive_keyboard_interrupt_at_picker(self, tmp_path, monkeypatch):
+        import questionary
+        monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+        monkeypatch.setattr(
+            questionary, "select",
+            lambda *a, **k: FakeQuestionaryPrompt(KeyboardInterrupt()),
+        )
+
+        store_root = tmp_path / ".extract"
+        args = _make_args(store_root, hierarchy=None, no_gitignore=True)
+        rc = init.run(args)
+        assert rc == 130
+        assert not store_root.exists()
