@@ -118,12 +118,31 @@ class ConfigExistsError(Exception):
 
 def validate_hierarchy_levels(levels: list[str]) -> None:
     """Raise ValueError with a friendly message if any level is invalid."""
-    raise NotImplementedError
+    for level in levels:
+        if not LEVEL_NAME_RE.match(level):
+            suggestion = _snake_case(level)
+            raise ValueError(
+                f"'{level}' must match [a-z][a-z0-9_]* — try '{suggestion}'"
+            )
+        if level in RESERVED_NAMES:
+            raise ValueError(
+                f"'{level}' is a reserved name — pick something else"
+            )
 
 
 def _snake_case(s: str) -> str:
-    """Best-effort sanitization of an invalid level name into a valid suggestion."""
-    raise NotImplementedError
+    """Best-effort sanitization of an invalid level name into a valid suggestion.
+
+    Lowercases, replaces non-[a-z0-9] with underscores, collapses runs of
+    underscores, strips leading/trailing underscores, and strips a leading
+    digit if any. Returns a string that satisfies LEVEL_NAME_RE if non-empty.
+    """
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s)
+    s = s.strip("_")
+    s = re.sub(r"^[0-9]+", "", s)
+    return s
 
 
 def _build_quickstart_snippet(levels: list[str]) -> str:
