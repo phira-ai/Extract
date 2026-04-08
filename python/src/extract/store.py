@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS experiments (
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     metadata    TEXT,
     status      TEXT NOT NULL DEFAULT 'created',
-    node_type   TEXT
+    node_type   TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_experiments_path      ON experiments(path);
@@ -167,31 +167,32 @@ class Store:
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
 
-        # Run migrations (embedded schema uses IF NOT EXISTS, safe to re-run)
         with self.lock:
             self._conn.executescript(_SCHEMA)
-            # Migrate existing DBs that lack node_type column
-            try:
-                self._conn.execute("ALTER TABLE experiments ADD COLUMN node_type TEXT")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
             self._conn.commit()
 
-        # Load hierarchy: config.toml is the source of truth, DB is the cache
+        # config.toml is the single source of truth for hierarchy.
+        # The hierarchy table in the DB is a write-through cache.
         config_hierarchy = self._load_config_hierarchy()
-        db_hierarchy = self._load_hierarchy()
+        if not config_hierarchy:
+            raise MissingHierarchyError(
+                f"No config.toml with [store] hierarchy found at "
+                f"{self.root}/config.toml. Run `extract init` in this "
+                f"directory to set up the store."
+            )
 
-        if config_hierarchy and db_hierarchy and config_hierarchy != db_hierarchy:
+        db_hierarchy = self._load_hierarchy()
+        if db_hierarchy and config_hierarchy != db_hierarchy:
             raise ValueError(
                 f"Hierarchy mismatch: config.toml has "
                 f"{' > '.join(config_hierarchy)} but DB has "
                 f"{' > '.join(db_hierarchy)}"
             )
 
-        if config_hierarchy and not db_hierarchy:
+        if not db_hierarchy:
             self._save_hierarchy(config_hierarchy)
 
-        self._hierarchy = config_hierarchy or db_hierarchy
+        self._hierarchy = config_hierarchy
 
     def _load_config_hierarchy(self) -> list[str]:
         """Read hierarchy from config.toml if it exists."""
@@ -228,51 +229,17 @@ class Store:
     # Experiments
     # ------------------------------------------------------------------
 
-    def experiment(self, spec: dict[str, str] | str) -> Experiment:
-        """Create or get an experiment.
+    def experiment(self, spec: dict[str, str]) -> Experiment:
+        """Create or get an experiment from a hierarchy-keyed dict.
 
         Args:
-            spec: Either a dict mapping hierarchy levels to values
-                  (e.g. {"benchmark": "cifar100", "method": "ewc"})
-                  or a plain path string (legacy mode, no node_type).
+            spec: Dict mapping hierarchy levels to values, e.g.
+                  {"benchmark": "imagenet", "model": "resnet50",
+                   "variant": "lr_0.01"}.
+                  Keys must be hierarchy levels declared in config.toml;
+                  values cannot skip levels.
         """
-        if isinstance(spec, str):
-            return self._experiment_by_path(spec)
         return self._experiment_by_dict(spec)
-
-    def _experiment_by_path(self, path: str) -> Experiment:
-        """Legacy: create experiment from a plain slash-delimited path."""
-        parts = path.strip("/").split("/")
-        parent_id: str | None = None
-        exp_id = exp_path = exp_name = ""
-
-        with self.lock:
-            for i in range(len(parts)):
-                partial_path = "/".join(parts[: i + 1])
-                name = parts[i]
-
-                row = self._conn.execute(
-                    "SELECT id, path, name FROM experiments WHERE path = ?",
-                    (partial_path,),
-                ).fetchone()
-
-                if row is not None:
-                    parent_id = row["id"]
-                    exp_id, exp_path, exp_name = row["id"], row["path"], row["name"]
-                else:
-                    exp_id = str(ULID())
-                    self._conn.execute(
-                        "INSERT INTO experiments (id, path, name, parent_id) "
-                        "VALUES (?, ?, ?, ?)",
-                        (exp_id, partial_path, name, parent_id),
-                    )
-                    parent_id = exp_id
-                    exp_path = partial_path
-                    exp_name = name
-
-            self._conn.commit()
-
-        return Experiment(store=self, id=exp_id, path=exp_path, name=exp_name)
 
     def _experiment_by_dict(self, spec: dict[str, str]) -> Experiment:
         """Create experiment from a hierarchy-keyed dict."""
