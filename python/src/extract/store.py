@@ -157,6 +157,18 @@ class Store:
 
     def __init__(self, root: str | Path = ".extract") -> None:
         self.root = Path(root)
+
+        # Validate config.toml BEFORE any filesystem mutations or DB connection.
+        # If config is missing, we raise without leaving behind a half-initialized store.
+        config_hierarchy = self._load_config_hierarchy()
+        if not config_hierarchy:
+            raise MissingHierarchyError(
+                f"No config.toml with [store] hierarchy found at "
+                f"{self.root}/config.toml. Run `extract init` in this "
+                f"directory to set up the store."
+            )
+
+        # Now we can safely create directories and open the DB.
         self.root.mkdir(parents=True, exist_ok=True)
         (self.root / "artifacts").mkdir(exist_ok=True)
         (self.root / "models").mkdir(exist_ok=True)
@@ -171,16 +183,7 @@ class Store:
             self._conn.executescript(_SCHEMA)
             self._conn.commit()
 
-        # config.toml is the single source of truth for hierarchy.
-        # The hierarchy table in the DB is a write-through cache.
-        config_hierarchy = self._load_config_hierarchy()
-        if not config_hierarchy:
-            raise MissingHierarchyError(
-                f"No config.toml with [store] hierarchy found at "
-                f"{self.root}/config.toml. Run `extract init` in this "
-                f"directory to set up the store."
-            )
-
+        # Sync hierarchy to DB (write-through cache).
         db_hierarchy = self._load_hierarchy()
         if db_hierarchy and config_hierarchy != db_hierarchy:
             raise ValueError(

@@ -50,7 +50,7 @@ def main():
         for step in range(50):
             run.log(step=step, loss=1.0 / (step + 1), accuracy=0.5 + 0.35 * (step / 49))
 
-        # Log accuracy matrix (5 tasks, lower-triangular pattern for CL)
+        # Log accuracy matrix (5 tasks, lower-triangular fill pattern)
         acc_matrix = np.array([
             [0.92, 0.00, 0.00, 0.00, 0.00],
             [0.85, 0.88, 0.00, 0.00, 0.00],
