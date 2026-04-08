@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 
 from rich.console import Console
+from rich.panel import Panel
+from rich.syntax import Syntax
 
 # ──────────────────────────────────────────────────────────────────────────
 # Constants
@@ -282,9 +284,23 @@ def _confirm_write_config(console, path: "Path", levels: list[str]) -> bool:
 
 # Rich rendering (filled in during Phase 6)
 
-def _render_welcome(console) -> None:
-    """Screen 1: welcome banner Panel."""
-    raise NotImplementedError
+def _render_welcome(console: Console) -> None:
+    """Screen 1: welcome banner. Magenta-bordered Panel with the wizard intro."""
+    body = (
+        "[bold]Welcome to Extract.[/bold]\n\n"
+        "[dim]Local-first experiment tracking for deep learning.\n"
+        "This wizard will set up a fresh [/dim][ansicyan].extract/[/ansicyan]"
+        "[dim] store in\nthe current directory.[/dim]"
+    )
+    panel = Panel(
+        body,
+        title="[ansicyan bold]extract init[/ansicyan bold]",
+        title_align="left",
+        border_style="magenta",
+        padding=(1, 2),
+    )
+    console.print(panel)
+    console.print()  # Blank line after the banner
 
 
 def _render_status_lines(
@@ -303,9 +319,19 @@ def _render_status_lines(
         console.print(f"[ansigreen]✓[/ansigreen] Updated [ansicyan].gitignore[/ansicyan]")
 
 
-def _render_quickstart(console, levels: list[str]) -> None:
-    """Screen 6: green Panel with the syntax-highlighted Python snippet."""
-    raise NotImplementedError
+def _render_quickstart(console: Console, levels: list[str]) -> None:
+    """Screen 6: success quickstart panel with the syntax-highlighted Python snippet."""
+    snippet = _build_quickstart_snippet(levels)
+    syntax = Syntax(snippet, "python", theme="ansi_dark", background_color="default")
+    panel = Panel(
+        syntax,
+        title="[ansigreen bold]Quickstart[/ansigreen bold]",
+        title_align="left",
+        border_style="green",
+        padding=(1, 2),
+    )
+    console.print()
+    console.print(panel)
 
 
 # Public entry point
