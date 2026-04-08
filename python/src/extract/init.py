@@ -188,8 +188,36 @@ def _find_git_root(start: "Path") -> "Path | None":
 # Filesystem helpers
 
 def _preflight(path: "Path") -> None:
-    """Refuse if path already has a configured store. Raises ConfigExistsError."""
-    raise NotImplementedError
+    """Refuse if `path` already has a configured store. Raises ConfigExistsError.
+
+    A store is "configured" if `path/config.toml` exists AND has a
+    `[store] hierarchy` key. A bare `[store]` section without `hierarchy`
+    is treated as bootstrap-incomplete and we proceed.
+    """
+    config_path = path / "config.toml"
+    if not config_path.exists():
+        return
+
+    # Use tomllib for 3.11+, tomli backport for 3.10.
+    try:
+        import tomllib  # type: ignore[import-not-found]
+    except ImportError:
+        import tomli as tomllib  # type: ignore[no-redef]
+
+    with open(config_path, "rb") as f:
+        try:
+            config = tomllib.load(f)
+        except tomllib.TOMLDecodeError:
+            # Malformed TOML — treat as not-configured; new init will overwrite.
+            return
+
+    hierarchy = config.get("store", {}).get("hierarchy")
+    if hierarchy:
+        raise ConfigExistsError(
+            f"{config_path} is already configured with hierarchy "
+            f"'{hierarchy}'. Refusing to overwrite. To start over: "
+            f"rm -rf {path}"
+        )
 
 
 def _write_config(path: "Path", levels: list[str]) -> bool:

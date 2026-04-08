@@ -149,3 +149,44 @@ class TestFindGitRoot:
         # Either treat as not-found or as found; pin the tighter behavior:
         # we require a directory.
         assert result != tmp_path or (tmp_path / ".git").is_dir()
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# _preflight
+
+
+class TestPreflight:
+    def test_passes_on_nonexistent_path(self, tmp_path):
+        init._preflight(tmp_path / "nope")  # Does not raise
+
+    def test_passes_on_empty_dir(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        init._preflight(store_root)  # Does not raise
+
+    def test_passes_when_dir_exists_no_config(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        (store_root / "extract.db").write_bytes(b"junk")  # Some random file
+        init._preflight(store_root)  # Does not raise
+
+    def test_passes_with_malformed_config(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        (store_root / "config.toml").write_text("[other]\nkey = 1\n")
+        init._preflight(store_root)  # Does not raise — no [store] hierarchy
+
+    def test_passes_with_store_section_no_hierarchy(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        (store_root / "config.toml").write_text("[store]\n")
+        init._preflight(store_root)  # Does not raise — no hierarchy key
+
+    def test_refuses_existing_configured_store(self, tmp_path):
+        store_root = tmp_path / ".extract"
+        store_root.mkdir()
+        (store_root / "config.toml").write_text(
+            '[store]\nhierarchy = "a > b > c"\n'
+        )
+        with pytest.raises(init.ConfigExistsError, match="already configured"):
+            init._preflight(store_root)
