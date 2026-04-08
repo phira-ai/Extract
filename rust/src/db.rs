@@ -169,6 +169,35 @@ impl Db {
         Ok(metrics)
     }
 
+    /// Distinct metric names that have at least one curve point for this run,
+    /// in alphabetical order. Used by the TUI to enumerate curves to render.
+    pub fn list_curve_names(&self, run_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT name FROM curve_points WHERE run_id = ? ORDER BY name",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    /// All curve points for a (run, metric), ordered by step ascending.
+    /// Returns (step, value, wall_time) tuples.
+    pub fn list_curve_points(
+        &self,
+        run_id: &str,
+        name: &str,
+    ) -> Result<Vec<(i64, f64, Option<f64>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT step, value, wall_time FROM curve_points \
+             WHERE run_id = ? AND name = ? ORDER BY step",
+        )?;
+        let rows = stmt.query_map(params![run_id, name], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?, row.get::<_, Option<f64>>(2)?))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
     // Artifacts
 
     pub fn list_artifacts(&self, run_id: &str) -> Result<Vec<Artifact>> {
@@ -774,7 +803,13 @@ mod tests {
              INSERT INTO scalar_metrics VALUES (NULL, 'r4', 10, 'loss', 0.9, NULL);
              INSERT INTO scalar_metrics VALUES (NULL, 'r4', 10, 'accuracy', 0.4, NULL);
              INSERT INTO run_params VALUES (NULL, 'r1', 'arch', 'resnet18');
-             INSERT INTO run_params VALUES (NULL, 'r1', 'fisher_label', 'empirical');",
+             INSERT INTO run_params VALUES (NULL, 'r1', 'fisher_label', 'empirical');
+             INSERT INTO curve_points VALUES ('r1', 'train_loss', 0, 1.0, 0.0);
+             INSERT INTO curve_points VALUES ('r1', 'train_loss', 1, 0.8, 0.5);
+             INSERT INTO curve_points VALUES ('r1', 'train_loss', 2, 0.6, 1.0);
+             INSERT INTO curve_points VALUES ('r1', 'lr_schedule', 0, 0.001, 0.0);
+             INSERT INTO curve_points VALUES ('r1', 'lr_schedule', 1, 0.0009, 0.5);
+             INSERT INTO curve_points VALUES ('r2', 'train_loss', 0, 1.2, 0.0);",
         )
         .unwrap();
         Db { conn }
@@ -996,5 +1031,36 @@ mod tests {
         // Same connection, no changes — should NOT tick again.
         let v3 = db.data_version().unwrap();
         assert_eq!(v2, v3);
+    }
+
+    #[test]
+    fn test_list_curve_names_returns_distinct_sorted() {
+        let db = test_db();
+        let names = db.list_curve_names("r1").unwrap();
+        assert_eq!(names, vec!["lr_schedule".to_string(), "train_loss".to_string()]);
+    }
+
+    #[test]
+    fn test_list_curve_names_empty_for_run_with_no_curves() {
+        let db = test_db();
+        let names = db.list_curve_names("r3").unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_list_curve_points_returns_step_ordered_rows() {
+        let db = test_db();
+        let points = db.list_curve_points("r1", "train_loss").unwrap();
+        assert_eq!(points.len(), 3);
+        assert_eq!(points[0], (0, 1.0, Some(0.0)));
+        assert_eq!(points[1], (1, 0.8, Some(0.5)));
+        assert_eq!(points[2], (2, 0.6, Some(1.0)));
+    }
+
+    #[test]
+    fn test_list_curve_points_empty_for_unknown_metric() {
+        let db = test_db();
+        let points = db.list_curve_points("r1", "nonexistent").unwrap();
+        assert!(points.is_empty());
     }
 }
