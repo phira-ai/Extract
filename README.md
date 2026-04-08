@@ -2,13 +2,12 @@
 
 Local-first experiment tracking for deep learning. A Rust TUI for browsing, comparing, and analyzing experiments, paired with a Python SDK for logging metrics, artifacts, and models.
 
-Built for hierarchical experiment organization (benchmark > method > variant), run comparison, and artifact management — all stored in a single SQLite database with no server required.
+Built for hierarchical experiment organization (benchmark > model > variant), run comparison, and artifact management — all stored in a single SQLite database with no server required.
 
 ## Install
 
 ```bash
-pip install extract-tracker            # SDK + CLI + TUI binary
-pip install 'extract-tracker[mcp]'     # also enables the MCP server (see below)
+pip install extract-tracker
 ```
 
 ### Development
@@ -20,42 +19,27 @@ pip install -e .     # editable install (builds Rust binary + links Python)
 
 ## Quick Start
 
-### 1. Configure hierarchy
-
-Edit `.extract/config.toml`:
-
-```toml
-[store]
-hierarchy = "benchmark > method > variant"
+```bash
+pip install extract-tracker
+extract init
 ```
 
-### 2. Log experiments (Python)
+`extract init` walks you through choosing a hierarchy and writes
+`.extract/config.toml`. After that:
 
 ```python
 from extract import Store
 
 store = Store()
-exp = store.experiment({"benchmark": "cifar100", "method": "ewc", "variant": "v1"})
+exp = store.experiment({
+    "benchmark": "imagenet",
+    "model":     "resnet50",
+    "variant":   "lr_0.01",
+})
+with exp.run(config={"lr": 0.01}) as run:
+    run.log(step=0, loss=2.3, accuracy=0.1)
 
-# Context manager — auto-finishes on exit
-with exp.run(config={"lr": 0.001, "epochs": 100}, name="run-001") as run:
-    run.log(step=0, accuracy=0.85, arch="resnet18")      # headline metrics (summary tables)
-    run.log_timeseries("train_loss", steps=list(range(100)),  # curve-only data (plotted, not in summary)
-                       values=[0.5 * 0.95**i for i in range(100)])
-    run.log_table("confusion_matrix", np_array)
-    run.tag("baseline", "production")
-
-# Direct call — for when the run spans multiple files
-run = exp.run(config={"lr": 0.001}, name="run-002")
-train(model, run)     # pass run around freely
-run.finish()          # explicit finalize
-```
-
-### 3. Browse experiments (TUI)
-
-```bash
-extract tui                    # reads from ./.extract/
-extract tui --store /path/to/.extract
+# Browse with: extract tui
 ```
 
 ## TUI Keybindings
@@ -155,7 +139,7 @@ Drop a `.mcp.json` at your project root:
 }
 ```
 
-Then ask the agent things like *"compare the two ewc-l1.0 runs and tell me which had the lowest final loss"* or *"what experiments are tagged production-candidate?"* — it will reach for the matching tools automatically.
+Then ask the agent things like *"compare the two resnet50 runs and tell me which had the lowest final loss"* or *"what experiments are tagged production-candidate?"* — it will reach for the matching tools automatically.
 
 ### Tools (all read-only)
 
@@ -180,7 +164,7 @@ Edit `.extract/config.toml`. Settings are grouped by what they affect:
 
 ```toml
 [store]
-hierarchy = "benchmark > method > variant"
+hierarchy = "benchmark > model > variant"
 ```
 
 ### View Layout — what each TUI panel/view displays
@@ -194,11 +178,11 @@ curve_width = 80       # chart width as % of panel
 curve_smooth = false
 
 # Info tab in Detail panel (I) + Config section in Compare/Diff views
-# Nested configs are flattened with dot-notation (method.lora_r, task.num_train_epochs)
+# Nested configs are flattened with dot-notation (model.lora_r, task.num_train_epochs)
 # Full glob syntax: * (single segment), ** (multi-segment), ? (single char), {a,b}
-# Prefix with ! to exclude: ["method.**", "!method.parent"]
+# Prefix with ! to exclude: ["model.**", "!model.parent"]
 [info]
-fields = ["method.*", "task.num_train_epochs"]   # empty = show all
+fields = ["model.*", "task.num_train_epochs"]   # empty = show all
 
 # Compare view (c with marked runs)
 [compare]
