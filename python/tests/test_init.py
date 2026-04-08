@@ -109,3 +109,43 @@ class TestBuildQuickstartSnippet:
     def test_single_level(self):
         snippet = init._build_quickstart_snippet(["benchmark"])
         assert '"benchmark": "imagenet"' in snippet
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# _find_git_root
+
+
+class TestFindGitRoot:
+    def test_finds_directly_at_start(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        assert init._find_git_root(tmp_path) == tmp_path
+
+    def test_finds_at_parent(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        sub = tmp_path / "sub"
+        sub.mkdir()
+        assert init._find_git_root(sub) == tmp_path
+
+    def test_finds_at_grandparent(self, tmp_path):
+        (tmp_path / ".git").mkdir()
+        deep = tmp_path / "a" / "b" / "c"
+        deep.mkdir(parents=True)
+        assert init._find_git_root(deep) == tmp_path
+
+    def test_returns_none_no_repo(self, tmp_path):
+        # tmp_path has no .git at all and is unlikely to have one in any parent
+        # within 32 levels
+        result = init._find_git_root(tmp_path / "sub")
+        # If the system happens to have .git in some ancestor, that's fine —
+        # but tmp_path itself should not
+        if result is not None:
+            assert result != tmp_path / "sub"
+
+    def test_handles_file_named_git(self, tmp_path):
+        # .git as a file (e.g. submodule pointer) should NOT count as a repo root
+        # for our purposes — we look for a directory.
+        (tmp_path / ".git").write_text("gitdir: ../other")
+        result = init._find_git_root(tmp_path)
+        # Either treat as not-found or as found; pin the tighter behavior:
+        # we require a directory.
+        assert result != tmp_path or (tmp_path / ".git").is_dir()

@@ -171,8 +171,18 @@ def _build_quickstart_snippet(levels: list[str]) -> str:
 
 def _find_git_root(start: "Path") -> "Path | None":
     """Walk up from `start` looking for a directory containing .git/.
-    Returns the containing directory or None if no git repo within 32 levels."""
-    raise NotImplementedError
+    Returns the containing directory or None if no git repo within 32 levels.
+    A `.git` *file* (used by submodules) does NOT count — we require a directory.
+    """
+    current = start.resolve() if start.exists() else start.absolute()
+    for _ in range(32):
+        if (current / ".git").is_dir():
+            return current
+        parent = current.parent
+        if parent == current:
+            return None
+        current = parent
+    return None
 
 
 # Filesystem helpers
