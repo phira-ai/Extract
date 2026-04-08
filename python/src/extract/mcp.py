@@ -11,7 +11,6 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 from mcp.server.fastmcp import FastMCP
 
@@ -808,14 +807,6 @@ def get_lineage(
 
 
 def main(argv: list[str] | None = None) -> None:
-    if FastMCP is None:
-        print(
-            "extract-tracker[mcp] extra not installed. "
-            "Install with: pip install 'extract-tracker[mcp]'",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
     parser = argparse.ArgumentParser(prog="extract.mcp")
     parser.add_argument("--store", default=".extract")
     args = parser.parse_args(argv)
