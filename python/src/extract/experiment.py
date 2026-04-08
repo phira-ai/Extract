@@ -52,8 +52,21 @@ class Experiment:
     def name(self) -> str:
         return self._name
 
-    def run(self, config: dict | None = None, name: str | None = None) -> Run:
-        """Create a new run for this experiment and return it as a context manager."""
+    def run(
+        self,
+        config: dict | None = None,
+        name: str | None = None,
+        total_steps: int | None = None,
+    ) -> Run:
+        """Create a new run for this experiment and return it as a context manager.
+
+        Args:
+            config: Run config dict (serialized to JSON).
+            name: Optional human-readable name (auto-suffixed on duplicates).
+            total_steps: If set, declares the run's training-loop length so the
+                TUI charts can pin their x-axis to a fixed bound and the curve
+                fills left-to-right rather than rescaling.
+        """
         run_id = str(ULID())
         hostname = socket.gethostname()
         git_sha = _git_sha()
@@ -76,8 +89,9 @@ class Experiment:
 
             self._store._conn.execute(
                 "INSERT INTO runs (id, experiment_id, name, config, status, "
-                "hostname, git_sha, tags) VALUES (?, ?, ?, ?, 'running', ?, ?, '[]')",
-                (run_id, self._id, name, config_json, hostname, git_sha),
+                "hostname, git_sha, tags, total_steps) "
+                "VALUES (?, ?, ?, ?, 'running', ?, ?, '[]', ?)",
+                (run_id, self._id, name, config_json, hostname, git_sha, total_steps),
             )
             self._store._conn.commit()
 
