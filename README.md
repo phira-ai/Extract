@@ -105,6 +105,19 @@ watch parallel variants race in the compare view.
 | `S` | Summary tab |
 | `I` | Info tab |
 
+### Actions
+
+| Key | Action |
+|-----|--------|
+| `t` | Edit tags (Summary tab) |
+| `n` | Append note |
+| `Ctrl+E` | Edit notes in $EDITOR |
+| `Shift+F` | Mark run failed |
+| `Shift+C` | Mark run completed |
+| `Shift+A` | Archive run / experiment |
+| `Shift+U` | Unarchive |
+| `Shift+H` | Toggle show archived |
+
 ### Runs & Comparison
 
 | Key | Action |
