@@ -327,6 +327,9 @@ impl TreePanel {
                         let db_path = state.store_root.join("extract.db");
                         let _ = crate::db::Db::unarchive_item(&db_path, "experiments", &exp.id);
                         state.notify(crate::app::NotifyLevel::Success, "Experiment unarchived");
+                        let _ = state.refresh_experiments();
+                        let _ = state.refresh_runs();
+                        let _ = state.refresh_selection_summary();
                     }
                 }
             }

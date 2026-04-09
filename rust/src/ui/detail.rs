@@ -306,6 +306,7 @@ impl DetailPanel {
                     let db_path = state.store_root.join("extract.db");
                     let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "failed");
                     state.notify(crate::app::NotifyLevel::Success, "Run marked failed");
+                    let _ = state.refresh_runs();
                 }
             }
             return Action::None;
@@ -318,6 +319,7 @@ impl DetailPanel {
                     let db_path = state.store_root.join("extract.db");
                     let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "completed");
                     state.notify(crate::app::NotifyLevel::Success, "Run marked completed");
+                    let _ = state.refresh_runs();
                 }
             }
             return Action::None;
@@ -330,6 +332,8 @@ impl DetailPanel {
                     let db_path = state.store_root.join("extract.db");
                     let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "archived");
                     state.notify(crate::app::NotifyLevel::Success, "Run archived");
+                    let _ = state.refresh_runs();
+                    let _ = state.refresh_selection_summary();
                 }
             }
             return Action::None;
@@ -342,6 +346,8 @@ impl DetailPanel {
                     let db_path = state.store_root.join("extract.db");
                     let _ = crate::db::Db::unarchive_item(&db_path, "runs", &run.id);
                     state.notify(crate::app::NotifyLevel::Success, "Run unarchived");
+                    let _ = state.refresh_runs();
+                    let _ = state.refresh_selection_summary();
                 }
             }
             return Action::None;

@@ -1,6 +1,6 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::symbols;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Axis, Chart, Dataset, GraphType, Paragraph, Widget};
@@ -150,14 +150,23 @@ impl SummaryRenderer {
         } else if let Some(tags_json) = data.tags {
             if let Ok(tags) = serde_json::from_str::<Vec<String>>(tags_json) {
                 if !tags.is_empty() {
+                    // Cycle through distinct background colors for tag chips.
+                    let tag_colors = [
+                        Color::Magenta,
+                        Color::Blue,
+                        Color::Cyan,
+                        Color::Green,
+                        Color::Yellow,
+                    ];
                     let mut tag_spans: Vec<Span<'static>> = vec![Span::raw("  ")];
                     for (i, tag) in tags.iter().enumerate() {
                         if i > 0 {
-                            tag_spans.push(Span::styled(", ", Style::default().fg(self.theme.accent_dim)));
+                            tag_spans.push(Span::raw(" "));
                         }
+                        let bg = tag_colors[i % tag_colors.len()];
                         tag_spans.push(Span::styled(
-                            tag.clone(),
-                            Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD),
+                            format!(" {} ", tag),
+                            Style::default().fg(Color::Black).bg(bg).add_modifier(Modifier::BOLD),
                         ));
                     }
                     lines.push(Line::from(tag_spans));

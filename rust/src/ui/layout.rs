@@ -78,47 +78,55 @@ impl AppLayout {
             return Action::None;
         }
 
-        // Global keys: gg/G, ?, work in all views
-        if let AppEvent::Key(key) = event {
-            if state.g_pending {
-                state.g_pending = false;
+        // Skip global keybindings when a text input mode is active — let the
+        // focused panel's input handler see every keystroke unmodified.
+        let in_text_input = state.tag_edit.is_some()
+            || state.note_input.is_some()
+            || state.todo_input.is_some();
+
+        if !in_text_input {
+            // Global keys: gg/G, ?, work in all views
+            if let AppEvent::Key(key) = event {
+                if state.g_pending {
+                    state.g_pending = false;
+                    if keys::matches(key, keys::GO_TOP_G) {
+                        self.go_to_edge(state, true);
+                        return Action::None;
+                    }
+                    // Not a second g — fall through to normal handling
+                }
                 if keys::matches(key, keys::GO_TOP_G) {
-                    self.go_to_edge(state, true);
+                    state.g_pending = true;
                     return Action::None;
                 }
-                // Not a second g — fall through to normal handling
+                if keys::matches_shift(key, keys::GO_BOTTOM) {
+                    self.go_to_edge(state, false);
+                    return Action::None;
+                }
+                if keys::matches(key, keys::HELP) {
+                    state.show_help = true;
+                    return Action::None;
+                }
             }
-            if keys::matches(key, keys::GO_TOP_G) {
-                state.g_pending = true;
-                return Action::None;
-            }
-            if keys::matches_shift(key, keys::GO_BOTTOM) {
-                self.go_to_edge(state, false);
-                return Action::None;
-            }
-            if keys::matches(key, keys::HELP) {
-                state.show_help = true;
-                return Action::None;
-            }
-        }
 
-        // Global h/l → behave like shift-tab/tab
-        if let AppEvent::Key(key) = event {
-            if keys::matches(key, keys::NAV_RIGHT_L) {
-                // Simulate TAB
-                let tab_event = AppEvent::Key(crossterm::event::KeyEvent::new(
-                    keys::TAB,
-                    crossterm::event::KeyModifiers::NONE,
-                ));
-                return self.handle_event(&tab_event, state);
-            }
-            if keys::matches(key, keys::NAV_LEFT_H) {
-                // Simulate BACKTAB
-                let backtab_event = AppEvent::Key(crossterm::event::KeyEvent::new(
-                    keys::BACKTAB,
-                    crossterm::event::KeyModifiers::SHIFT,
-                ));
-                return self.handle_event(&backtab_event, state);
+            // Global h/l → behave like shift-tab/tab
+            if let AppEvent::Key(key) = event {
+                if keys::matches(key, keys::NAV_RIGHT_L) {
+                    // Simulate TAB
+                    let tab_event = AppEvent::Key(crossterm::event::KeyEvent::new(
+                        keys::TAB,
+                        crossterm::event::KeyModifiers::NONE,
+                    ));
+                    return self.handle_event(&tab_event, state);
+                }
+                if keys::matches(key, keys::NAV_LEFT_H) {
+                    // Simulate BACKTAB
+                    let backtab_event = AppEvent::Key(crossterm::event::KeyEvent::new(
+                        keys::BACKTAB,
+                        crossterm::event::KeyModifiers::SHIFT,
+                    ));
+                    return self.handle_event(&backtab_event, state);
+                }
             }
         }
 
