@@ -11,9 +11,30 @@ pub struct Db {
 
 impl Db {
     pub fn open(path: &Path) -> Result<Self> {
+        // Run idempotent migrations before opening read-only.
+        Self::migrate(path)?;
         let conn = Connection::open(path)?;
         conn.execute_batch("PRAGMA query_only=ON; PRAGMA journal_mode=WAL;")?;
         Ok(Self { conn })
+    }
+
+    /// Run idempotent schema migrations via a writable connection.
+    fn migrate(path: &Path) -> Result<()> {
+        let conn = Connection::open(path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        // 002: add tags/notes to experiments (runs already has them from 001).
+        let cols: Vec<String> = conn
+            .prepare("PRAGMA table_info(experiments)")?
+            .query_map([], |row| row.get::<_, String>(1))?
+            .filter_map(|r| r.ok())
+            .collect();
+        if !cols.iter().any(|c| c == "tags") {
+            conn.execute_batch("ALTER TABLE experiments ADD COLUMN tags TEXT;")?;
+        }
+        if !cols.iter().any(|c| c == "notes") {
+            conn.execute_batch("ALTER TABLE experiments ADD COLUMN notes TEXT;")?;
+        }
+        Ok(())
     }
 
     /// Returns SQLite's `PRAGMA data_version` counter, which increments whenever
