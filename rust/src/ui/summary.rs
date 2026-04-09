@@ -288,14 +288,7 @@ impl SummaryRenderer {
                 let avail_wrap = panel_w.saturating_sub(indent);
                 let mut wrap_idx = remaining_start;
 
-                let mut is_first_wrap = true;
                 while wrap_idx < tag_spans.len() {
-                    // Tiny spacer between tag rows (half-height feel via dim line).
-                    if is_first_wrap {
-                        is_first_wrap = false;
-                    }
-                    lines.push(Line::from(Span::raw("")));
-
                     let mut wrap_spans: Vec<Span<'static>> = vec![
                         Span::raw(" ".repeat(indent)),
                     ];
