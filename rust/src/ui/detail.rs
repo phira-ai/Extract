@@ -510,17 +510,6 @@ impl DetailPanel {
             ]));
         }
 
-        if let Some(ref notes) = run.notes {
-            lines.push(Line::from(""));
-            lines.push(Line::from(Span::styled(
-                "  Notes",
-                Style::default().add_modifier(Modifier::BOLD),
-            )));
-            for note_line in notes.lines() {
-                lines.push(render_note_line(note_line, &self.theme));
-            }
-        }
-
         if let Some(ref config) = run.config {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
@@ -591,6 +580,17 @@ impl DetailPanel {
                 }
             } else {
                 lines.push(Line::from(format!("  {config}")));
+            }
+        }
+
+        if let Some(ref notes) = run.notes {
+            lines.push(Line::from(""));
+            lines.push(Line::from(Span::styled(
+                "Notes",
+                Style::default().add_modifier(Modifier::BOLD),
+            )));
+            for note_line in notes.lines() {
+                lines.push(render_note_line(note_line, &self.theme));
             }
         }
 
