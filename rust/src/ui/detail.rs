@@ -89,6 +89,49 @@ impl DetailPanel {
             }
         }
 
+        // Note append input mode
+        if state.note_input.is_some() {
+            match key.code {
+                crossterm::event::KeyCode::Enter => {
+                    let line = state.note_input.take().unwrap_or_default();
+                    if !line.trim().is_empty() {
+                        let db_path = state.store_root.join("extract.db");
+                        if let Some(idx) = state.selected_run {
+                            if let Some(run) = state.runs.get(idx) {
+                                let _ = crate::db::Db::append_note(&db_path, "runs", &run.id, line.trim());
+                            }
+                        } else if let Some(idx) = state.selected_experiment {
+                            if let Some(exp) = state.experiments.get(idx) {
+                                let _ = crate::db::Db::append_note(&db_path, "experiments", &exp.id, line.trim());
+                            }
+                        }
+                    }
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Esc => {
+                    state.note_input = None;
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Backspace => {
+                    if let Some(ref mut input) = state.note_input {
+                        input.pop();
+                    }
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Char(c) => {
+                    if key.modifiers == crossterm::event::KeyModifiers::NONE
+                        || key.modifiers == crossterm::event::KeyModifiers::SHIFT
+                    {
+                        if let Some(ref mut input) = state.note_input {
+                            input.push(c);
+                        }
+                    }
+                    return Action::None;
+                }
+                _ => return Action::None,
+            }
+        }
+
         // S/I switch detail tabs
         if keys::matches_shift(key, keys::SUMMARY_TAB) {
             self.active_tab = DetailTab::Summary;
@@ -225,6 +268,34 @@ impl DetailPanel {
                 .map(|tags| tags.join(", "))
                 .unwrap_or_default();
             state.tag_edit = Some(prefill);
+            return Action::None;
+        }
+
+        // n: append note popup
+        if keys::matches(key, keys::NOTE_APPEND) {
+            state.note_input = Some(String::new());
+            return Action::None;
+        }
+
+        // Ctrl+E: open notes in $EDITOR
+        if key.code == crossterm::event::KeyCode::Char('e')
+            && key.modifiers == crossterm::event::KeyModifiers::CONTROL
+        {
+            if let Some(idx) = state.selected_run {
+                if let Some(run) = state.runs.get(idx) {
+                    return Action::SuspendForEditor {
+                        table: "runs".to_string(),
+                        id: run.id.clone(),
+                    };
+                }
+            } else if let Some(idx) = state.selected_experiment {
+                if let Some(exp) = state.experiments.get(idx) {
+                    return Action::SuspendForEditor {
+                        table: "experiments".to_string(),
+                        id: exp.id.clone(),
+                    };
+                }
+            }
             return Action::None;
         }
 
@@ -530,5 +601,26 @@ impl DetailPanel {
             .wrap(Wrap { trim: false })
             .scroll((state.info_scroll, 0));
         frame.render_widget(paragraph, area);
+    }
+
+    pub fn render_note_popup(&self, frame: &mut Frame, area: Rect, input: &str) {
+        let popup_width = 50u16.min(area.width.saturating_sub(4));
+        let popup_height = 3u16;
+        let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+        let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+        frame.render_widget(ratatui::widgets::Clear, popup_area);
+
+        let block = Block::bordered()
+            .title(" Append Note ")
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(ratatui::symbols::border::ROUNDED);
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        let cursor = Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK));
+        let line = Line::from(vec![Span::raw(input), cursor]);
+        frame.render_widget(Paragraph::new(line), inner);
     }
 }

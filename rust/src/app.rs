@@ -34,6 +34,7 @@ pub enum Action {
     None,
     Navigate(View),
     Quit,
+    SuspendForEditor { table: String, id: String },
 }
 
 pub enum SelectionSummary {

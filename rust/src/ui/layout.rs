@@ -445,6 +445,9 @@ impl AppLayout {
         if let Some(ref confirm) = state.delete_confirm {
             self.popup.render_delete_confirm(frame, area, confirm);
         }
+        if let Some(ref input) = state.note_input {
+            self.detail.render_note_popup(frame, area, input);
+        }
 
         // Notification toast
         if let Some(ref notif) = state.notification {
