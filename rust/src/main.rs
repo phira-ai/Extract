@@ -24,6 +24,7 @@ struct Cli {
 }
 
 fn open_editor(store_root: &std::path::Path, table: &str, id: &str) -> color_eyre::Result<()> {
+    assert!(table == "runs" || table == "experiments");
     let db_path = store_root.join("extract.db");
     let conn = rusqlite::Connection::open(&db_path)?;
     conn.execute_batch("PRAGMA journal_mode=WAL;")?;
