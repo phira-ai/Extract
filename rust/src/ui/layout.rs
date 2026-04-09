@@ -80,7 +80,7 @@ impl AppLayout {
 
         // Skip global keybindings when a text input mode is active — let the
         // focused panel's input handler see every keystroke unmodified.
-        let in_text_input = state.tag_edit.is_some()
+        let in_text_input = state.tag_picker.is_some()
             || state.note_input.is_some()
             || state.todo_input.is_some();
 
@@ -491,6 +491,9 @@ impl AppLayout {
         }
         if let Some(ref input) = state.note_input {
             self.detail.render_note_popup(frame, area, input);
+        }
+        if let Some(ref picker) = state.tag_picker {
+            self.detail.render_tag_picker(frame, area, picker);
         }
 
         // Notification toast

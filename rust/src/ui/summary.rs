@@ -41,10 +41,9 @@ pub struct SummaryData<'a> {
     /// (extending if observed steps overflow). If None, falls back to the
     /// legacy auto-fit-to-max-step behavior.
     pub preview_total_steps: Option<i64>,
-    pub tags: Option<&'a str>,
-    pub tag_edit: Option<&'a str>,
     pub selected_run: Option<usize>,
     pub panel_width: u16,
+    pub tag_defs: &'a [crate::config::TagDef],
 }
 
 pub struct SummaryRenderer {
@@ -139,42 +138,6 @@ impl SummaryRenderer {
             if run_count == 1 { "run" } else { "runs" }
         )));
 
-        // Tags row (editable or display)
-        if let Some(edit_text) = data.tag_edit {
-            lines.push(Line::from(vec![
-                Span::styled("  Tags: ", Style::default().add_modifier(Modifier::BOLD)),
-                Span::styled(
-                    edit_text.to_string(),
-                    Style::default().fg(self.theme.accent),
-                ),
-                Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)),
-            ]));
-        } else if let Some(tags_json) = data.tags {
-            if let Ok(tags) = serde_json::from_str::<Vec<String>>(tags_json) {
-                if !tags.is_empty() {
-                    // Cycle through distinct background colors for tag chips.
-                    let tag_colors = [
-                        Color::Magenta,
-                        Color::Blue,
-                        Color::Cyan,
-                        Color::Green,
-                        Color::Yellow,
-                    ];
-                    let mut tag_spans: Vec<Span<'static>> = vec![Span::raw("  ")];
-                    for (i, tag) in tags.iter().enumerate() {
-                        if i > 0 {
-                            tag_spans.push(Span::raw(" "));
-                        }
-                        let bg = tag_colors[i % tag_colors.len()];
-                        tag_spans.push(Span::styled(
-                            format!(" {} ", tag),
-                            Style::default().fg(Color::Black).bg(bg).add_modifier(Modifier::BOLD),
-                        ));
-                    }
-                    lines.push(Line::from(tag_spans));
-                }
-            }
-        }
     }
 
     fn build_runs(&self, lines: &mut Vec<Line<'static>>, data: &SummaryData) {
@@ -223,7 +186,7 @@ impl SummaryRenderer {
             )));
         }
 
-        let tag_colors = [
+        let default_tag_colors = [
             Color::Magenta,
             Color::Blue,
             Color::Cyan,
@@ -280,7 +243,11 @@ impl SummaryRenderer {
                 // Each chip is " tag " (3 chars overhead) + separator space (1 char).
                 let mut tag_spans: Vec<(Span<'static>, usize)> = Vec::new();
                 for (ti, tag) in tags.iter().enumerate() {
-                    let bg = tag_colors[ti % tag_colors.len()];
+                    // Look up color from config definitions, fall back to cycling defaults.
+                    let bg = data.tag_defs.iter()
+                        .find(|d| d.name == *tag)
+                        .map(|d| crate::config::parse_color(&d.color))
+                        .unwrap_or(default_tag_colors[ti % default_tag_colors.len()]);
                     let chip = format!(" {} ", tag);
                     let w = chip.len() + if ti + 1 < tags.len() { 1 } else { 0 }; // +1 for separator
                     tag_spans.push((

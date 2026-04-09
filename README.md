@@ -251,6 +251,24 @@ min = 0.7
 color = "red"
 ```
 
+### Tags — pre-defined tags with custom colors
+
+```toml
+[[tags.definitions]]
+name = "baseline"
+color = "blue"
+
+[[tags.definitions]]
+name = "production"
+color = "#a6e3a1"
+
+[[tags.definitions]]
+name = "deprecated"
+color = "red"
+```
+
+Press `t` to open the tag picker. Type to fuzzy-filter, Enter to toggle, or create new tags on the fly.
+
 ### Appearance
 
 ```toml

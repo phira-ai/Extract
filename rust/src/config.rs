@@ -179,6 +179,26 @@ pub struct InfoConfig {
     pub fields: Vec<String>,
 }
 
+/// A user-defined tag with a display color.
+#[derive(Debug, Clone, Deserialize)]
+pub struct TagDef {
+    pub name: String,
+    /// Color name or hex (e.g. "magenta", "#ff6600"). Used as background color for the chip.
+    #[serde(default = "default_tag_color")]
+    pub color: String,
+}
+
+fn default_tag_color() -> String {
+    "magenta".to_string()
+}
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct TagsConfig {
+    /// Pre-defined tags that appear in the tag picker for quick selection.
+    #[serde(default)]
+    pub definitions: Vec<TagDef>,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Config {
     #[serde(default)]
@@ -195,6 +215,8 @@ pub struct Config {
     pub metrics: MetricsConfig,
     #[serde(default)]
     pub info: InfoConfig,
+    #[serde(default)]
+    pub tags: TagsConfig,
 }
 
 /// Parse a color name string into a ratatui Color.

@@ -467,10 +467,54 @@ pub struct AppState {
     /// the database hasn't changed since the last tick.
     pub last_data_version: i64,
     pub show_archived: bool,
-    /// Inline tag editing state: Some(text) when actively editing, None otherwise.
-    pub tag_edit: Option<String>,
+    /// Tag picker popup state.
+    pub tag_picker: Option<TagPickerState>,
     /// Note append popup: Some(text) when typing, None otherwise.
     pub note_input: Option<String>,
+}
+
+/// State for the tag picker popup (t key).
+pub struct TagPickerState {
+    /// The text the user is typing to filter/create tags.
+    pub query: String,
+    /// All candidate tags: config-defined + existing tags on this item.
+    pub candidates: Vec<TagCandidate>,
+    /// Filtered candidates matching the query.
+    pub filtered: Vec<usize>,
+    /// Cursor within filtered list.
+    pub cursor: usize,
+    /// Current tags on the item (mutable — toggled in-place).
+    pub current_tags: Vec<String>,
+    /// Target: "runs" or "experiments".
+    pub table: String,
+    /// ID of the run or experiment being tagged.
+    pub id: String,
+}
+
+pub struct TagCandidate {
+    pub name: String,
+    pub color: Option<ratatui::style::Color>,
+    /// Whether this tag is currently applied.
+    pub active: bool,
+}
+
+impl TagPickerState {
+    pub fn apply_filter(&mut self) {
+        let q = self.query.to_lowercase();
+        self.filtered = self.candidates.iter().enumerate()
+            .filter(|(_, c)| q.is_empty() || c.name.to_lowercase().contains(&q))
+            .map(|(i, _)| i)
+            .collect();
+        if self.cursor >= self.filtered.len() {
+            self.cursor = 0;
+        }
+    }
+
+    /// Returns true if the query text matches no existing candidate exactly.
+    pub fn query_is_new_tag(&self) -> bool {
+        let q = self.query.trim();
+        !q.is_empty() && !self.candidates.iter().any(|c| c.name.eq_ignore_ascii_case(q))
+    }
 }
 
 pub struct TodoScopePicker {
@@ -570,7 +614,7 @@ impl AppState {
             g_pending: false,
             last_data_version: 0,
             show_archived,
-            tag_edit: None,
+            tag_picker: None,
             note_input: None,
         };
 

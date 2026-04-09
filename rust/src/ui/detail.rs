@@ -42,51 +42,10 @@ impl DetailPanel {
     }
 
     fn handle_key(&mut self, key: &KeyEvent, state: &mut AppState) -> Action {
-        // Tag inline edit mode
-        if state.tag_edit.is_some() {
-            match key.code {
-                crossterm::event::KeyCode::Enter => {
-                    let text = state.tag_edit.take().unwrap_or_default();
-                    let tags: Vec<String> = text
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
-                    let db_path = state.store_root.join("extract.db");
-                    if let Some(idx) = state.selected_run {
-                        if let Some(run) = state.runs.get(idx) {
-                            let _ = crate::db::Db::update_tags(&db_path, "runs", &run.id, &tags_json);
-                        }
-                    } else if let Some(idx) = state.selected_experiment {
-                        if let Some(exp) = state.experiments.get(idx) {
-                            let _ = crate::db::Db::update_tags(&db_path, "experiments", &exp.id, &tags_json);
-                        }
-                    }
-                    return Action::None;
-                }
-                crossterm::event::KeyCode::Esc => {
-                    state.tag_edit = None;
-                    return Action::None;
-                }
-                crossterm::event::KeyCode::Backspace => {
-                    if let Some(ref mut input) = state.tag_edit {
-                        input.pop();
-                    }
-                    return Action::None;
-                }
-                crossterm::event::KeyCode::Char(c) => {
-                    if key.modifiers == crossterm::event::KeyModifiers::NONE
-                        || key.modifiers == crossterm::event::KeyModifiers::SHIFT
-                    {
-                        if let Some(ref mut input) = state.tag_edit {
-                            input.push(c);
-                        }
-                    }
-                    return Action::None;
-                }
-                _ => return Action::None,
-            }
+        // Tag picker popup mode
+        if state.tag_picker.is_some() {
+            self.handle_tag_picker_key(key, state);
+            return Action::None;
         }
 
         // Note append input mode
@@ -254,20 +213,9 @@ impl DetailPanel {
             return Action::None;
         }
 
-        // t: edit tags (Summary tab only)
-        if self.active_tab == DetailTab::Summary && keys::matches(key, keys::TAG_EDIT) {
-            let current_tags = if let Some(idx) = state.selected_run {
-                state.runs.get(idx).and_then(|r| r.tags.as_deref())
-            } else {
-                state.selected_experiment
-                    .and_then(|idx| state.experiments.get(idx))
-                    .and_then(|e| e.tags.as_deref())
-            };
-            let prefill = current_tags
-                .and_then(|t| serde_json::from_str::<Vec<String>>(t).ok())
-                .map(|tags| tags.join(", "))
-                .unwrap_or_default();
-            state.tag_edit = Some(prefill);
+        // t: open tag picker popup
+        if keys::matches(key, keys::TAG_EDIT) {
+            self.open_tag_picker(state);
             return Action::None;
         }
 
@@ -496,16 +444,9 @@ impl DetailPanel {
                 .as_ref()
                 .map(|(r, c)| (r.as_str(), c.as_str())),
             preview_total_steps,
-            tags: if let Some(idx) = state.selected_run {
-                state.runs.get(idx).and_then(|r| r.tags.as_deref())
-            } else {
-                state.selected_experiment
-                    .and_then(|idx| state.experiments.get(idx))
-                    .and_then(|e| e.tags.as_deref())
-            },
-            tag_edit: state.tag_edit.as_deref(),
             selected_run: state.selected_run,
             panel_width: area.width,
+            tag_defs: &state.config.tags.definitions,
         };
 
         let sections = state.config.summary.sections.clone();
@@ -657,6 +598,216 @@ impl DetailPanel {
             .wrap(Wrap { trim: false })
             .scroll((state.info_scroll, 0));
         frame.render_widget(paragraph, area);
+    }
+
+    fn open_tag_picker(&self, state: &mut AppState) {
+        // Determine target entity and current tags.
+        let (table, id, current_tags_json) = if let Some(idx) = state.selected_run {
+            if let Some(run) = state.runs.get(idx) {
+                ("runs".to_string(), run.id.clone(), run.tags.as_deref())
+            } else {
+                return;
+            }
+        } else if let Some(idx) = state.selected_experiment {
+            if let Some(exp) = state.experiments.get(idx) {
+                ("experiments".to_string(), exp.id.clone(), exp.tags.as_deref())
+            } else {
+                return;
+            }
+        } else {
+            return;
+        };
+
+        let current_tags: Vec<String> = current_tags_json
+            .and_then(|t| serde_json::from_str(t).ok())
+            .unwrap_or_default();
+
+        // Build candidates: config-defined tags first, then any current tags not in config.
+        let mut candidates: Vec<crate::app::TagCandidate> = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        for def in &state.config.tags.definitions {
+            let active = current_tags.contains(&def.name);
+            seen.insert(def.name.clone());
+            candidates.push(crate::app::TagCandidate {
+                name: def.name.clone(),
+                color: Some(crate::config::parse_color(&def.color)),
+                active,
+            });
+        }
+
+        for tag in &current_tags {
+            if !seen.contains(tag) {
+                candidates.push(crate::app::TagCandidate {
+                    name: tag.clone(),
+                    color: None,
+                    active: true,
+                });
+            }
+        }
+
+        let filtered: Vec<usize> = (0..candidates.len()).collect();
+
+        state.tag_picker = Some(crate::app::TagPickerState {
+            query: String::new(),
+            candidates,
+            filtered,
+            cursor: 0,
+            current_tags,
+            table,
+            id,
+        });
+    }
+
+    fn handle_tag_picker_key(&self, key: &KeyEvent, state: &mut AppState) {
+        let Some(ref mut picker) = state.tag_picker else { return };
+
+        match key.code {
+            crossterm::event::KeyCode::Esc => {
+                state.tag_picker = None;
+            }
+            crossterm::event::KeyCode::Enter => {
+                // Toggle the selected candidate, or create a new tag from query text.
+                if let Some(&fi) = picker.filtered.get(picker.cursor) {
+                    let name = picker.candidates[fi].name.clone();
+                    if picker.current_tags.contains(&name) {
+                        picker.current_tags.retain(|t| t != &name);
+                        picker.candidates[fi].active = false;
+                    } else {
+                        picker.current_tags.push(name.clone());
+                        picker.candidates[fi].active = true;
+                    }
+                } else if picker.query_is_new_tag() {
+                    // Create a new tag from the query text.
+                    let new_tag = picker.query.trim().to_string();
+                    picker.current_tags.push(new_tag.clone());
+                    picker.candidates.push(crate::app::TagCandidate {
+                        name: new_tag,
+                        color: None,
+                        active: true,
+                    });
+                    picker.query.clear();
+                    picker.apply_filter();
+                }
+                // Save tags immediately.
+                let tags_json = serde_json::to_string(&picker.current_tags)
+                    .unwrap_or_else(|_| "[]".to_string());
+                let db_path = state.store_root.join("extract.db");
+                let _ = crate::db::Db::update_tags(&db_path, &picker.table, &picker.id, &tags_json);
+            }
+            crossterm::event::KeyCode::Down | crossterm::event::KeyCode::Tab => {
+                if !picker.filtered.is_empty() && picker.cursor + 1 < picker.filtered.len() {
+                    picker.cursor += 1;
+                }
+            }
+            crossterm::event::KeyCode::Up => {
+                if picker.cursor > 0 {
+                    picker.cursor -= 1;
+                }
+            }
+            crossterm::event::KeyCode::Backspace => {
+                picker.query.pop();
+                picker.apply_filter();
+            }
+            crossterm::event::KeyCode::Char(c) => {
+                if key.modifiers == crossterm::event::KeyModifiers::NONE
+                    || key.modifiers == crossterm::event::KeyModifiers::SHIFT
+                {
+                    picker.query.push(c);
+                    picker.apply_filter();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn render_tag_picker(&self, frame: &mut Frame, area: Rect, picker: &crate::app::TagPickerState) {
+        let max_results = 8;
+        let visible_count = picker.filtered.len().min(max_results);
+        let has_new_tag = picker.query_is_new_tag();
+        let extra_lines = if has_new_tag { 1 } else { 0 };
+        let height = (visible_count as u16 + extra_lines + 3).min(area.height.saturating_sub(4));
+        let width = 50u16.min(area.width.saturating_sub(4));
+
+        let x = area.x + area.width.saturating_sub(width) / 2;
+        let y = area.y + 2;
+        let popup_area = Rect::new(x, y, width, height.max(3));
+
+        frame.render_widget(ratatui::widgets::Clear, popup_area);
+
+        // Show current tags in the title.
+        let title = if picker.current_tags.is_empty() {
+            " Tags ".to_string()
+        } else {
+            format!(" Tags: {} ", picker.current_tags.join(", "))
+        };
+
+        let block = Block::bordered()
+            .title(title)
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(ratatui::symbols::border::ROUNDED);
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        if inner.height == 0 {
+            return;
+        }
+
+        let mut lines: Vec<Line> = Vec::new();
+
+        // Input line.
+        let prompt = Span::styled(" > ", Style::default().fg(self.theme.accent));
+        let query_text = Span::raw(picker.query.clone());
+        let cursor = Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK));
+        lines.push(Line::from(vec![prompt, query_text, cursor]));
+
+        // Filtered candidates.
+        let default_colors = [
+            ratatui::style::Color::Magenta,
+            ratatui::style::Color::Blue,
+            ratatui::style::Color::Cyan,
+            ratatui::style::Color::Green,
+            ratatui::style::Color::Yellow,
+        ];
+
+        for (vi, &ci) in picker.filtered.iter().enumerate().take(max_results) {
+            let cand = &picker.candidates[ci];
+            let is_selected = vi == picker.cursor;
+            let check = if cand.active { "[x] " } else { "[ ] " };
+            let bg = cand.color.unwrap_or(default_colors[ci % default_colors.len()]);
+
+            let check_span = Span::styled(
+                check,
+                if is_selected { self.theme.selected } else { Style::default() },
+            );
+            let chip = Span::styled(
+                format!(" {} ", cand.name),
+                Style::default().fg(ratatui::style::Color::Black).bg(bg).add_modifier(Modifier::BOLD),
+            );
+            let name_span = Span::styled(
+                format!(" {}", cand.name),
+                if is_selected { self.theme.selected } else { Style::default() },
+            );
+
+            lines.push(Line::from(vec![
+                Span::raw(" "),
+                check_span,
+                chip,
+                name_span,
+            ]));
+        }
+
+        // Show "create new tag" option if query doesn't match any candidate.
+        if has_new_tag {
+            let is_selected = picker.cursor >= picker.filtered.len();
+            let style = if is_selected { self.theme.selected } else { Style::default().fg(self.theme.accent) };
+            lines.push(Line::from(vec![
+                Span::raw(" "),
+                Span::styled(format!("+ create \"{}\"", picker.query.trim()), style),
+            ]));
+        }
+
+        frame.render_widget(Paragraph::new(lines), inner);
     }
 
     pub fn render_note_popup(&self, frame: &mut Frame, area: Rect, input: &str) {

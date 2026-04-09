@@ -74,13 +74,9 @@ impl Dashboard {
                         .as_ref()
                         .map(|(r, c)| (r.as_str(), c.as_str())),
                     preview_total_steps: leaf_preview_total_steps,
-                    tags: state
-                        .selected_experiment
-                        .and_then(|idx| state.experiments.get(idx))
-                        .and_then(|e| e.tags.as_deref()),
-                    tag_edit: state.tag_edit.as_deref(),
                     selected_run: state.selected_run,
                     panel_width: area.width,
+                    tag_defs: &state.config.tags.definitions,
                 };
                 let total = self.summary.render(
                     frame,
