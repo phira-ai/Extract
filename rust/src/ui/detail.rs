@@ -42,6 +42,53 @@ impl DetailPanel {
     }
 
     fn handle_key(&mut self, key: &KeyEvent, state: &mut AppState) -> Action {
+        // Tag inline edit mode
+        if state.tag_edit.is_some() {
+            match key.code {
+                crossterm::event::KeyCode::Enter => {
+                    let text = state.tag_edit.take().unwrap_or_default();
+                    let tags: Vec<String> = text
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+                    let db_path = state.store_root.join("extract.db");
+                    if let Some(idx) = state.selected_run {
+                        if let Some(run) = state.runs.get(idx) {
+                            let _ = crate::db::Db::update_tags(&db_path, "runs", &run.id, &tags_json);
+                        }
+                    } else if let Some(idx) = state.selected_experiment {
+                        if let Some(exp) = state.experiments.get(idx) {
+                            let _ = crate::db::Db::update_tags(&db_path, "experiments", &exp.id, &tags_json);
+                        }
+                    }
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Esc => {
+                    state.tag_edit = None;
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Backspace => {
+                    if let Some(ref mut input) = state.tag_edit {
+                        input.pop();
+                    }
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Char(c) => {
+                    if key.modifiers == crossterm::event::KeyModifiers::NONE
+                        || key.modifiers == crossterm::event::KeyModifiers::SHIFT
+                    {
+                        if let Some(ref mut input) = state.tag_edit {
+                            input.push(c);
+                        }
+                    }
+                    return Action::None;
+                }
+                _ => return Action::None,
+            }
+        }
+
         // S/I switch detail tabs
         if keys::matches_shift(key, keys::SUMMARY_TAB) {
             self.active_tab = DetailTab::Summary;
@@ -161,6 +208,23 @@ impl DetailPanel {
                     label,
                 });
             }
+            return Action::None;
+        }
+
+        // t: edit tags (Summary tab only)
+        if self.active_tab == DetailTab::Summary && keys::matches(key, keys::TAG_EDIT) {
+            let current_tags = if let Some(idx) = state.selected_run {
+                state.runs.get(idx).and_then(|r| r.tags.as_deref())
+            } else {
+                state.selected_experiment
+                    .and_then(|idx| state.experiments.get(idx))
+                    .and_then(|e| e.tags.as_deref())
+            };
+            let prefill = current_tags
+                .and_then(|t| serde_json::from_str::<Vec<String>>(t).ok())
+                .map(|tags| tags.join(", "))
+                .unwrap_or_default();
+            state.tag_edit = Some(prefill);
             return Action::None;
         }
 
@@ -307,6 +371,14 @@ impl DetailPanel {
                 .as_ref()
                 .map(|(r, c)| (r.as_str(), c.as_str())),
             preview_total_steps,
+            tags: if let Some(idx) = state.selected_run {
+                state.runs.get(idx).and_then(|r| r.tags.as_deref())
+            } else {
+                state.selected_experiment
+                    .and_then(|idx| state.experiments.get(idx))
+                    .and_then(|e| e.tags.as_deref())
+            },
+            tag_edit: state.tag_edit.as_deref(),
         };
 
         let sections = state.config.summary.sections.clone();
@@ -352,9 +424,6 @@ impl DetailPanel {
         }
         if let Some(ref git_sha) = run.git_sha {
             meta.push(("Git SHA", git_sha.clone(), None));
-        }
-        if let Some(ref tags) = run.tags {
-            meta.push(("Tags", tags.clone(), None));
         }
 
         let meta_key_width = meta.iter().map(|(k, _, _)| k.len()).max().unwrap_or(4);
