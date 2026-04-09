@@ -41,7 +41,7 @@ class TestSyncCurvePoints:
             with exp.run(config={"lr": 0.01}, total_steps=5, name="src-run") as run:
                 for s in range(5):
                     run.curve(step=s, loss=1.0 - 0.1 * s)
-                run.log(step=0, accuracy=0.9)  # also a headline metric
+                run.log(accuracy=0.9)  # also a headline metric
         finally:
             src.close()
 

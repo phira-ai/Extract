@@ -129,7 +129,7 @@ class TestDictExperiment:
             "variant": "lr_0.01",
         })
         with exp.run(config={"lr": 0.001}) as run:
-            run.log(step=0, loss=0.5, accuracy=0.7)
+            run.log(loss=0.5, accuracy=0.7)
 
         runs = exp.list_runs()
         assert len(runs) == 1

@@ -1142,3 +1142,135 @@ impl AppState {
         self.lineage_nodes = nodes;
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rusqlite::Connection;
+
+    /// Bootstrap a temp store directory with a minimal schema and seed data.
+    /// Returns the tempdir (keep it alive for the test duration) and the
+    /// path to the `extract.db` file inside it.
+    fn setup_store() -> (tempfile::TempDir, std::path::PathBuf) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db_path = tmp.path().join("extract.db");
+
+        // Schema + seed via a writable connection.
+        let writer = Connection::open(&db_path).unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+        writer
+            .execute_batch(include_str!("../../schema/migrations/001_init.sql"))
+            .unwrap();
+        writer
+            .execute_batch(
+                "INSERT INTO hierarchy VALUES (0, 'benchmark');
+                 INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark');
+                 INSERT INTO runs VALUES ('r1', 'e1', 'run1', NULL, '2026-01-01T00:00:00Z', NULL, 'running', NULL, NULL, '[]', NULL, 10);
+                 INSERT INTO curve_points VALUES ('r1', 'loss', 0, 1.0, 0.0);",
+            )
+            .unwrap();
+        drop(writer);
+
+        (tmp, db_path)
+    }
+
+    /// refresh_live is the single entry point for the data_version-gated
+    /// tick refresh. This test verifies four properties end-to-end:
+    ///   1. After an external write, the new curve data is visible in
+    ///      AppState::metric_histories.
+    ///   2. The user's scroll position (summary_scroll / info_scroll) is
+    ///      preserved across refresh_live — that's the whole point of the
+    ///      hard/soft loader split.
+    ///   3. PRAGMA data_version ticks when another connection commits, which
+    ///      is what the tick loop's gate relies on.
+    ///   4. Calling refresh_live twice in a row with no intervening writes is
+    ///      a no-op on the data (idempotent).
+    #[test]
+    fn test_refresh_live_streams_curves_and_preserves_scroll() {
+        let (_tmp, db_path) = setup_store();
+
+        // Open the read-only Db as the TUI does.
+        let db = Db::open(&db_path).unwrap();
+        let store_root = db_path.parent().unwrap().to_path_buf();
+        let mut state = AppState::new(db, store_root).unwrap();
+
+        // Navigate to the leaf experiment and the run within it — this is
+        // what the user does when pressing Enter on a tree leaf.
+        state.selected_experiment = Some(0);
+        state.refresh_runs().unwrap();
+        assert_eq!(state.runs.len(), 1, "fixture has one seed run");
+        state.selected_run = Some(0);
+        state.load_run_preview(0).unwrap();
+
+        // Precondition: the seed has a single curve point for "loss".
+        let loss_before = state
+            .metric_histories
+            .iter()
+            .find(|(n, _)| n == "loss")
+            .expect("seed curve point should be loaded");
+        assert_eq!(loss_before.1.len(), 1);
+
+        // User scrolls down. refresh_live must preserve this across ticks.
+        state.summary_scroll = 42;
+        state.info_scroll = 17;
+
+        let v_before = state.db.data_version().unwrap();
+
+        // Simulate the SDK training loop appending curve points via a
+        // second writable connection.
+        let writer = Connection::open(&db_path).unwrap();
+        writer
+            .execute_batch(
+                "INSERT INTO curve_points VALUES ('r1', 'loss', 1, 0.8, 0.5);
+                 INSERT INTO curve_points VALUES ('r1', 'loss', 2, 0.6, 1.0);",
+            )
+            .unwrap();
+        drop(writer);
+
+        // Property 3: data_version ticks — this is what main.rs gates on.
+        let v_after = state.db.data_version().unwrap();
+        assert!(
+            v_after > v_before,
+            "data_version should increment after external write (before={v_before}, after={v_after})"
+        );
+
+        // Simulate the tick loop: call refresh_live.
+        state.refresh_live().unwrap();
+
+        // Property 1: new curve data is visible.
+        let loss_after = state
+            .metric_histories
+            .iter()
+            .find(|(n, _)| n == "loss")
+            .expect("loss history should still be loaded");
+        assert_eq!(
+            loss_after.1.len(),
+            3,
+            "refresh_live should pull in the two new curve points"
+        );
+        assert_eq!(loss_after.1[2].step, 2);
+        assert!((loss_after.1[2].value - 0.6).abs() < 1e-9);
+
+        // Property 2: scroll positions preserved (the whole point of the
+        // hard/soft loader split in refresh_live).
+        assert_eq!(
+            state.summary_scroll, 42,
+            "summary_scroll must survive refresh_live"
+        );
+        assert_eq!(
+            state.info_scroll, 17,
+            "info_scroll must survive refresh_live"
+        );
+
+        // Property 4: idempotent — calling refresh_live again with no new
+        // writes changes nothing observable.
+        state.refresh_live().unwrap();
+        let loss_again = state
+            .metric_histories
+            .iter()
+            .find(|(n, _)| n == "loss")
+            .unwrap();
+        assert_eq!(loss_again.1.len(), 3);
+        assert_eq!(state.summary_scroll, 42);
+    }
+}

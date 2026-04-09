@@ -64,11 +64,11 @@ Usable as a context manager or via direct calls. Properties: `id: str`.
 ```python
 # Context manager — auto-finishes on exit
 with experiment.run(config={"lr": 0.001}, name="run-001") as run:
-    run.log(step=0, loss=1.0)
+    run.log(loss=1.0)
 
 # Direct call — finish explicitly
 run = experiment.run(config={"lr": 0.001}, name="run-002")
-run.log(step=0, loss=1.0)
+run.log(loss=1.0)
 run.finish()
 ```
 
@@ -82,16 +82,20 @@ run.finish()
 
 #### Headline Metrics
 
-**`run.log(step: int, **kwargs: float | int | str) -> None`**
+**`run.log(**kwargs: float | int | str) -> None`**
+- No `step` parameter — headline metrics are single values per run, not time-series. Re-logging the same metric name overwrites the previous value (INSERT OR REPLACE semantics).
 - Numeric values (int, float) → `scalar_metrics` table (headline metrics).
 - String values → `run_params` table (categorical parameters, deduplicated by name).
 - Buffered in memory; flushed every 100 entries or on `finish()`.
 - `wall_time` is automatically recorded (seconds since run start).
 - Shown in the TUI metrics summary, comparison tables, branch rankings, and the MCP `compare_runs` headline columns. Use this for the small set of values you want to *summarize* the run.
+- Passing `step=` as a kwarg raises `TypeError` — use `Run.curve()` for per-step streaming values.
 
 ```python
-run.log(step=0, loss=2.3, accuracy=0.1, arch="resnet18")
-run.log(step=1, loss=1.8, accuracy=0.3)
+# Headline values, each call overwrites on re-log.
+run.log(final_loss=0.3, final_accuracy=0.9, arch="resnet18")
+# Later re-log — single row per name, latest wins.
+run.log(final_loss=0.28)
 ```
 
 #### Streaming Curves
@@ -109,7 +113,7 @@ with experiment.run(config={"lr": 0.01}, total_steps=1000) as run:
     for step in range(1000):
         loss, acc = train_step(...)
         run.curve(step=step, train_loss=loss, train_acc=acc)
-    run.log(step=0, final_acc=acc)   # one headline metric for the Summary
+    run.log(final_acc=acc)   # one headline metric for the Summary
 ```
 
 #### Artifacts
@@ -239,10 +243,10 @@ All 8 tools are read-only. Run IDs are ULIDs; agents discover them via `list_run
 - All runs (newest-first) or scoped to one experiment. Each item: `{id, label, experiment_id, experiment_path, name, status, started_at, ended_at, tags, git_sha, hostname, config_summary}`. `config_summary` is `{n_keys, top_level_keys}` — call `get_run` for the full config.
 
 **`get_run(run_id: str) -> dict`**
-- Full detail: `{id, experiment_id, experiment_path, name, label, status, started_at, ended_at, hostname, git_sha, tags, notes, config, metrics_final, metrics_available, run_params, artifacts, todos}`. `metrics_final` is the last value of each scalar metric; histories not included (use `compare_runs` with `include_history=True`).
+- Full detail: `{id, experiment_id, experiment_path, name, label, status, started_at, ended_at, hostname, git_sha, tags, notes, config, metrics_final, metrics_available, run_params, artifacts, todos}`. `metrics_final` is the headline value of each scalar metric; streaming curve histories are NOT included (use `compare_runs` with `include_curves=True`).
 
-**`compare_runs(run_ids: list[str], include_history: bool = False) -> dict`**
-- 2–10 runs. Returns `{runs, metrics, config_diffs}`. Per metric: `{direction, values, ranking}` plus optional `history` (a list of `[step, value]` pairs per run). `direction` is `"min"` or `"max"` from name heuristics (`loss`, `error`, `mse`, etc. → min; everything else → max). `ranking` is best-to-worst by final value. `config_diffs` only contains keys where at least two runs differ; nested configs are flattened with dot notation (`method.lora_r`).
+**`compare_runs(run_ids: list[str], include_curves: bool = False) -> dict`**
+- 2–10 runs. Returns `{runs, metrics, config_diffs}` plus an optional top-level `curves` field when `include_curves=True`. Per metric in `metrics`: `{direction, values, ranking}`. `direction` is `"min"` or `"max"` from name heuristics (`loss`, `error`, `mse`, etc. → min; everything else → max). `ranking` is best-to-worst by the headline value. `config_diffs` only contains keys where at least two runs differ; nested configs are flattened with dot notation (`method.lora_r`). When `include_curves=True`, the `curves` field has shape `{name: {run_id: [[step, value], ...]}}` and is sourced from the `curve_points` table (populated by `run.curve()` during training) — curve metrics are separate from headline metrics and may have different names.
 
 **`search(query: str = "", filters: dict | None = None, limit: int = 50) -> dict`**
 - Substring + structured filter search over runs. Returns the same shape as `list_runs`.
@@ -577,9 +581,9 @@ with exp.run(config={"lr": 0.001, "bs": 32, "epochs": 50}, name="resnet50-lr1e3"
     for step in range(50):
         # Streaming curve points — drive the live chart, not the headline summary.
         run.curve(step=step, train_loss=2.3 - step * 0.04, train_acc=step * 0.018)
-    # Headline metric — appears in Summary panel and rankings.
-    run.log(step=0, final_acc=0.92)
-    run.log(step=0, arch="resnet50", optimizer="sgd")
+    # Headline metrics — appear in Summary panel and rankings.
+    run.log(final_acc=0.92)
+    run.log(arch="resnet50", optimizer="sgd")
     run.log_table("confusion_matrix", np.random.rand(1000, 1000), axes={"rows": "true", "cols": "predicted"})
     run.log_text("notes", "## Observations\nResNet50 with lr=1e-3 converges stably.")
     run.tag("sweep", "production-candidate")
@@ -590,7 +594,7 @@ with exp.run(config={"lr": 0.001, "bs": 32, "epochs": 50}, name="resnet50-lr1e3"
 
 # Direct call approach — run spans multiple scopes
 run = exp.run(config={"lr": 0.005}, name="resnet50-lr5e3")
-run.log(step=0, loss=2.1)
+run.log(loss=2.1)
 run.tag("sweep")
 run.finish()          # explicit finalize (idempotent)
 
