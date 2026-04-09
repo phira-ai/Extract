@@ -11,6 +11,20 @@ use crate::config::{parse_color, HighlightRule, SummarySection, TablesConfig};
 use crate::model::{MetricAggregate, Run, RunParam, ScalarMetric};
 use crate::ui::theme::Theme;
 
+/// Compute `(x_min, x_max)` for a curve chart with optional declared total_steps.
+///
+/// `x_min` is always `0.0`. `x_max` is `total_steps - 1` when declared (and > 0),
+/// extended to `observed_x_max` on overflow. When `total_steps` is None, falls
+/// back to `observed_x_max`. Both branches floor at `1.0` to keep the chart
+/// widget happy in the degenerate "single point at step 0" case.
+pub(crate) fn pinned_x_bounds(observed_x_max: f64, total_steps: Option<i64>) -> (f64, f64) {
+    let x_max = match total_steps.filter(|n| *n > 0) {
+        Some(n) => ((n - 1) as f64).max(observed_x_max).max(1.0),
+        None => observed_x_max.max(1.0),
+    };
+    (0.0, x_max)
+}
+
 /// All data needed to render a summary panel.
 pub struct SummaryData<'a> {
     pub name: &'a str,
@@ -23,6 +37,10 @@ pub struct SummaryData<'a> {
     pub table: Option<&'a TableData>,
     pub table_title: Option<&'a str>,
     pub table_axes: Option<(&'a str, &'a str)>,
+    /// If set, the curve chart's X axis is pinned at [0, total_steps - 1]
+    /// (extending if observed steps overflow). If None, falls back to the
+    /// legacy auto-fit-to-max-step behavior.
+    pub preview_total_steps: Option<i64>,
 }
 
 pub struct SummaryRenderer {
@@ -243,7 +261,13 @@ impl SummaryRenderer {
                     .add_modifier(Modifier::BOLD),
             )));
 
-            let chart_lines = self.render_chart_to_lines(history, width, chart_height, smooth);
+            let chart_lines = self.render_chart_to_lines(
+                history,
+                width,
+                chart_height,
+                smooth,
+                data.preview_total_steps,
+            );
             lines.extend(chart_lines);
         }
     }
@@ -254,6 +278,7 @@ impl SummaryRenderer {
         width: u16,
         height: u16,
         smooth: bool,
+        total_steps: Option<i64>,
     ) -> Vec<Line<'static>> {
         let raw_points: Vec<(f64, f64)> = history
             .iter()
@@ -266,11 +291,19 @@ impl SummaryRenderer {
             raw_points
         };
 
-        let (x_min, x_max) = points
+        // Defensive: caller should already filter empty histories, but if a
+        // future call site forgets, return early rather than rendering a
+        // degenerate [0, 1] x-range chart with no data.
+        if points.is_empty() {
+            return Vec::new();
+        }
+
+        let observed_max_x = points
             .iter()
-            .fold((f64::MAX, f64::MIN), |(min, max), (x, _)| {
-                (min.min(*x), max.max(*x))
-            });
+            .map(|(x, _)| *x)
+            .fold(f64::MIN, f64::max);
+
+        let (x_min, x_max) = pinned_x_bounds(observed_max_x, total_steps);
         let (y_min, y_max) = points
             .iter()
             .fold((f64::MAX, f64::MIN), |(min, max), (_, y)| {
@@ -555,6 +588,38 @@ mod tests {
             HighlightRule { eq: None, min: Some(0.3), max: Some(0.5), pattern: None, color: "yellow".into() },
             HighlightRule { eq: None, min: None, max: Some(0.3), pattern: None, color: "white".into() },
         ]
+    }
+
+    #[test]
+    fn test_pinned_x_bounds_no_declared_total() {
+        // Auto-fit branch: x_max should match observed_max_x.
+        assert_eq!(pinned_x_bounds(10.0, None), (0.0, 10.0));
+    }
+
+    #[test]
+    fn test_pinned_x_bounds_declared_larger_than_observed() {
+        // Declared 1000 with observed 5 → x_max = 999.
+        assert_eq!(pinned_x_bounds(5.0, Some(1000)), (0.0, 999.0));
+    }
+
+    #[test]
+    fn test_pinned_x_bounds_observed_overflow() {
+        // Declared 1000 but training overshot to step 1500 → x_max = 1500.
+        assert_eq!(pinned_x_bounds(1500.0, Some(1000)), (0.0, 1500.0));
+    }
+
+    #[test]
+    fn test_pinned_x_bounds_zero_or_negative_declared_ignored() {
+        // total_steps=0 should be ignored, falling back to observed.
+        assert_eq!(pinned_x_bounds(10.0, Some(0)), (0.0, 10.0));
+        assert_eq!(pinned_x_bounds(10.0, Some(-1)), (0.0, 10.0));
+    }
+
+    #[test]
+    fn test_pinned_x_bounds_degenerate_single_point_at_zero() {
+        // Single point at step 0, no declaration → x_max clamped to 1.0
+        // to prevent empty [0, 0] range that would break the chart widget.
+        assert_eq!(pinned_x_bounds(0.0, None), (0.0, 1.0));
     }
 
     #[test]

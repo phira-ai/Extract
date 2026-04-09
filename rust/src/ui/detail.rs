@@ -282,6 +282,16 @@ impl DetailPanel {
                 _ => return,
             };
 
+        // Resolve the preview run's total_steps for the chart x-axis pin.
+        // Per-run detail view uses state.selected_run; leaf preview falls back
+        // to the same picker as reload_leaf_preview_data so the pinned axis
+        // matches the loaded data.
+        let preview_total_steps = if let Some(idx) = state.selected_run {
+            state.runs.get(idx).and_then(|r| r.total_steps)
+        } else {
+            state.leaf_preview_run().and_then(|r| r.total_steps)
+        };
+
         let data = SummaryData {
             name: &name,
             runs: &runs,
@@ -296,6 +306,7 @@ impl DetailPanel {
                 .cached_table_axes
                 .as_ref()
                 .map(|(r, c)| (r.as_str(), c.as_str())),
+            preview_total_steps,
         };
 
         let sections = state.config.summary.sections.clone();

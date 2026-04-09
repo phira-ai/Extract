@@ -45,9 +45,10 @@ store = Store()  # reads from .extract/ in current directory
 
 Returned by `store.experiment()`. Properties: `id: str`, `path: str`, `name: str`.
 
-**`experiment.run(config=None, name=None) -> Run`**
+**`experiment.run(config=None, name=None, total_steps=None) -> Run`**
 - `config: dict | None` — JSON-serializable config dict. Stored as JSON string.
 - `name: str | None` — human-readable run name.
+- `total_steps: int | None` — declares the training-loop length so the TUI's curve chart can pin its x-axis at `[0, total_steps - 1]` from the moment the chart appears (curve fills left-to-right rather than rescaling). Optional; when unset, the chart auto-fits to the largest observed step.
 - Returns a `Run`. Usable as a context manager or directly. Automatically captures `hostname` and `git_sha` (current HEAD).
 - Run status: `"running"` on creation, `"completed"` or `"failed"` on finish.
 
@@ -79,18 +80,36 @@ run.finish()
 - Called automatically by `__exit__` when used as context manager.
 - All mutating methods (`log`, `log_table`, `tag`, etc.) raise `RuntimeError` after `finish()`.
 
-#### Scalar Metrics
+#### Headline Metrics
 
 **`run.log(step: int, **kwargs: float | int | str) -> None`**
 - Numeric values (int, float) → `scalar_metrics` table (headline metrics).
 - String values → `run_params` table (categorical parameters, deduplicated by name).
 - Buffered in memory; flushed every 100 entries or on `finish()`.
 - `wall_time` is automatically recorded (seconds since run start).
-- Shown in the TUI metrics summary and comparison tables. **Not** rendered as curves — use `log_timeseries()` for curve data.
+- Shown in the TUI metrics summary, comparison tables, branch rankings, and the MCP `compare_runs` headline columns. Use this for the small set of values you want to *summarize* the run.
 
 ```python
 run.log(step=0, loss=2.3, accuracy=0.1, arch="resnet18")
 run.log(step=1, loss=1.8, accuracy=0.3)
+```
+
+#### Streaming Curves
+
+**`run.curve(step: int, **kwargs: float | int) -> None`**
+- Numeric values only — strings raise `TypeError`. `bool` is also rejected (Python's `bool <: int` would otherwise silently coerce to `1.0`/`0.0`).
+- Writes to the `curve_points` table, which is **physically separate** from `scalar_metrics`. Headline-summary surfaces (Summary panel, branch rankings, MCP `compare_runs` headline columns) never see this data.
+- The TUI's chart panel reads from `curve_points`. Use this for the high-frequency per-step training values that drive a live chart but should not clutter the run summary.
+- Buffered with a smaller threshold (10 points) plus a wall-clock fallback (~2 seconds) so slow training loops still feel live in the TUI. Flushed at threshold, after the wall-clock window, or on `finish()`. Like `run.log()`, buffered points are lost on hard process kill (SIGKILL) — always use a `with` block so `finish()` flushes on exit.
+- `wall_time` is automatically recorded.
+- Combined with `total_steps=N` on `experiment.run(...)`, the TUI chart's x-axis is pinned at `[0, N-1]` and the curve fills left-to-right.
+
+```python
+with experiment.run(config={"lr": 0.01}, total_steps=1000) as run:
+    for step in range(1000):
+        loss, acc = train_step(...)
+        run.curve(step=step, train_loss=loss, train_acc=acc)
+    run.log(step=0, final_acc=acc)   # one headline metric for the Summary
 ```
 
 #### Artifacts
@@ -99,11 +118,6 @@ run.log(step=1, loss=1.8, accuracy=0.3)
 - Saves NumPy array as `.npy` file under `artifacts/{run_id}/matrices/`.
 - `axes: dict | None` — metadata like `{"rows": "task", "cols": "step"}`.
 - File: `{name}[_step_{step}].npy`
-
-**`run.log_timeseries(name: str, steps: list, values: list) -> None`**
-- Saves as JSON under `artifacts/{run_id}/timeseries/{name}.json`.
-- Format: `{"steps": [...], "values": [...]}`
-- Rendered as curves in the TUI Summary and Compare views. **Not** shown in headline metrics. Use this for curve-only data (e.g. per-task loss curves) that should not appear in the metrics summary.
 
 **`run.log_text(name: str, content: str) -> None`**
 - Saves as markdown under `artifacts/{run_id}/text/{name}.md`.
@@ -284,9 +298,10 @@ Single execution within an experiment.
 | `git_sha` | TEXT | auto-captured from HEAD |
 | `tags` | TEXT | JSON array of strings |
 | `notes` | TEXT | plain text, newline-separated |
+| `total_steps` | INTEGER | nullable; declared training-loop length for chart x-axis pin |
 
 ### `scalar_metrics`
-Time-series numeric values.
+Headline metrics from `run.log()`. The TUI Summary panel, branch rankings, and the MCP `compare_runs` headline columns all read this table.
 
 | Column | Type | Notes |
 |--------|------|-------|
@@ -299,6 +314,19 @@ Time-series numeric values.
 
 Unique constraint: `(run_id, name, step)`.
 
+### `curve_points`
+Streaming-curve points from `run.curve()`. The TUI's detail-panel and compare-view chart panels read this table; it is **never** read by headline-summary queries, so high-frequency training values cannot pollute the Summary panel or branch rankings.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `run_id` | TEXT FK → runs | NOT NULL |
+| `name` | TEXT | metric name, NOT NULL |
+| `step` | INTEGER | NOT NULL |
+| `value` | REAL | NOT NULL |
+| `wall_time` | REAL | seconds since run start |
+
+Unique constraint: `(run_id, name, step)` — no surrogate PK.
+
 ### `artifacts`
 Files associated with a run.
 
@@ -307,7 +335,7 @@ Files associated with a run.
 | `id` | TEXT PK | ULID |
 | `run_id` | TEXT FK → runs | |
 | `name` | TEXT | artifact name |
-| `kind` | TEXT | `"matrix"`, `"timeseries"`, `"text"` |
+| `kind` | TEXT | `"matrix"` or `"text"` |
 | `step` | INTEGER | nullable |
 | `rel_path` | TEXT | relative to store root |
 | `shape` | TEXT | JSON array for matrices |
@@ -395,7 +423,6 @@ Task notes scoped to global, experiment, or run.
 ├── artifacts/
 │   └── {run_id}/
 │       ├── matrices/{name}.npy         # NumPy arrays
-│       ├── timeseries/{name}.json      # {"steps": [], "values": []}
 │       └── text/{name}.md              # markdown text
 └── models/
     └── {model_name}/{version}/         # copied model files
@@ -546,12 +573,14 @@ exp = store.experiment({
 })
 
 # Context manager approach
-with exp.run(config={"lr": 0.001, "bs": 32, "epochs": 50}, name="resnet50-lr1e3") as run:
+with exp.run(config={"lr": 0.001, "bs": 32, "epochs": 50}, name="resnet50-lr1e3", total_steps=50) as run:
     for step in range(50):
-        run.log(step=step, loss=2.3 - step * 0.04, accuracy=step * 0.018)
+        # Streaming curve points — drive the live chart, not the headline summary.
+        run.curve(step=step, train_loss=2.3 - step * 0.04, train_acc=step * 0.018)
+    # Headline metric — appears in Summary panel and rankings.
+    run.log(step=0, final_acc=0.92)
     run.log(step=0, arch="resnet50", optimizer="sgd")
     run.log_table("confusion_matrix", np.random.rand(1000, 1000), axes={"rows": "true", "cols": "predicted"})
-    run.log_timeseries("lr_schedule", steps=list(range(50)), values=[0.001 * (0.95 ** i) for i in range(50)])
     run.log_text("notes", "## Observations\nResNet50 with lr=1e-3 converges stably.")
     run.tag("sweep", "production-candidate")
     run.note("Best learning rate in sweep")
@@ -584,7 +613,7 @@ rust/src/
 ├── config.rs        # TOML config parsing, theme/color handling
 ├── keys.rs          # keybinding constants and key matching (h/l=tab, arrows=nav/cycle)
 ├── event.rs         # event handling (Key, Tick, Resize)
-├── artifact.rs      # NumPy table loading, timeseries JSON loading, CellValue handling
+├── artifact.rs      # NumPy table loading, CellValue handling
 └── ui/
     ├── layout.rs    # main layout orchestrator + event dispatcher
     ├── tree.rs      # experiment tree navigator
@@ -611,7 +640,7 @@ python/src/extract/
 ├── store.py         # Store class: DB, hierarchy, experiment creation
 ├── experiment.py    # Experiment class: run creation, run listing
 ├── run.py           # Run class: logging, artifacts, models, lineage
-├── metrics.py       # helpers: save_npy, load_npy, save_timeseries, etc.
+├── metrics.py       # helpers: save_npy, load_npy, save_text
 ├── sync.py          # sync: rsync, tar archives, DB merging
 └── mcp.py           # MCP server: 8 read-only tools over stdio
 ```

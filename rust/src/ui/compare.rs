@@ -485,7 +485,7 @@ impl CompareView {
         height_override: Option<u16>,
         available_width: u16,
     ) {
-        if data.timeseries_names.is_empty() {
+        if data.curve_names.is_empty() {
             return;
         }
 
@@ -526,14 +526,14 @@ impl CompareView {
         }
 
         // Use configured height or auto-scale based on number of timeseries
-        let chart_height: u16 = height_override.unwrap_or_else(|| match data.timeseries_names.len() {
+        let chart_height: u16 = height_override.unwrap_or_else(|| match data.curve_names.len() {
             1 => 12,
             2 => 10,
             3 => 8,
             _ => 6,
         });
 
-        for metric_name in &data.timeseries_names {
+        for metric_name in &data.curve_names {
             let mut all_points: Vec<(Vec<(f64, f64)>, Color)> = Vec::new();
             let mut has_data = false;
 
@@ -565,8 +565,21 @@ impl CompareView {
                     .add_modifier(Modifier::BOLD),
             )));
 
-            let chart_lines =
-                self.render_overlay_chart_to_lines(&all_points, chart_width.max(20), chart_height);
+            // Pin the compare-view x-axis to the largest total_steps across
+            // the runs being compared, so all curves share a single axis and
+            // each terminates at its own training endpoint.
+            let total_steps_max: Option<i64> = data
+                .runs
+                .iter()
+                .filter_map(|rd| rd.run.total_steps)
+                .max();
+
+            let chart_lines = self.render_overlay_chart_to_lines(
+                &all_points,
+                chart_width.max(20),
+                chart_height,
+                total_steps_max,
+            );
             lines.extend(chart_lines);
         }
     }
@@ -576,25 +589,30 @@ impl CompareView {
         runs_data: &[(Vec<(f64, f64)>, Color)],
         width: u16,
         height: u16,
+        total_steps_max: Option<i64>,
     ) -> Vec<Line<'static>> {
-        // Compute global bounds
-        let mut x_min = f64::MAX;
-        let mut x_max = f64::MIN;
+        // Defensive: caller already filters via has_data, but if a future call
+        // site forgets, return early rather than rendering a chart with garbage
+        // bounds (every fold accumulator would stay at f64::MIN/MAX).
+        if runs_data.iter().all(|(d, _)| d.is_empty()) {
+            return Vec::new();
+        }
+
+        // Compute observed Y bounds; X is pinned to declared total_steps when
+        // present (extending on overflow), else falls back to observed max.
+        let mut observed_x_max = f64::MIN;
         let mut y_min = f64::MAX;
         let mut y_max = f64::MIN;
 
         for (data, _) in runs_data {
             for &(x, y) in data {
-                x_min = x_min.min(x);
-                x_max = x_max.max(x);
+                observed_x_max = observed_x_max.max(x);
                 y_min = y_min.min(y);
                 y_max = y_max.max(y);
             }
         }
 
-        if x_min >= x_max {
-            x_max = x_min + 1.0;
-        }
+        let (x_min, x_max) = crate::ui::summary::pinned_x_bounds(observed_x_max, total_steps_max);
 
         let y_range = y_max - y_min;
         let y_pad = if y_range > 0.0 { y_range * 0.1 } else { 0.1 };

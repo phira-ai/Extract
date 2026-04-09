@@ -154,7 +154,7 @@ pub struct CompareData {
     pub param_names: Vec<String>,
     pub config_keys: Vec<String>,
     pub table_names: Vec<String>,
-    pub timeseries_names: Vec<String>,
+    pub curve_names: Vec<String>,
     pub scroll: u16,
     pub total_lines: usize,
     pub visible_height: usize,
@@ -375,6 +375,9 @@ pub struct AppState {
     pub show_help: bool,
     /// True when `g` was pressed once, waiting for second `g` to go to top.
     pub g_pending: bool,
+    /// SQLite data_version watermark — used to skip tick refresh work when
+    /// the database hasn't changed since the last tick.
+    pub last_data_version: i64,
 }
 
 pub struct TodoScopePicker {
@@ -443,6 +446,7 @@ impl AppState {
             search: None,
             show_help: false,
             g_pending: false,
+            last_data_version: 0,
         })
     }
 
@@ -476,43 +480,60 @@ impl AppState {
         Ok(())
     }
 
+    /// The run whose data populates `metric_histories` in the leaf-preview path:
+    /// the latest completed run, or the first run if none have completed.
+    /// Used by the leaf-preview loader and by chart-axis-pinning code that
+    /// needs to match the loaded run exactly.
+    pub fn leaf_preview_run(&self) -> Option<&Run> {
+        self.runs
+            .iter()
+            .rev()
+            .find(|r| r.status == "completed")
+            .or(self.runs.first())
+    }
+
     /// Load curve data for a given run.
-    /// Only timeseries artifacts are loaded — scalar metrics from run.log()
-    /// are headline-only and appear in latest_metrics, not here.
+    /// Reads from the curve_points table (populated by run.curve() in the SDK).
+    /// Headline metrics from run.log() live in scalar_metrics and are surfaced
+    /// elsewhere — they don't appear in metric_histories.
     fn load_all_metric_histories(&mut self, run_id: &str) -> Result<()> {
         self.metric_histories.clear();
 
-        let artifacts = self.db.list_artifacts(run_id)?;
-        for artifact in artifacts.iter().filter(|a| a.kind == "timeseries") {
-            let path = self.store_root.join(&artifact.rel_path);
-            if let Ok(points) = crate::artifact::load_timeseries(&path) {
-                let history: Vec<ScalarMetric> = points
-                    .into_iter()
-                    .map(|(step, value)| ScalarMetric {
-                        id: 0,
-                        run_id: run_id.to_string(),
-                        step,
-                        name: artifact.name.clone(),
-                        value,
-                        wall_time: None,
-                    })
-                    .collect();
-                if !history.is_empty() {
-                    self.metric_histories
-                        .push((artifact.name.clone(), history));
-                }
+        let names = self.db.list_curve_names(run_id)?;
+        for name in names {
+            let points = self.db.list_curve_points(run_id, &name)?;
+            if points.is_empty() {
+                continue;
             }
+            let history: Vec<ScalarMetric> = points
+                .into_iter()
+                .map(|(step, value, wall_time)| ScalarMetric {
+                    id: 0,
+                    run_id: run_id.to_string(),
+                    step,
+                    name: name.clone(),
+                    value,
+                    wall_time,
+                })
+                .collect();
+            self.metric_histories.push((name, history));
         }
 
         Ok(())
     }
 
-    /// Load preview data (metric history + matrix) for a leaf experiment.
-    /// Uses the latest completed run, or the first run if none completed.
+    /// Hard reload — used when the user navigates to a new leaf experiment.
+    /// Resets scroll positions to the top.
     pub fn refresh_leaf_preview(&mut self) -> Result<()> {
         self.summary_scroll = 0;
         self.info_scroll = 0;
+        self.reload_leaf_preview_data()
+    }
 
+    /// Soft reload — used on data_version tick. Preserves scroll positions
+    /// so the leaf summary view doesn't jump to the top while training
+    /// writes new data.
+    pub fn reload_leaf_preview_data(&mut self) -> Result<()> {
         if self.runs.is_empty() {
             self.metric_histories.clear();
             self.run_params.clear();
@@ -522,15 +543,7 @@ impl AppState {
             return Ok(());
         }
 
-        // Pick a preview run: latest completed, or first
-        let preview_run = self
-            .runs
-            .iter()
-            .rev()
-            .find(|r| r.status == "completed")
-            .or(self.runs.first());
-
-        let Some(run) = preview_run else {
+        let Some(run) = self.leaf_preview_run() else {
             return Ok(());
         };
         let run_id = run.id.clone();
@@ -585,7 +598,19 @@ impl AppState {
         Ok(())
     }
 
+    /// Hard reload — used when the user enters compare view via `c`.
+    /// Resets scroll position to the top.
     pub fn load_compare_data(&mut self) -> Result<()> {
+        self.reload_compare_data()?;
+        if let Some(ref mut data) = self.compare_data {
+            data.scroll = 0;
+        }
+        Ok(())
+    }
+
+    /// Soft reload — used on data_version tick. Preserves the user's scroll
+    /// position in the compare view while curves continue to grow.
+    pub fn reload_compare_data(&mut self) -> Result<()> {
         let ids = self.selected_runs_for_compare.clone();
         let mut runs_data = Vec::new();
         let mut seen_run_ids = Vec::new();
@@ -629,26 +654,26 @@ impl AppState {
             // Load artifacts (timeseries + tables)
             let artifacts = self.db.list_artifacts(&run.id)?;
 
-            // Load curve data from timeseries artifacts only
+            // Load curve data from curve_points table
             let mut metric_histories: Vec<(String, Vec<ScalarMetric>)> = Vec::new();
-            for artifact in artifacts.iter().filter(|a| a.kind == "timeseries") {
-                let path = self.store_root.join(&artifact.rel_path);
-                if let Ok(points) = crate::artifact::load_timeseries(&path) {
-                    let history: Vec<ScalarMetric> = points
-                        .into_iter()
-                        .map(|(step, value)| ScalarMetric {
-                            id: 0,
-                            run_id: run.id.clone(),
-                            step,
-                            name: artifact.name.clone(),
-                            value,
-                            wall_time: None,
-                        })
-                        .collect();
-                    if !history.is_empty() {
-                        metric_histories.push((artifact.name.clone(), history));
-                    }
+            let curve_names = self.db.list_curve_names(&run.id)?;
+            for name in curve_names {
+                let points = self.db.list_curve_points(&run.id, &name)?;
+                if points.is_empty() {
+                    continue;
                 }
+                let history: Vec<ScalarMetric> = points
+                    .into_iter()
+                    .map(|(step, value, wall_time)| ScalarMetric {
+                        id: 0,
+                        run_id: run.id.clone(),
+                        step,
+                        name: name.clone(),
+                        value,
+                        wall_time,
+                    })
+                    .collect();
+                metric_histories.push((name, history));
             }
 
             let mut tables = Vec::new();
@@ -697,7 +722,7 @@ impl AppState {
         let mut param_names = Vec::new();
         let mut config_keys = Vec::new();
         let mut table_names = Vec::new();
-        let mut timeseries_names = Vec::new();
+        let mut curve_names = Vec::new();
 
         for rd in &runs_data {
             for m in &rd.latest_metrics {
@@ -719,8 +744,8 @@ impl AppState {
                 }
             }
             for (name, _) in &rd.metric_histories {
-                if !timeseries_names.contains(name) {
-                    timeseries_names.push(name.clone());
+                if !curve_names.contains(name) {
+                    curve_names.push(name.clone());
                 }
             }
         }
@@ -730,7 +755,12 @@ impl AppState {
         config_keys.retain(|k| config::key_passes_filters(k, &self.config.info.fields));
         config_keys.sort();
         table_names.sort();
-        timeseries_names.sort();
+        curve_names.sort();
+
+        // Preserve the user's scroll position across soft reloads.
+        // (The hard wrapper resets scroll back to 0 explicitly.)
+        let preserved_scroll = self.compare_data.as_ref().map(|d| d.scroll).unwrap_or(0);
+        let preserved_visible_height = self.compare_data.as_ref().map(|d| d.visible_height).unwrap_or(0);
 
         self.compare_data = Some(CompareData {
             runs: runs_data,
@@ -738,10 +768,10 @@ impl AppState {
             param_names,
             config_keys,
             table_names,
-            timeseries_names,
-            scroll: 0,
+            curve_names,
+            scroll: preserved_scroll,
             total_lines: 0,
-            visible_height: 0,
+            visible_height: preserved_visible_height,
         });
 
         Ok(())
@@ -835,6 +865,37 @@ impl AppState {
         Ok(())
     }
 
+    /// Single entry point for live refresh, called by the tick loop when
+    /// PRAGMA data_version has incremented. Re-runs every visible query
+    /// using the SOFT loaders so user scroll positions are preserved.
+    pub fn refresh_live(&mut self) -> Result<()> {
+        self.refresh_experiments()?;
+        if self.selected_experiment.is_some() {
+            self.refresh_runs()?;
+        }
+        self.refresh_selection_summary()?;
+        // Detail panel — soft reload (preserves scroll).
+        if let Some(idx) = self.selected_run {
+            self.reload_run_preview_data(idx)?;
+        } else if let Some(exp_idx) = self.selected_experiment {
+            // Leaf preview path: only fires if the selected experiment is a leaf.
+            let is_leaf = if let Some(exp) = self.experiments.get(exp_idx) {
+                let exp_id = exp.id.clone();
+                !self.experiments.iter().any(|e| e.parent_id.as_deref() == Some(exp_id.as_str()))
+            } else {
+                false
+            };
+            if is_leaf {
+                self.reload_leaf_preview_data()?;
+            }
+        }
+        // Compare view — soft reload (preserves scroll), only if active.
+        if self.compare_data.is_some() {
+            self.reload_compare_data()?;
+        }
+        Ok(())
+    }
+
     pub fn refresh_marked_experiments(&mut self) {
         self.marked_experiment_ids.clear();
         for run_id in &self.selected_runs_for_compare {
@@ -908,9 +969,18 @@ impl AppState {
         Ok(())
     }
 
+    /// Hard reload — used on user navigation (cycle to a new run, etc.).
+    /// Resets scroll positions to the top.
     pub fn load_run_preview(&mut self, run_idx: usize) -> Result<()> {
         self.summary_scroll = 0;
         self.info_scroll = 0;
+        self.reload_run_preview_data(run_idx)
+    }
+
+    /// Soft reload — used on data_version tick. Preserves scroll positions
+    /// so the user's view doesn't jump to the top every 500ms while training
+    /// writes new curve points.
+    pub fn reload_run_preview_data(&mut self, run_idx: usize) -> Result<()> {
         let Some(run) = self.runs.get(run_idx) else {
             return Ok(());
         };

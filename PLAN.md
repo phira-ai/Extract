@@ -2,8 +2,7 @@
 
 ## Beyond: High Value
 
-- **Live reload** — WAL-aware auto-refresh when training writes new data
-- **`extract init`** — CLI to initialize `.extract/` with hierarchy config interactively
+(none currently)
 
 ## Beyond: Medium Value
 

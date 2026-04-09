@@ -127,6 +127,23 @@ impl StatusBar {
             }
         }
 
+        // ● LIVE indicator — visible whenever any run in the store is actively
+        // running, regardless of which experiment the user is currently viewing.
+        // Falls back to the in-memory check if the DB query fails (defensive).
+        let any_running = state
+            .db
+            .has_running_runs()
+            .unwrap_or_else(|_| state.runs.iter().any(|r| r.status == "running"));
+        if any_running {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                "\u{25cf} LIVE",
+                Style::default()
+                    .fg(self.theme.success)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+
         let line = Line::from(spans);
         let bar = Paragraph::new(line).style(Style::default().fg(self.theme.accent_dim));
         frame.render_widget(bar, area);

@@ -16,6 +16,28 @@ impl Db {
         Ok(Self { conn })
     }
 
+    /// Returns SQLite's `PRAGMA data_version` counter, which increments whenever
+    /// any other connection commits to the database file. Cheap (no I/O) — safe
+    /// to call from a tight tick loop. Used by the TUI to skip refresh work
+    /// when the store hasn't changed.
+    pub fn data_version(&self) -> Result<i64> {
+        let v: i64 = self
+            .conn
+            .query_row("PRAGMA data_version", [], |row| row.get(0))?;
+        Ok(v)
+    }
+
+    /// Returns true if any run in the store is currently in 'running' status.
+    /// Used by the TUI status bar to show a global ● LIVE indicator.
+    pub fn has_running_runs(&self) -> Result<bool> {
+        let count: i64 = self.conn.query_row(
+            "SELECT COUNT(*) FROM runs WHERE status = 'running' LIMIT 1",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count > 0)
+    }
+
     // Experiments
 
     pub fn list_experiments(&self) -> Result<Vec<Experiment>> {
@@ -77,7 +99,7 @@ impl Db {
 
     pub fn list_runs(&self, experiment_id: &str) -> Result<Vec<Run>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, experiment_id, name, config, started_at, ended_at, status, hostname, git_sha, tags, notes FROM runs WHERE experiment_id = ? ORDER BY started_at",
+            "SELECT id, experiment_id, name, config, started_at, ended_at, status, hostname, git_sha, tags, notes, total_steps FROM runs WHERE experiment_id = ? ORDER BY started_at",
         )?;
         let rows = stmt.query_map(params![experiment_id], |row| {
             Ok(Run {
@@ -92,6 +114,7 @@ impl Db {
                 git_sha: row.get(8)?,
                 tags: row.get(9)?,
                 notes: row.get(10)?,
+                total_steps: row.get(11)?,
             })
         })?;
         let mut runs = Vec::new();
@@ -103,7 +126,7 @@ impl Db {
 
     pub fn get_run(&self, id: &str) -> Result<Option<Run>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, experiment_id, name, config, started_at, ended_at, status, hostname, git_sha, tags, notes FROM runs WHERE id = ?",
+            "SELECT id, experiment_id, name, config, started_at, ended_at, status, hostname, git_sha, tags, notes, total_steps FROM runs WHERE id = ?",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
             Ok(Run {
@@ -118,6 +141,7 @@ impl Db {
                 git_sha: row.get(8)?,
                 tags: row.get(9)?,
                 notes: row.get(10)?,
+                total_steps: row.get(11)?,
             })
         })?;
         match rows.next() {
@@ -154,6 +178,35 @@ impl Db {
             metrics.push(row?);
         }
         Ok(metrics)
+    }
+
+    /// Distinct metric names that have at least one curve point for this run,
+    /// in alphabetical order. Used by the TUI to enumerate curves to render.
+    pub fn list_curve_names(&self, run_id: &str) -> Result<Vec<String>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT DISTINCT name FROM curve_points WHERE run_id = ? ORDER BY name",
+        )?;
+        let rows = stmt.query_map(params![run_id], |row| row.get::<_, String>(0))?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
+    }
+
+    /// All curve points for a (run, metric), ordered by step ascending.
+    /// Returns (step, value, wall_time) tuples.
+    pub fn list_curve_points(
+        &self,
+        run_id: &str,
+        name: &str,
+    ) -> Result<Vec<(i64, f64, Option<f64>)>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT step, value, wall_time FROM curve_points \
+             WHERE run_id = ? AND name = ? ORDER BY step",
+        )?;
+        let rows = stmt.query_map(params![run_id, name], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, f64>(1)?, row.get::<_, Option<f64>>(2)?))
+        })?;
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     // Artifacts
@@ -296,7 +349,7 @@ impl Db {
     pub fn recent_runs(&self, limit: i64) -> Result<Vec<Run>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, experiment_id, name, config, started_at, ended_at, status, \
-                    hostname, git_sha, tags, notes \
+                    hostname, git_sha, tags, notes, total_steps \
              FROM runs ORDER BY started_at DESC LIMIT ?",
         )?;
         let rows = stmt.query_map(params![limit], |row| {
@@ -312,6 +365,7 @@ impl Db {
                 git_sha: row.get(8)?,
                 tags: row.get(9)?,
                 notes: row.get(10)?,
+                total_steps: row.get(11)?,
             })
         })?;
         rows.collect::<std::result::Result<Vec<_>, _>>()
@@ -469,6 +523,7 @@ impl Db {
 
         let tx = conn.unchecked_transaction()?;
         tx.execute("DELETE FROM scalar_metrics WHERE run_id = ?", params![run_id])?;
+        tx.execute("DELETE FROM curve_points WHERE run_id = ?", params![run_id])?;
         tx.execute("DELETE FROM run_params WHERE run_id = ?", params![run_id])?;
         tx.execute("DELETE FROM artifacts WHERE run_id = ?", params![run_id])?;
         tx.execute("DELETE FROM lineage WHERE (parent_type = 'run' AND parent_id = ?) OR (child_type = 'run' AND child_id = ?)", params![run_id, run_id])?;
@@ -515,6 +570,7 @@ impl Db {
         // Delete run data for all collected runs.
         for rid in &run_ids {
             tx.execute("DELETE FROM scalar_metrics WHERE run_id = ?", params![rid])?;
+            tx.execute("DELETE FROM curve_points WHERE run_id = ?", params![rid])?;
             tx.execute("DELETE FROM run_params WHERE run_id = ?", params![rid])?;
             tx.execute("DELETE FROM artifacts WHERE run_id = ?", params![rid])?;
             tx.execute("DELETE FROM lineage WHERE (parent_type = 'run' AND parent_id = ?) OR (child_type = 'run' AND child_id = ?)", params![rid, rid])?;
@@ -745,10 +801,10 @@ mod tests {
              INSERT INTO experiments VALUES ('e_c', 'a/c', 'c', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active', 'method');
              INSERT INTO experiments VALUES ('e_d', 'a/d', 'd', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active', 'method');
              INSERT INTO experiments VALUES ('e_e', 'a/d/e', 'e', 'e_d', '2026-01-01T00:00:00Z', NULL, 'active', 'variant');
-             INSERT INTO runs VALUES ('r1', 'e_b', 'run1', '{\"lr\": 0.01}', '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z', 'completed', NULL, NULL, NULL, NULL);
-             INSERT INTO runs VALUES ('r2', 'e_b', 'run2', '{\"lr\": 0.001}', '2026-01-02T00:00:00Z', NULL, 'running', NULL, NULL, NULL, NULL);
-             INSERT INTO runs VALUES ('r3', 'e_c', 'run3', '{\"lr\": 0.01}', '2026-01-03T00:00:00Z', '2026-01-03T01:00:00Z', 'completed', NULL, NULL, NULL, NULL);
-             INSERT INTO runs VALUES ('r4', 'e_e', 'run4', '{\"lr\": 0.1}', '2026-01-04T00:00:00Z', NULL, 'failed', NULL, NULL, NULL, NULL);
+             INSERT INTO runs VALUES ('r1', 'e_b', 'run1', '{\"lr\": 0.01}', '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z', 'completed', NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO runs VALUES ('r2', 'e_b', 'run2', '{\"lr\": 0.001}', '2026-01-02T00:00:00Z', NULL, 'running', NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO runs VALUES ('r3', 'e_c', 'run3', '{\"lr\": 0.01}', '2026-01-03T00:00:00Z', '2026-01-03T01:00:00Z', 'completed', NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO runs VALUES ('r4', 'e_e', 'run4', '{\"lr\": 0.1}', '2026-01-04T00:00:00Z', NULL, 'failed', NULL, NULL, NULL, NULL, NULL);
              INSERT INTO scalar_metrics VALUES (NULL, 'r1', 10, 'loss', 0.5, NULL);
              INSERT INTO scalar_metrics VALUES (NULL, 'r1', 20, 'loss', 0.3, NULL);
              INSERT INTO scalar_metrics VALUES (NULL, 'r1', 10, 'accuracy', 0.7, NULL);
@@ -760,7 +816,13 @@ mod tests {
              INSERT INTO scalar_metrics VALUES (NULL, 'r4', 10, 'loss', 0.9, NULL);
              INSERT INTO scalar_metrics VALUES (NULL, 'r4', 10, 'accuracy', 0.4, NULL);
              INSERT INTO run_params VALUES (NULL, 'r1', 'arch', 'resnet18');
-             INSERT INTO run_params VALUES (NULL, 'r1', 'fisher_label', 'empirical');",
+             INSERT INTO run_params VALUES (NULL, 'r1', 'fisher_label', 'empirical');
+             INSERT INTO curve_points VALUES ('r1', 'train_loss', 0, 1.0, 0.0);
+             INSERT INTO curve_points VALUES ('r1', 'train_loss', 1, 0.8, 0.5);
+             INSERT INTO curve_points VALUES ('r1', 'train_loss', 2, 0.6, 1.0);
+             INSERT INTO curve_points VALUES ('r1', 'lr_schedule', 0, 0.001, 0.0);
+             INSERT INTO curve_points VALUES ('r1', 'lr_schedule', 1, 0.0009, 0.5);
+             INSERT INTO curve_points VALUES ('r2', 'train_loss', 0, 1.2, 0.0);",
         )
         .unwrap();
         Db { conn }
@@ -950,5 +1012,99 @@ mod tests {
         let exp = db.list_todos(Some("experiment"), Some("e_b")).unwrap();
         assert_eq!(exp.len(), 1);
         assert_eq!(exp[0].content, "Exp todo");
+    }
+
+    #[test]
+    fn test_data_version_increments_on_external_write() {
+        // Use a temp file (not in-memory) so a second connection can see writes.
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path();
+
+        // Initialize the schema via a writable connection.
+        let writer = Connection::open(path).unwrap();
+        writer
+            .execute_batch(include_str!("../../schema/migrations/001_init.sql"))
+            .unwrap();
+
+        // Open the read-only Db (the same way the TUI does).
+        let db = Db::open(path).unwrap();
+        let v1 = db.data_version().unwrap();
+
+        // Write something via the other connection.
+        writer
+            .execute(
+                "INSERT INTO experiments (id, path, name, node_type) VALUES ('e1', 'a', 'a', 'benchmark')",
+                [],
+            )
+            .unwrap();
+
+        let v2 = db.data_version().unwrap();
+        assert!(v2 > v1, "data_version should increment after external write (v1={v1}, v2={v2})");
+
+        // Same connection, no changes — should NOT tick again.
+        let v3 = db.data_version().unwrap();
+        assert_eq!(v2, v3);
+    }
+
+    #[test]
+    fn test_list_curve_names_returns_distinct_sorted() {
+        let db = test_db();
+        let names = db.list_curve_names("r1").unwrap();
+        assert_eq!(names, vec!["lr_schedule".to_string(), "train_loss".to_string()]);
+    }
+
+    #[test]
+    fn test_list_curve_names_empty_for_run_with_no_curves() {
+        let db = test_db();
+        let names = db.list_curve_names("r3").unwrap();
+        assert!(names.is_empty());
+    }
+
+    #[test]
+    fn test_list_curve_points_returns_step_ordered_rows() {
+        let db = test_db();
+        let points = db.list_curve_points("r1", "train_loss").unwrap();
+        assert_eq!(points.len(), 3);
+        assert_eq!(points[0], (0, 1.0, Some(0.0)));
+        assert_eq!(points[1], (1, 0.8, Some(0.5)));
+        assert_eq!(points[2], (2, 0.6, Some(1.0)));
+    }
+
+    #[test]
+    fn test_list_curve_points_empty_for_unknown_metric() {
+        let db = test_db();
+        let points = db.list_curve_points("r1", "nonexistent").unwrap();
+        assert!(points.is_empty());
+    }
+
+    #[test]
+    fn test_delete_run_with_curve_points_succeeds() {
+        // Regression: ensure delete_run also clears curve_points (FK on run_id).
+        // The seed data has 5 curve_points rows for r1 (3 train_loss + 2 lr_schedule).
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let path = tmp.path();
+
+        // Initialize schema and seed data via a writable connection.
+        let writer = Connection::open(path).unwrap();
+        writer
+            .execute_batch(include_str!("../../schema/migrations/001_init.sql"))
+            .unwrap();
+        writer.execute_batch(
+            "INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark');
+             INSERT INTO runs VALUES ('r1', 'e1', 'run1', NULL, '2026-01-01T00:00:00Z', NULL, 'running', NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO curve_points VALUES ('r1', 'loss', 0, 1.0, 0.0);
+             INSERT INTO curve_points VALUES ('r1', 'loss', 1, 0.8, 0.5);"
+        ).unwrap();
+        drop(writer);
+
+        // delete_run must succeed despite the FK from curve_points → runs.
+        Db::delete_run(path, "r1").expect("delete_run should clean up curve_points");
+
+        // Confirm the run and its curve_points are gone.
+        let reader = Connection::open(path).unwrap();
+        let run_count: i64 = reader.query_row("SELECT COUNT(*) FROM runs WHERE id = 'r1'", [], |r| r.get(0)).unwrap();
+        let curve_count: i64 = reader.query_row("SELECT COUNT(*) FROM curve_points WHERE run_id = 'r1'", [], |r| r.get(0)).unwrap();
+        assert_eq!(run_count, 0);
+        assert_eq!(curve_count, 0);
     }
 }
