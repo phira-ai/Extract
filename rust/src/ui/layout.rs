@@ -18,6 +18,7 @@ use crate::ui::popup::PopupRenderer;
 use crate::ui::registry::RegistryView;
 use crate::ui::search::SearchPopup;
 use crate::ui::selection::SelectionWindow;
+use crate::ui::statusbar::StatusBar;
 use crate::ui::theme::Theme;
 use crate::ui::todo::TodoView;
 use crate::ui::tree::TreePanel;
@@ -35,6 +36,7 @@ pub struct AppLayout {
     pub todo_view: TodoView,
     pub search: SearchPopup,
     pub help: HelpOverlay,
+    pub statusbar: StatusBar,
     theme: Theme,
 }
 
@@ -54,6 +56,7 @@ impl AppLayout {
             todo_view: TodoView::new(theme),
             search: SearchPopup::new(theme),
             help: HelpOverlay::new(theme),
+            statusbar: StatusBar::new(theme),
             theme,
         }
     }
@@ -389,7 +392,15 @@ impl AppLayout {
         self.tree.apply_pending_select(state);
 
         let area = frame.area();
-        let main_area = area;
+
+        // Reserve bottom 1 line for the statusbar
+        let vertical = Layout::vertical([
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(area);
+        let main_area = vertical[0];
+        let statusbar_area = vertical[1];
 
         // Full-screen views
         match state.current_view {
@@ -488,6 +499,9 @@ impl AppLayout {
         if state.show_help {
             self.help.render(frame, area);
         }
+
+        // Statusbar (always rendered at the bottom)
+        self.statusbar.render(frame, statusbar_area, state, self.detail.active_tab);
     }
 
     fn render_notification(&self, frame: &mut Frame, area: Rect, notif: &crate::app::Notification) {

@@ -5,101 +5,96 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::app::{AppState, Focus, View};
+use crate::ui::detail::DetailTab;
 use crate::ui::theme::Theme;
 
-#[allow(dead_code)]
 pub(crate) struct StatusBar {
     theme: Theme,
 }
 
-#[allow(dead_code)]
 impl StatusBar {
     pub fn new(theme: Theme) -> Self {
         Self { theme }
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState) {
-        let n_marked = state.selected_runs_for_compare.len();
-        let bindings: Vec<(&str, &str)> = match (state.current_view, state.focus) {
+    fn action_hints<'a>(&self, state: &AppState, detail_tab: DetailTab) -> Vec<(&'a str, &'a str)> {
+        match (state.current_view, state.focus) {
             (View::Explorer, Focus::Tree) => {
-                let mut b = vec![
-                    ("j/k", "navigate"),
-                    ("Enter", "select"),
-                    ("Space", "mark"),
-                ];
-                if n_marked >= 2 {
-                    b.push(("c", "compare"));
-                    b.push(("d", "diff"));
+                let is_archived = state
+                    .selected_experiment
+                    .and_then(|idx| state.experiments.get(idx))
+                    .map(|e| e.status == "archived")
+                    .unwrap_or(false);
+
+                if is_archived {
+                    vec![("S-U", "unarchive")]
+                } else {
+                    vec![
+                        ("Space", "mark"),
+                        ("x", "delete"),
+                        ("S-A", "archive"),
+                    ]
                 }
-                b.push(("M", "models"));
-                b.push(("T", "todos"));
-                b.push(("L", "lineage"));
-                b.push(("/", "search"));
-                b.push(("?", "help"));
-                b.push(("Tab/S-Tab", "focus"));
-                b.push(("q", "quit"));
-                b
             }
             (View::Explorer, Focus::Detail) | (View::Detail, _) => {
-                let has_runs = !state.runs.is_empty();
-                let mut b = Vec::new();
-                if has_runs {
-                    b.push(("j/k", "scroll"));
-                    b.push(("\u{2190}/\u{2192}", "cycle run"));
-                    b.push(("S/I", "tabs"));
-                    b.push(("x", "delete"));
-                } else {
-                    b.push(("j/k", "scroll"));
+                let run_status = state
+                    .selected_run
+                    .and_then(|i| state.runs.get(i))
+                    .map(|r| r.status.as_str());
+
+                match run_status {
+                    Some("archived") => vec![("S-U", "unarchive")],
+                    Some("running") => {
+                        let mut b = vec![];
+                        if detail_tab == DetailTab::Summary {
+                            b.push(("t", "tags"));
+                        }
+                        b.push(("n", "note"));
+                        b.push(("C-e", "edit notes"));
+                        b.push(("S-F", "fail"));
+                        b.push(("S-C", "complete"));
+                        b
+                    }
+                    Some("completed") | Some("failed") => {
+                        let mut b = Vec::new();
+                        if detail_tab == DetailTab::Summary {
+                            b.push(("t", "tags"));
+                        }
+                        b.push(("n", "note"));
+                        b.push(("C-e", "edit notes"));
+                        b.push(("S-A", "archive"));
+                        b
+                    }
+                    _ => {
+                        // Experiment node selected (no run)
+                        vec![("S-A", "archive")]
+                    }
                 }
-                b.push(("Tab/S-Tab", "focus"));
-                b.push(("Esc", "tree"));
-                b.push(("q", "quit"));
-                b
             }
             (View::Explorer, Focus::Selection) => vec![
-                ("j/k", "navigate"),
-                ("Space", "deselect"),
+                ("Space", "unmark"),
                 ("b", "baseline"),
-                ("x", "delete"),
-                ("Tab/S-Tab", "focus"),
-                ("Esc", "tree"),
-                ("q", "quit"),
-            ],
-            (View::Compare, _) | (View::Diff, _) => vec![
-                ("Esc", "back"),
-                ("j/k", "scroll"),
-                ("C/D", "switch view"),
-                ("Tab", "selection"),
-                ("q", "quit"),
-            ],
-            (View::Registry, _) => vec![
-                ("Esc", "back"),
-                ("j/k", "navigate"),
-                ("Enter", "go to run"),
-                ("L", "lineage"),
-                ("q", "quit"),
             ],
             (View::TodoGlobal, _) => vec![
-                ("Esc", "back"),
-                ("j/k", "navigate"),
                 ("Space", "toggle"),
+                ("a", "add"),
                 ("x", "delete"),
                 ("0/1/2", "priority"),
-                ("a", "add"),
-                ("q", "quit"),
             ],
-            (View::Lineage, _) => vec![
-                ("Esc", "back"),
-                ("j/k", "navigate"),
-                ("Enter", "go to entity"),
-                ("q", "quit"),
+            (View::Compare, _) | (View::Diff, _) => vec![
+                ("b", "baseline"),
             ],
-        };
+            _ => vec![],
+        }
+    }
+
+    pub fn render(&self, frame: &mut Frame, area: Rect, state: &AppState, detail_tab: DetailTab) {
+        let hints = self.action_hints(state, detail_tab);
 
         let mut spans = Vec::new();
         spans.push(Span::raw(" "));
 
-        for (i, (key, desc)) in bindings.iter().enumerate() {
+        for (i, (key, desc)) in hints.iter().enumerate() {
             if i > 0 {
                 spans.push(Span::styled(
                     "  ",
@@ -140,6 +135,17 @@ impl StatusBar {
                 "\u{25cf} LIVE",
                 Style::default()
                     .fg(self.theme.success)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+
+        // SHOW ALL badge when show_archived is on
+        if state.show_archived {
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled(
+                "SHOW ALL",
+                Style::default()
+                    .fg(self.theme.warning)
                     .add_modifier(Modifier::BOLD),
             ));
         }
