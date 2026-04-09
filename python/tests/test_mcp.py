@@ -38,10 +38,13 @@ def populated_store(tmp_path, monkeypatch):
     with exp1.run(
         config={"lr": 0.001, "lambda": 1.0, "method": {"fisher": "diagonal"}},
         name="resnet-lr01-a",
+        total_steps=5,
     ) as r1a:
         for step in range(5):
-            r1a.log(step=step, loss=1.0 - 0.15 * step, accuracy=0.5 + 0.08 * step)
-        r1a.log(step=0, arch="resnet18")
+            r1a.curve(step=step, loss=1.0 - 0.15 * step, accuracy=0.5 + 0.08 * step)
+        # Final headline values — last loop iteration (step=4).
+        r1a.log(loss=1.0 - 0.15 * 4, accuracy=0.5 + 0.08 * 4)
+        r1a.log(arch="resnet18")
         r1a.tag("sweep", "production-candidate")
         r1a.note("Best lambda in sweep.")
         r1a.todo("Try lambda=0.5 next", priority=1)
@@ -50,9 +53,11 @@ def populated_store(tmp_path, monkeypatch):
     with exp1.run(
         config={"lr": 0.0005, "lambda": 1.0, "method": {"fisher": "empirical"}},
         name="resnet-lr01-b",
+        total_steps=5,
     ) as r1b:
         for step in range(5):
-            r1b.log(step=step, loss=0.9 - 0.12 * step, accuracy=0.55 + 0.07 * step)
+            r1b.curve(step=step, loss=0.9 - 0.12 * step, accuracy=0.55 + 0.07 * step)
+        r1b.log(loss=0.9 - 0.12 * 4, accuracy=0.55 + 0.07 * 4)
         r1b.tag("sweep")
     r1b_id = r1b.id
 
@@ -60,9 +65,14 @@ def populated_store(tmp_path, monkeypatch):
     exp2 = store.experiment(
         {"benchmark": "imagenet", "model": "vit_base", "variant": "default"}
     )
-    with exp2.run(config={"lr": 0.01, "c": 0.1}, name="vit-default") as r2:
+    with exp2.run(
+        config={"lr": 0.01, "c": 0.1},
+        name="vit-default",
+        total_steps=5,
+    ) as r2:
         for step in range(5):
-            r2.log(step=step, loss=1.2 - 0.10 * step, accuracy=0.45 + 0.09 * step)
+            r2.curve(step=step, loss=1.2 - 0.10 * step, accuracy=0.45 + 0.09 * step)
+        r2.log(loss=1.2 - 0.10 * 4, accuracy=0.45 + 0.09 * 4)
         r2.tag("baseline")
     r2_id = r2.id
 
@@ -631,23 +641,40 @@ class TestCompareRuns:
         assert vals[r1a_id] == pytest.approx(0.4)
         assert vals[r1b_id] == pytest.approx(0.42)
 
-    def test_history_omitted_by_default(self, populated_store):
+    def test_curves_omitted_by_default(self, populated_store):
         r1a_id = populated_store.test_ids["r1a"]
         r1b_id = populated_store.test_ids["r1b"]
         result = mcp_mod.compare_runs([r1a_id, r1b_id])
+        # The "curves" key is absent entirely when include_curves is off.
+        assert "curves" not in result
+        # And nothing curve-like leaks into metrics entries either.
         assert "history" not in result["metrics"]["loss"]
 
-    def test_history_included_when_requested(self, populated_store):
+    def test_curves_included_when_requested(self, populated_store):
         r1a_id = populated_store.test_ids["r1a"]
         r1b_id = populated_store.test_ids["r1b"]
-        result = mcp_mod.compare_runs([r1a_id, r1b_id], include_history=True)
-        hist = result["metrics"]["loss"]["history"]
-        assert r1a_id in hist
-        assert r1b_id in hist
-        # 5 steps logged per run.
-        assert len(hist[r1a_id]) == 5
-        # Each entry is [step, value].
-        assert hist[r1a_id][0] == [0, pytest.approx(1.0)]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id], include_curves=True)
+        # Top-level curves field, not nested under metrics.
+        assert "curves" in result
+        loss_curve = result["curves"]["loss"]
+        assert r1a_id in loss_curve
+        assert r1b_id in loss_curve
+        # 5 streaming points per run.
+        assert len(loss_curve[r1a_id]) == 5
+        # Each entry is [step, value]; first step is 0 with the initial value.
+        assert loss_curve[r1a_id][0] == [0, pytest.approx(1.0)]
+        assert loss_curve[r1a_id][4] == [4, pytest.approx(1.0 - 0.15 * 4)]
+
+    def test_curves_excludes_headline_only_metrics(self, populated_store):
+        """Metrics logged only via run.log() (like 'arch') must not appear
+        in curves, even with include_curves=True."""
+        r1a_id = populated_store.test_ids["r1a"]
+        r1b_id = populated_store.test_ids["r1b"]
+        result = mcp_mod.compare_runs([r1a_id, r1b_id], include_curves=True)
+        # 'arch' is a run_param (string), not a scalar metric — it never
+        # appears anywhere in compare_runs output.
+        assert "arch" not in result.get("curves", {})
+        assert "arch" not in result["metrics"]
 
     def test_config_diffs_only_differing_keys(self, populated_store):
         r1a_id = populated_store.test_ids["r1a"]

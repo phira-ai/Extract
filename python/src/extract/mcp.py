@@ -373,7 +373,7 @@ def get_run(run_id: str) -> dict:
     artifacts (list of artifact metadata), and todos (scoped to this run).
 
     Metric histories are NOT included — use compare_runs with
-    include_history=True on a single run if you need them.
+    include_curves=True on a single run if you need them.
     """
     if not run_id:
         raise ValueError("run_id is required")
@@ -568,13 +568,15 @@ def search(
 
 
 @_tool
-def compare_runs(run_ids: list[str], include_history: bool = False) -> dict:
-    """Compare 2-10 runs: final metric values, rankings, and config diffs.
+def compare_runs(run_ids: list[str], include_curves: bool = False) -> dict:
+    """Compare 2-10 runs: final headline metric values, rankings, config diffs,
+    and optionally per-step streaming curve data.
 
     Args:
         run_ids: List of 2-10 run ULIDs.
-        include_history: If True, include per-metric [(step, value), ...]
-            histories for every run. Off by default to keep payloads bounded.
+        include_curves: If True, include per-metric per-run `[[step, value], ...]`
+            histories from the `curve_points` table (populated by `run.curve()`
+            during training). Off by default to keep payloads bounded.
 
     Returns:
         {
@@ -584,10 +586,12 @@ def compare_runs(run_ids: list[str], include_history: bool = False) -> dict:
               direction: "min" | "max",
               values: {run_id: final_value},
               ranking: [best_run_id, ..., worst_run_id],
-              history: {run_id: [[step, value], ...]}  # only if include_history
             }
           },
-          config_diffs: {flat_key: {run_id: value}}  # only differing keys
+          curves: {                                         # only if include_curves
+            name: {run_id: [[step, value], ...]}
+          },
+          config_diffs: {flat_key: {run_id: value}}
         }
     """
     if len(run_ids) < 2:
@@ -601,7 +605,7 @@ def compare_runs(run_ids: list[str], include_history: bool = False) -> dict:
     runs_out: list[dict] = []
     configs: list[tuple[str, dict]] = []
     metric_values: dict[str, dict[str, float]] = {}  # name -> {run_id: final_val}
-    metric_history: dict[str, dict[str, list[list]]] = {}
+    curves_out: dict[str, dict[str, list[list]]] = {}  # name -> {run_id: [[step, value], ...]}
 
     with _store.lock:
         for rid in run_ids:
@@ -623,7 +627,9 @@ def compare_runs(run_ids: list[str], include_history: bool = False) -> dict:
             cfg = json.loads(row["config"]) if row["config"] else {}
             configs.append((rid, cfg))
 
-            # Final per-metric value.
+            # Final per-metric headline value (scalar_metrics: one row per
+            # (run, name) after the step= removal; MAX(step) kept for
+            # defensive compatibility with any legacy multi-step rows).
             metric_rows = _store._conn.execute(
                 "SELECT name, value FROM scalar_metrics sm1 WHERE run_id = ? "
                 "AND step = (SELECT MAX(step) FROM scalar_metrics sm2 "
@@ -633,16 +639,16 @@ def compare_runs(run_ids: list[str], include_history: bool = False) -> dict:
             for mr in metric_rows:
                 metric_values.setdefault(mr["name"], {})[rid] = mr["value"]
 
-            # Full history if requested.
-            if include_history:
-                hist_rows = _store._conn.execute(
-                    "SELECT name, step, value FROM scalar_metrics "
+            # Streaming curve histories if requested.
+            if include_curves:
+                curve_rows = _store._conn.execute(
+                    "SELECT name, step, value FROM curve_points "
                     "WHERE run_id = ? ORDER BY name, step",
                     (rid,),
                 ).fetchall()
-                for h in hist_rows:
-                    metric_history.setdefault(h["name"], {}).setdefault(rid, []).append(
-                        [h["step"], h["value"]]
+                for c in curve_rows:
+                    curves_out.setdefault(c["name"], {}).setdefault(rid, []).append(
+                        [c["step"], c["value"]]
                     )
 
     # Build the metrics dict.
@@ -653,20 +659,20 @@ def compare_runs(run_ids: list[str], include_history: bool = False) -> dict:
         ranking = [rid for rid, _ in sorted(
             vals.items(), key=lambda kv: kv[1], reverse=reverse
         )]
-        entry = {
+        metrics_out[name] = {
             "direction": direction,
             "values": vals,
             "ranking": ranking,
         }
-        if include_history and name in metric_history:
-            entry["history"] = metric_history[name]
-        metrics_out[name] = entry
 
-    return {
+    result: dict = {
         "runs": runs_out,
         "metrics": metrics_out,
         "config_diffs": _config_diffs(configs),
     }
+    if include_curves:
+        result["curves"] = curves_out
+    return result
 
 
 _VALID_NODE_TYPES = ("experiment", "run", "model")
