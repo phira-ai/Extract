@@ -452,7 +452,11 @@ fn build_tree_items<'a>(
                 let marker = if marked.contains(&exp.id) { "\u{25cf} " } else { "" };
                 let icon = node_icon(exp.node_type.as_deref(), sub_children.is_empty());
 
-                let label: Line = if sub_children.is_empty() {
+                let is_archived = exp.status == "archived";
+                let label: Line = if is_archived {
+                    let text = format!("{marker}{icon}{} (archived)", exp.name);
+                    Line::from(Span::styled(text, dim_style))
+                } else if sub_children.is_empty() {
                     Line::from(format!("{marker}{icon}{}", exp.name))
                 } else {
                     Line::from(vec![

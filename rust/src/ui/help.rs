@@ -20,7 +20,7 @@ impl HelpOverlay {
 
     pub fn render(&self, frame: &mut Frame, area: Rect) {
         let width = 50u16.min(area.width.saturating_sub(4));
-        let height = 39u16.min(area.height.saturating_sub(2));
+        let height = 50u16.min(area.height.saturating_sub(2));
         let popup_area = centered_rect(width, height, area);
 
         frame.render_widget(Clear, popup_area);
@@ -74,6 +74,26 @@ impl HelpOverlay {
             ("h/l", "cycle runs"),
             ("S/I", "summary / info tab"),
             ("x", "delete run"),
+        ] {
+            lines.push(binding_line(key, desc, accent_bold, accent_dim));
+        }
+
+        lines.push(Line::raw(""));
+
+        // Actions section
+        lines.push(Line::from(Span::styled(
+            " Actions",
+            accent_bold,
+        )));
+        for (key, desc) in &[
+            ("t", "edit tags (summary)"),
+            ("n", "append note"),
+            ("Ctrl+E", "edit notes in $EDITOR"),
+            ("S-F", "mark run failed"),
+            ("S-C", "mark run completed"),
+            ("S-A", "archive"),
+            ("S-U", "unarchive"),
+            ("S-H", "toggle show archived"),
         ] {
             lines.push(binding_line(key, desc, accent_bold, accent_dim));
         }
