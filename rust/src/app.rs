@@ -378,6 +378,11 @@ pub struct AppState {
     /// SQLite data_version watermark — used to skip tick refresh work when
     /// the database hasn't changed since the last tick.
     pub last_data_version: i64,
+    pub show_archived: bool,
+    /// Inline tag editing state: Some(text) when actively editing, None otherwise.
+    pub tag_edit: Option<String>,
+    /// Note append popup: Some(text) when typing, None otherwise.
+    pub note_input: Option<String>,
 }
 
 pub struct TodoScopePicker {
@@ -447,6 +452,9 @@ impl AppState {
             show_help: false,
             g_pending: false,
             last_data_version: 0,
+            show_archived: false,
+            tag_edit: None,
+            note_input: None,
         })
     }
 
@@ -468,6 +476,9 @@ impl AppState {
 
     pub fn refresh_experiments(&mut self) -> Result<()> {
         self.experiments = self.db.list_experiments()?;
+        if !self.show_archived {
+            self.experiments.retain(|e| e.status != "archived");
+        }
         Ok(())
     }
 
@@ -475,6 +486,9 @@ impl AppState {
         if let Some(idx) = self.selected_experiment {
             if let Some(exp) = self.experiments.get(idx) {
                 self.runs = self.db.list_runs(&exp.id)?;
+                if !self.show_archived {
+                    self.runs.retain(|r| r.status != "archived");
+                }
             }
         }
         Ok(())
