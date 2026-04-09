@@ -956,7 +956,7 @@ class TestServerSmoke:
             {"benchmark": "cifar10", "model": "convnext", "variant": "v1"}
         )
         with exp.run(config={"lr": 0.001}, name="smoke") as r:
-            r.log(step=0, loss=1.0)
+            r.log(loss=1.0)
         store.close()
 
         async def run_client() -> dict:

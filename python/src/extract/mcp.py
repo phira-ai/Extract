@@ -372,8 +372,9 @@ def get_run(run_id: str) -> dict:
     metrics_available (list of metric names), run_params (string params),
     artifacts (list of artifact metadata), and todos (scoped to this run).
 
-    Metric histories are NOT included — use compare_runs with
-    include_curves=True on a single run if you need them.
+    Streaming curve histories are NOT included — call
+    compare_runs([this_run, another_run], include_curves=True) if you need
+    per-step curve data (compare_runs always takes 2+ run ids).
     """
     if not run_id:
         raise ValueError("run_id is required")
@@ -389,11 +390,10 @@ def get_run(run_id: str) -> dict:
         if row is None:
             raise ValueError(f"Run not found: {run_id!r}")
 
-        # Final value per metric: the row with the largest step per metric name.
+        # Headline value per metric — one row per (run_id, name) after the
+        # step= removal from Run.log().
         metric_rows = _store._conn.execute(
-            "SELECT name, value FROM scalar_metrics sm1 WHERE run_id = ? "
-            "AND step = (SELECT MAX(step) FROM scalar_metrics sm2 "
-            "            WHERE sm2.run_id = sm1.run_id AND sm2.name = sm1.name)",
+            "SELECT name, value FROM scalar_metrics WHERE run_id = ?",
             (run_id,),
         ).fetchall()
         metrics_final = {r["name"]: r["value"] for r in metric_rows}
@@ -627,13 +627,10 @@ def compare_runs(run_ids: list[str], include_curves: bool = False) -> dict:
             cfg = json.loads(row["config"]) if row["config"] else {}
             configs.append((rid, cfg))
 
-            # Final per-metric headline value (scalar_metrics: one row per
-            # (run, name) after the step= removal; MAX(step) kept for
-            # defensive compatibility with any legacy multi-step rows).
+            # Headline values — after the step= removal from Run.log(),
+            # scalar_metrics has at most one row per (run_id, name) at step=0.
             metric_rows = _store._conn.execute(
-                "SELECT name, value FROM scalar_metrics sm1 WHERE run_id = ? "
-                "AND step = (SELECT MAX(step) FROM scalar_metrics sm2 "
-                "            WHERE sm2.run_id = sm1.run_id AND sm2.name = sm1.name)",
+                "SELECT name, value FROM scalar_metrics WHERE run_id = ?",
                 (rid,),
             ).fetchall()
             for mr in metric_rows:

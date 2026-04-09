@@ -1,7 +1,7 @@
 # Live Reload — Design
 
 **Date:** 2026-04-08
-**Status:** Approved, ready for implementation planning
+**Status:** Shipped (2026-04-09). **Partially superseded by `feature/log-api-cleanup` (2026-04-09):** `Run.log()` no longer takes a `step=` parameter — headline metrics are single-value per run. MCP `compare_runs` uses `include_curves=True` (top-level `curves` response field) instead of `include_history=True`. This doc preserves the original design rationale but is no longer accurate on those two points.
 **PLAN.md item:** "Live reload — WAL-aware auto-refresh when training writes new data"
 
 ## Goal
