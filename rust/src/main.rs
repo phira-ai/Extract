@@ -71,8 +71,33 @@ async fn main() -> color_eyre::Result<()> {
         layout.detail.active_tab = crate::ui::detail::DetailTab::Info;
     }
 
-    // Restore selected run after the first render applies pending_tree_select.
-    let restore_run_id = session.run_id.clone();
+    // Restore session data (runs, summary, preview) BEFORE the first render
+    // so the UI appears fully loaded on the first frame.
+    if let Some(ref exp_path) = session.experiment_path {
+        if let Some(idx) = app.experiments.iter().position(|e| e.path == *exp_path) {
+            app.selected_experiment = Some(idx);
+            let _ = app.refresh_runs();
+            let _ = app.refresh_selection_summary();
+            // Load preview for leaf experiments.
+            let exp_id = app.experiments[idx].id.clone();
+            let has_children = app.experiments.iter()
+                .any(|e| e.parent_id.as_deref() == Some(exp_id.as_str()));
+            if !has_children {
+                let _ = app.refresh_leaf_preview();
+            }
+            // Restore selected run within the experiment.
+            if let Some(ref run_id) = session.run_id {
+                if let Some(ri) = app.runs.iter().position(|r| r.id == *run_id) {
+                    app.selected_run = Some(ri);
+                    let _ = app.load_run_preview(ri);
+                    app.metrics = app.db.get_latest_metrics(run_id).unwrap_or_default();
+                }
+            }
+            if session.focus == "detail" {
+                app.focus = app::Focus::Detail;
+            }
+        }
+    }
 
     // Setup terminal
     crossterm::terminal::enable_raw_mode()?;
@@ -82,43 +107,10 @@ async fn main() -> color_eyre::Result<()> {
     let mut terminal = ratatui::Terminal::new(backend)?;
 
     // Main loop
-    let mut first_render = true;
     loop {
         terminal.draw(|frame| {
             layout.render(frame, &mut app);
         })?;
-
-        // After the first render, pending_tree_select has been applied by the
-        // tree widget. Now load the experiment's data (runs, summary, preview)
-        // which sync_selection normally does on navigation.
-        if first_render {
-            first_render = false;
-            if let Some(ref exp_path) = session.experiment_path {
-                if let Some(idx) = app.experiments.iter().position(|e| e.path == *exp_path) {
-                    app.selected_experiment = Some(idx);
-                    let _ = app.refresh_runs();
-                    let _ = app.refresh_selection_summary();
-                    // Load preview for leaf experiments.
-                    let exp_id = app.experiments[idx].id.clone();
-                    let has_children = app.experiments.iter()
-                        .any(|e| e.parent_id.as_deref() == Some(exp_id.as_str()));
-                    if !has_children {
-                        let _ = app.refresh_leaf_preview();
-                    }
-                    // Restore selected run within the experiment.
-                    if let Some(ref run_id) = restore_run_id {
-                        if let Some(ri) = app.runs.iter().position(|r| r.id == *run_id) {
-                            app.selected_run = Some(ri);
-                            let _ = app.load_run_preview(ri);
-                            app.metrics = app.db.get_latest_metrics(run_id).unwrap_or_default();
-                        }
-                    }
-                    if session.focus == "detail" {
-                        app.focus = app::Focus::Detail;
-                    }
-                }
-            }
-        }
 
         let event = events.next().await?;
 
