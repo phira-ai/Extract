@@ -115,8 +115,10 @@ store = Store()
 exp = store.experiment({{
 {dict_lines}
 }})
-with exp.run(config={{"lr": 0.01}}) as run:
-    run.log(step=0, loss=2.3, accuracy=0.1)
+with exp.run(config={{"lr": 0.01}}, total_steps=100) as run:
+    for step in range(100):
+        run.curve(step=step, loss=2.3 - step * 0.02)       # live chart
+    run.log(final_loss=0.3, final_acc=0.9)                  # headline Summary
 
 # Browse with: extract tui
 """
