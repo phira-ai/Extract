@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use color_eyre::Result;
+use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 
 use crate::artifact::TableData;
@@ -10,6 +11,86 @@ use crate::db::Db;
 use std::collections::HashMap;
 
 use crate::model::{is_lower_better, Artifact, Experiment, MetricAggregate, MetricRanking, Run, RunParam, ScalarMetric};
+
+/// Persisted session state — saved to `.extract/session.json` on quit,
+/// restored on next launch.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Session {
+    /// Experiment path (e.g. "cifar100/ewc/lr_0.01") — stable across restarts.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub experiment_path: Option<String>,
+    /// Selected run ID within the experiment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub run_id: Option<String>,
+    /// Panel focus: "tree", "detail", or "selection".
+    #[serde(default = "default_focus_str")]
+    pub focus: String,
+    /// Active view: "explorer", "compare", "diff", etc.
+    #[serde(default = "default_view_str")]
+    pub view: String,
+    /// Detail tab: "summary" or "info".
+    #[serde(default = "default_detail_tab_str")]
+    pub detail_tab: String,
+    /// Whether archived items are shown.
+    #[serde(default)]
+    pub show_archived: bool,
+    /// Run IDs marked for comparison.
+    #[serde(default)]
+    pub marked_runs: Vec<String>,
+    /// TODO filter: "all", "global", "experiment", "run".
+    #[serde(default = "default_todo_filter_str")]
+    pub todo_filter: String,
+}
+
+fn default_focus_str() -> String { "tree".into() }
+fn default_view_str() -> String { "explorer".into() }
+fn default_detail_tab_str() -> String { "summary".into() }
+fn default_todo_filter_str() -> String { "all".into() }
+
+impl Session {
+    pub fn load(store_root: &std::path::Path) -> Self {
+        let path = store_root.join("session.json");
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    pub fn save(&self, store_root: &std::path::Path) {
+        let path = store_root.join("session.json");
+        if let Ok(json) = serde_json::to_string_pretty(self) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+
+    fn parse_focus(&self) -> Focus {
+        match self.focus.as_str() {
+            "detail" => Focus::Detail,
+            "selection" => Focus::Selection,
+            _ => Focus::Tree,
+        }
+    }
+
+    fn parse_view(&self) -> View {
+        match self.view.as_str() {
+            "compare" => View::Compare,
+            "diff" => View::Diff,
+            "registry" => View::Registry,
+            "lineage" => View::Lineage,
+            "todo" => View::TodoGlobal,
+            _ => View::Explorer,
+        }
+    }
+
+    fn parse_todo_filter(&self) -> TodoFilter {
+        match self.todo_filter.as_str() {
+            "global" => TodoFilter::Global,
+            "experiment" => TodoFilter::Experiment,
+            "run" => TodoFilter::Run,
+            _ => TodoFilter::All,
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum View {
@@ -400,22 +481,50 @@ pub struct TodoScopePicker {
 
 impl AppState {
     pub fn new(db: Db, store_root: PathBuf) -> Result<Self> {
+        let session = Session::load(&store_root);
+
         let experiments = db.list_experiments()?;
         let total_runs = db.count_all_runs()?;
         let recent_runs = db.recent_runs(5)?;
         let total_experiments = db.count_leaf_experiments()?;
         let config = config::load_config(&store_root);
-        Ok(Self {
+
+        let show_archived = session.show_archived;
+
+        // Restore marked runs — filter to IDs that still exist.
+        let marked_runs: Vec<String> = if !session.marked_runs.is_empty() {
+            session.marked_runs.iter()
+                .filter(|id| db.get_run(id).ok().flatten().is_some())
+                .cloned()
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Determine initial experiment to select from session.
+        let pending_select = session.experiment_path.as_ref().and_then(|path| {
+            experiments.iter().find(|e| e.path == *path).map(|e| e.id.clone())
+        });
+
+        // Restore view — but only Explorer is safe to restore without data loaded.
+        // Compare/Diff/Registry/Lineage/Todo need their data loaded first.
+        let restored_view = session.parse_view();
+        let current_view = match restored_view {
+            View::Explorer | View::Detail => restored_view,
+            _ => View::Explorer, // fall back; user can re-navigate
+        };
+
+        let mut state = Self {
             db,
             store_root,
             config,
-            current_view: View::Explorer,
-            focus: Focus::Tree,
+            current_view,
+            focus: session.parse_focus(),
             experiments,
             selected_experiment: None,
             runs: Vec::new(),
             selected_run: None,
-            selected_runs_for_compare: Vec::new(),
+            selected_runs_for_compare: marked_runs,
             metrics: Vec::new(),
             artifacts: Vec::new(),
             run_params: Vec::new(),
@@ -452,18 +561,75 @@ impl AppState {
             todos: Vec::new(),
             todo_cursor: 0,
             todo_input: None,
-            todo_filter: TodoFilter::All,
+            todo_filter: session.parse_todo_filter(),
             todo_add_scope: None,
             todo_scope_picker: None,
-            pending_tree_select: None,
+            pending_tree_select: pending_select,
             search: None,
             show_help: false,
             g_pending: false,
             last_data_version: 0,
-            show_archived: false,
+            show_archived,
             tag_edit: None,
             note_input: None,
-        })
+        };
+
+        // If show_archived was off, filter experiments.
+        if !show_archived {
+            state.experiments.retain(|e| e.status != "archived");
+        }
+
+        // Rebuild marked experiment IDs from restored marked runs.
+        state.refresh_marked_experiments();
+
+        Ok(state)
+    }
+
+    /// Capture current state into a Session and save to disk.
+    pub fn save_session(&self, detail_tab: &str) {
+        let experiment_path = self.selected_experiment
+            .and_then(|idx| self.experiments.get(idx))
+            .map(|e| e.path.clone());
+
+        let run_id = self.selected_run
+            .and_then(|idx| self.runs.get(idx))
+            .map(|r| r.id.clone());
+
+        let focus = match self.focus {
+            Focus::Tree => "tree",
+            Focus::Detail => "detail",
+            Focus::Selection => "selection",
+        };
+
+        let view = match self.current_view {
+            View::Explorer => "explorer",
+            View::Detail => "detail",
+            View::Compare => "compare",
+            View::Diff => "diff",
+            View::Registry => "registry",
+            View::Lineage => "lineage",
+            View::TodoGlobal => "todo",
+        };
+
+        let todo_filter = match self.todo_filter {
+            TodoFilter::All => "all",
+            TodoFilter::Global => "global",
+            TodoFilter::Experiment => "experiment",
+            TodoFilter::Run => "run",
+        };
+
+        let session = Session {
+            experiment_path,
+            run_id,
+            focus: focus.to_string(),
+            view: view.to_string(),
+            detail_tab: detail_tab.to_string(),
+            show_archived: self.show_archived,
+            marked_runs: self.selected_runs_for_compare.clone(),
+            todo_filter: todo_filter.to_string(),
+        };
+
+        session.save(&self.store_root);
     }
 
     pub fn notify(&mut self, level: NotifyLevel, message: impl Into<String>) {
