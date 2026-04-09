@@ -155,6 +155,11 @@ async fn main() -> color_eyre::Result<()> {
                 app.current_view = view;
             }
             Action::SuspendForEditor { table, id } => {
+                // Drop the event handler to stop its background task from
+                // polling stdin via crossterm — otherwise it fights with the
+                // editor for terminal input and causes severe lag.
+                drop(events);
+
                 // Suspend terminal
                 crossterm::terminal::disable_raw_mode()?;
                 crossterm::execute!(
@@ -171,6 +176,9 @@ async fn main() -> color_eyre::Result<()> {
                 )?;
                 crossterm::terminal::enable_raw_mode()?;
                 terminal.clear()?;
+
+                // Restart the event handler.
+                events = event::EventHandler::new(Duration::from_millis(500));
 
                 if let Err(e) = result {
                     app.notify(app::NotifyLevel::Error, format!("Editor failed: {e}"));
