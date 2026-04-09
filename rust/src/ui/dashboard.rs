@@ -79,6 +79,8 @@ impl Dashboard {
                         .and_then(|idx| state.experiments.get(idx))
                         .and_then(|e| e.tags.as_deref()),
                     tag_edit: state.tag_edit.as_deref(),
+                    selected_run: state.selected_run,
+                    panel_width: area.width,
                 };
                 let total = self.summary.render(
                     frame,

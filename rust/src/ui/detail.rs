@@ -504,6 +504,8 @@ impl DetailPanel {
                     .and_then(|e| e.tags.as_deref())
             },
             tag_edit: state.tag_edit.as_deref(),
+            selected_run: state.selected_run,
+            panel_width: area.width,
         };
 
         let sections = state.config.summary.sections.clone();

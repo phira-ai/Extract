@@ -43,6 +43,8 @@ pub struct SummaryData<'a> {
     pub preview_total_steps: Option<i64>,
     pub tags: Option<&'a str>,
     pub tag_edit: Option<&'a str>,
+    pub selected_run: Option<usize>,
+    pub panel_width: u16,
 }
 
 pub struct SummaryRenderer {
@@ -180,16 +182,58 @@ impl SummaryRenderer {
             return;
         }
 
+        let max_visible: usize = 5;
+        let total = data.runs.len();
+        let selected = data.selected_run.unwrap_or(0);
+
+        // Compute the visible window of at most 5 runs centered on the selected run.
+        let (start, end) = if total <= max_visible {
+            (0, total)
+        } else {
+            let half = max_visible / 2;
+            let s = if selected < half {
+                0
+            } else if selected + max_visible - half > total {
+                total - max_visible
+            } else {
+                selected - half
+            };
+            (s, s + max_visible)
+        };
+
         lines.push(Line::from(""));
+        let header_label = if total > max_visible {
+            format!("  Runs ({}/{})", end - start, total)
+        } else {
+            "  Runs".to_string()
+        };
         lines.push(Line::from(Span::styled(
-            "  Runs".to_string(),
+            header_label,
             Style::default()
                 .fg(self.theme.accent)
                 .add_modifier(Modifier::BOLD),
         )));
         lines.push(self.separator());
 
-        for (i, run) in data.runs.iter().enumerate() {
+        // Show truncation indicator at top
+        if start > 0 {
+            lines.push(Line::from(Span::styled(
+                format!("  \u{25b2} {} more above", start),
+                Style::default().fg(self.theme.accent_dim),
+            )));
+        }
+
+        let tag_colors = [
+            Color::Magenta,
+            Color::Blue,
+            Color::Cyan,
+            Color::Green,
+            Color::Yellow,
+        ];
+        let panel_w = data.panel_width as usize;
+
+        for i in start..end {
+            let run = &data.runs[i];
             let status_style = self.status_style(&run.status);
             let date = run.started_at.get(..10).unwrap_or(&run.started_at);
             let label = run.name.clone().unwrap_or_else(|| {
@@ -197,6 +241,7 @@ impl SummaryRenderer {
                 if id.len() > 8 { id[id.len() - 8..].to_string() } else { id.clone() }
             });
 
+            // Build the base run info (label + status + date + metrics)
             let mut spans = vec![
                 Span::raw("  ".to_string()),
                 Span::raw(format!("{:<12}", label)),
@@ -218,7 +263,95 @@ impl SummaryRenderer {
                 }
             }
 
-            lines.push(Line::from(spans));
+            // Calculate how wide the base line is so far.
+            let base_width: usize = spans.iter().map(|s| s.width()).sum();
+
+            // Parse tags for this run.
+            let tags: Vec<String> = run
+                .tags
+                .as_deref()
+                .and_then(|t| serde_json::from_str(t).ok())
+                .unwrap_or_default();
+
+            if tags.is_empty() {
+                lines.push(Line::from(spans));
+            } else {
+                // Build tag spans with chip styling.
+                // Each chip is " tag " (3 chars overhead) + separator space (1 char).
+                let mut tag_spans: Vec<(Span<'static>, usize)> = Vec::new();
+                for (ti, tag) in tags.iter().enumerate() {
+                    let bg = tag_colors[ti % tag_colors.len()];
+                    let chip = format!(" {} ", tag);
+                    let w = chip.len() + if ti + 1 < tags.len() { 1 } else { 0 }; // +1 for separator
+                    tag_spans.push((
+                        Span::styled(
+                            chip,
+                            Style::default().fg(Color::Black).bg(bg).add_modifier(Modifier::BOLD),
+                        ),
+                        w,
+                    ));
+                }
+
+                // Fit as many tags as possible on the first line after the metrics.
+                let avail_first = panel_w.saturating_sub(base_width + 1); // 1 for leading space
+                let mut first_line_tags: Vec<Span<'static>> = Vec::new();
+                let mut used = 0usize;
+                let mut remaining_start = 0usize;
+
+                for (ti, (span, w)) in tag_spans.iter().enumerate() {
+                    if used + w <= avail_first || ti == 0 {
+                        if ti > 0 {
+                            first_line_tags.push(Span::raw(" "));
+                        } else {
+                            first_line_tags.push(Span::raw(" "));
+                        }
+                        first_line_tags.push(span.clone());
+                        used += w;
+                        remaining_start = ti + 1;
+                    } else {
+                        break;
+                    }
+                }
+
+                spans.extend(first_line_tags);
+                lines.push(Line::from(spans));
+
+                // Wrap remaining tags to continuation lines, left-aligned with first tag.
+                let indent = base_width + 1; // align with first tag
+                let avail_wrap = panel_w.saturating_sub(indent);
+                let mut wrap_idx = remaining_start;
+
+                while wrap_idx < tag_spans.len() {
+                    let mut wrap_spans: Vec<Span<'static>> = vec![
+                        Span::raw(" ".repeat(indent)),
+                    ];
+                    let mut wrap_used = 0usize;
+
+                    while wrap_idx < tag_spans.len() {
+                        let (span, w) = &tag_spans[wrap_idx];
+                        if wrap_used + w <= avail_wrap || wrap_used == 0 {
+                            if wrap_used > 0 {
+                                wrap_spans.push(Span::raw(" "));
+                            }
+                            wrap_spans.push(span.clone());
+                            wrap_used += w;
+                            wrap_idx += 1;
+                        } else {
+                            break;
+                        }
+                    }
+
+                    lines.push(Line::from(wrap_spans));
+                }
+            }
+        }
+
+        // Show truncation indicator at bottom
+        if end < total {
+            lines.push(Line::from(Span::styled(
+                format!("  \u{25bc} {} more below", total - end),
+                Style::default().fg(self.theme.accent_dim),
+            )));
         }
     }
 
