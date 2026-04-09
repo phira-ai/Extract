@@ -42,7 +42,7 @@ impl Db {
 
     pub fn list_experiments(&self) -> Result<Vec<Experiment>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, path, name, parent_id, created_at, metadata, status, node_type FROM experiments ORDER BY created_at",
+            "SELECT id, path, name, parent_id, created_at, metadata, status, node_type, tags, notes FROM experiments ORDER BY created_at",
         )?;
         let rows = stmt.query_map([], |row| {
             Ok(Experiment {
@@ -54,6 +54,8 @@ impl Db {
                 metadata: row.get(5)?,
                 status: row.get(6)?,
                 node_type: row.get(7)?,
+                tags: row.get(8)?,
+                notes: row.get(9)?,
             })
         })?;
         let mut experiments = Vec::new();
@@ -65,7 +67,7 @@ impl Db {
 
     pub fn get_experiment(&self, id: &str) -> Result<Option<Experiment>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, path, name, parent_id, created_at, metadata, status, node_type FROM experiments WHERE id = ?",
+            "SELECT id, path, name, parent_id, created_at, metadata, status, node_type, tags, notes FROM experiments WHERE id = ?",
         )?;
         let mut rows = stmt.query_map(params![id], |row| {
             Ok(Experiment {
@@ -77,6 +79,8 @@ impl Db {
                 metadata: row.get(5)?,
                 status: row.get(6)?,
                 node_type: row.get(7)?,
+                tags: row.get(8)?,
+                notes: row.get(9)?,
             })
         })?;
         match rows.next() {

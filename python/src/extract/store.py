@@ -36,7 +36,9 @@ CREATE TABLE IF NOT EXISTS experiments (
     created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),
     metadata    TEXT,
     status      TEXT NOT NULL DEFAULT 'created',
-    node_type   TEXT NOT NULL
+    node_type   TEXT NOT NULL,
+    tags        TEXT,
+    notes       TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_experiments_path      ON experiments(path);
@@ -200,6 +202,12 @@ class Store:
             cols = [r[1] for r in self._conn.execute("PRAGMA table_info(runs)").fetchall()]
             if "total_steps" not in cols:
                 self._conn.execute("ALTER TABLE runs ADD COLUMN total_steps INTEGER")
+            # Idempotent migration: add tags/notes to experiments.
+            exp_cols = [r[1] for r in self._conn.execute("PRAGMA table_info(experiments)").fetchall()]
+            if "tags" not in exp_cols:
+                self._conn.execute("ALTER TABLE experiments ADD COLUMN tags TEXT")
+            if "notes" not in exp_cols:
+                self._conn.execute("ALTER TABLE experiments ADD COLUMN notes TEXT")
             self._conn.commit()
 
         # Sync hierarchy to DB (write-through cache).
