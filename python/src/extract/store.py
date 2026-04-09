@@ -315,6 +315,16 @@ class Store:
                 if row is not None:
                     parent_id = row["id"]
                     exp_id, exp_path, exp_name = row["id"], row["path"], row["name"]
+                    # Auto-unarchive: if this node on the path is archived, flip to active.
+                    status_row = self._conn.execute(
+                        "SELECT status FROM experiments WHERE id = ?",
+                        (row["id"],),
+                    ).fetchone()
+                    if status_row and status_row["status"] == "archived":
+                        self._conn.execute(
+                            "UPDATE experiments SET status = 'active' WHERE id = ?",
+                            (row["id"],),
+                        )
                 else:
                     exp_id = str(ULID())
                     self._conn.execute(
@@ -348,6 +358,26 @@ class Store:
             Experiment(store=self, id=r["id"], path=r["path"], name=r["name"])
             for r in rows
         ]
+
+    def get_run(self, run_id: str) -> "Run":
+        """Get a Run object for an existing run (any status).
+
+        Unlike the Run returned by Experiment.run(), this Run is not
+        active — log() and curve() will raise, but tag() and note()
+        work for post-hoc annotation.
+        """
+        from extract.run import Run
+
+        with self.lock:
+            row = self._conn.execute(
+                "SELECT id, experiment_id FROM runs WHERE id = ?",
+                (run_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError(f"Run not found: {run_id!r}")
+        run = Run(store=self, experiment_id=row["experiment_id"], run_id=row["id"])
+        run._finished = True  # prevent log()/curve() but allow tag()/note()
+        return run
 
     # ------------------------------------------------------------------
     # TODOs

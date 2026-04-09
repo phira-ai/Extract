@@ -266,7 +266,6 @@ class Run:
 
     def tag(self, *tags: str) -> None:
         """Append tags to this run."""
-        self._check_active()
         with self._store.lock:
             row = self._store._conn.execute(
                 "SELECT tags FROM runs WHERE id = ?", (self._id,)
@@ -281,7 +280,6 @@ class Run:
 
     def note(self, content: str) -> None:
         """Set or append to this run's notes."""
-        self._check_active()
         with self._store.lock:
             row = self._store._conn.execute(
                 "SELECT notes FROM runs WHERE id = ?", (self._id,)
