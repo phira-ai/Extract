@@ -513,10 +513,12 @@ impl DetailPanel {
         if let Some(ref notes) = run.notes {
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                "Notes: ",
+                "  Notes",
                 Style::default().add_modifier(Modifier::BOLD),
             )));
-            lines.push(Line::from(notes.clone()));
+            for note_line in notes.lines() {
+                lines.push(render_note_line(note_line, &self.theme));
+            }
         }
 
         if let Some(ref config) = run.config {
@@ -830,4 +832,103 @@ impl DetailPanel {
         let line = Line::from(vec![Span::raw(input), cursor]);
         frame.render_widget(Paragraph::new(line), inner);
     }
+}
+
+/// Render a single line of notes text, highlighting LaTeX math delimiters.
+///
+/// `$...$` and `$$...$$` blocks are rendered in italic + a distinct color
+/// so they visually stand out as math. Common LaTeX commands get unicode
+/// substitutions for readability: \alpha → α, \beta → β, \sum → Σ, etc.
+fn render_note_line<'a>(text: &str, theme: &crate::ui::theme::Theme) -> Line<'a> {
+    let math_style = Style::default()
+        .fg(theme.warning)
+        .add_modifier(Modifier::ITALIC);
+    let text_style = Style::default();
+
+    let mut spans: Vec<Span<'a>> = vec![Span::raw("  ")]; // indent
+    let mut rest = text;
+
+    while !rest.is_empty() {
+        // Try $$ (display math) first, then $ (inline math).
+        if let Some(start) = rest.find("$$") {
+            // Push text before the delimiter.
+            if start > 0 {
+                spans.push(Span::styled(rest[..start].to_string(), text_style));
+            }
+            let after_open = &rest[start + 2..];
+            if let Some(end) = after_open.find("$$") {
+                let math = &after_open[..end];
+                spans.push(Span::styled(
+                    format!(" {} ", latex_to_unicode(math)),
+                    math_style,
+                ));
+                rest = &after_open[end + 2..];
+            } else {
+                // No closing $$ — render rest as-is.
+                spans.push(Span::styled(rest[start..].to_string(), math_style));
+                rest = "";
+            }
+        } else if let Some(start) = rest.find('$') {
+            if start > 0 {
+                spans.push(Span::styled(rest[..start].to_string(), text_style));
+            }
+            let after_open = &rest[start + 1..];
+            if let Some(end) = after_open.find('$') {
+                let math = &after_open[..end];
+                spans.push(Span::styled(
+                    format!(" {} ", latex_to_unicode(math)),
+                    math_style,
+                ));
+                rest = &after_open[end + 1..];
+            } else {
+                spans.push(Span::styled(rest[start..].to_string(), text_style));
+                rest = "";
+            }
+        } else {
+            spans.push(Span::styled(rest.to_string(), text_style));
+            rest = "";
+        }
+    }
+
+    Line::from(spans)
+}
+
+/// Best-effort substitution of common LaTeX commands with unicode equivalents.
+fn latex_to_unicode(math: &str) -> String {
+    let mut s = math.to_string();
+    let replacements = [
+        // Greek lowercase
+        ("\\alpha", "α"), ("\\beta", "β"), ("\\gamma", "γ"), ("\\delta", "δ"),
+        ("\\epsilon", "ε"), ("\\zeta", "ζ"), ("\\eta", "η"), ("\\theta", "θ"),
+        ("\\iota", "ι"), ("\\kappa", "κ"), ("\\lambda", "λ"), ("\\mu", "μ"),
+        ("\\nu", "ν"), ("\\xi", "ξ"), ("\\pi", "π"), ("\\rho", "ρ"),
+        ("\\sigma", "σ"), ("\\tau", "τ"), ("\\phi", "φ"), ("\\chi", "χ"),
+        ("\\psi", "ψ"), ("\\omega", "ω"),
+        // Greek uppercase
+        ("\\Gamma", "Γ"), ("\\Delta", "Δ"), ("\\Theta", "Θ"), ("\\Lambda", "Λ"),
+        ("\\Xi", "Ξ"), ("\\Pi", "Π"), ("\\Sigma", "Σ"), ("\\Phi", "Φ"),
+        ("\\Psi", "Ψ"), ("\\Omega", "Ω"),
+        // Operators & symbols
+        ("\\sum", "Σ"), ("\\prod", "Π"), ("\\int", "∫"),
+        ("\\infty", "∞"), ("\\partial", "∂"), ("\\nabla", "∇"),
+        ("\\approx", "≈"), ("\\neq", "≠"), ("\\leq", "≤"), ("\\geq", "≥"),
+        ("\\pm", "±"), ("\\times", "×"), ("\\cdot", "·"), ("\\div", "÷"),
+        ("\\sqrt", "√"), ("\\propto", "∝"),
+        ("\\in", "∈"), ("\\notin", "∉"), ("\\subset", "⊂"), ("\\supset", "⊃"),
+        ("\\cup", "∪"), ("\\cap", "∩"), ("\\emptyset", "∅"),
+        ("\\forall", "∀"), ("\\exists", "∃"),
+        ("\\rightarrow", "→"), ("\\leftarrow", "←"), ("\\Rightarrow", "⇒"),
+        ("\\ell", "ℓ"), ("\\mathcal", ""), ("\\mathrm", ""), ("\\mathbb", ""),
+        ("\\hat", "̂"), ("\\bar", "̄"), ("\\tilde", "̃"),
+        ("\\frac", "/"), ("\\log", "log"), ("\\exp", "exp"), ("\\max", "max"),
+        ("\\min", "min"), ("\\arg", "arg"), ("\\lim", "lim"),
+        // Subscript/superscript markers (best effort)
+        ("_", "₋"), ("^", "^"),
+    ];
+    for (from, to) in replacements {
+        s = s.replace(from, to);
+    }
+    // Clean up braces that were part of LaTeX grouping.
+    s = s.replace('{', "").replace('}', "");
+    s.trim().to_string()
 }
