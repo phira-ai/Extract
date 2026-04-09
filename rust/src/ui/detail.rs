@@ -299,6 +299,54 @@ impl DetailPanel {
             return Action::None;
         }
 
+        // Shift+F: mark failed (running runs only)
+        if keys::matches_shift(key, keys::MARK_FAILED) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                if run.status == "running" {
+                    let db_path = state.store_root.join("extract.db");
+                    let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "failed");
+                    state.notify(crate::app::NotifyLevel::Success, "Run marked failed");
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+C: mark completed (running or failed runs only)
+        if keys::matches_shift(key, keys::MARK_COMPLETED) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                if run.status == "running" || run.status == "failed" {
+                    let db_path = state.store_root.join("extract.db");
+                    let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "completed");
+                    state.notify(crate::app::NotifyLevel::Success, "Run marked completed");
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+A: archive run
+        if keys::matches_shift(key, keys::ARCHIVE) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                if run.status != "archived" {
+                    let db_path = state.store_root.join("extract.db");
+                    let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "archived");
+                    state.notify(crate::app::NotifyLevel::Success, "Run archived");
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+U: unarchive run
+        if keys::matches_shift(key, keys::UNARCHIVE) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                if run.status == "archived" {
+                    let db_path = state.store_root.join("extract.db");
+                    let _ = crate::db::Db::unarchive_item(&db_path, "runs", &run.id);
+                    state.notify(crate::app::NotifyLevel::Success, "Run unarchived");
+                }
+            }
+            return Action::None;
+        }
+
         if keys::matches(key, keys::QUIT) {
             return Action::Quit;
         }

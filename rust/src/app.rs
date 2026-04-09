@@ -286,6 +286,11 @@ pub struct DeleteConfirmState {
     pub label: String,
 }
 
+pub struct ArchiveConfirmState {
+    pub experiment_id: String,
+    pub label: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotifyLevel {
     Success,
@@ -355,6 +360,7 @@ pub struct AppState {
     pub run_picker: Option<RunPickerState>,
     pub run_browser: Option<RunBrowserState>,
     pub delete_confirm: Option<DeleteConfirmState>,
+    pub archive_confirm: Option<ArchiveConfirmState>,
     pub notification: Option<Notification>,
     // Phase 5: Registry, Lineage, TODOs
     pub models: Vec<crate::model::Model>,
@@ -436,6 +442,7 @@ impl AppState {
             run_picker: None,
             run_browser: None,
             delete_confirm: None,
+            archive_confirm: None,
             notification: None,
             models: Vec::new(),
             registry_cursor: 0,

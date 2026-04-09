@@ -174,6 +174,28 @@ impl AppLayout {
                 }
                 return Action::None;
             }
+            if state.archive_confirm.is_some() {
+                if let Some(confirmed) = self.popup.handle_archive_confirm_key(key) {
+                    if confirmed {
+                        let confirm = state.archive_confirm.take().unwrap();
+                        let db_path = state.store_root.join("extract.db");
+                        match crate::db::Db::archive_experiment(&db_path, &confirm.experiment_id) {
+                            Ok(()) => {
+                                state.notify(crate::app::NotifyLevel::Success, format!("Archived '{}'", confirm.label));
+                                let _ = state.refresh_experiments();
+                                let _ = state.refresh_runs();
+                                let _ = state.refresh_selection_summary();
+                            }
+                            Err(e) => {
+                                state.notify(crate::app::NotifyLevel::Error, format!("Archive failed: {e}"));
+                            }
+                        }
+                    } else {
+                        state.archive_confirm = None;
+                    }
+                }
+                return Action::None;
+            }
             if state.run_picker.is_some() {
                 self.popup.handle_run_picker_key(key, state);
                 return Action::None;
@@ -444,6 +466,9 @@ impl AppLayout {
         }
         if let Some(ref confirm) = state.delete_confirm {
             self.popup.render_delete_confirm(frame, area, confirm);
+        }
+        if let Some(ref confirm) = state.archive_confirm {
+            self.popup.render_archive_confirm(frame, area, confirm);
         }
         if let Some(ref input) = state.note_input {
             self.detail.render_note_popup(frame, area, input);
