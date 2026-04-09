@@ -34,6 +34,7 @@ pub enum Action {
     None,
     Navigate(View),
     Quit,
+    SuspendForEditor { table: String, id: String },
 }
 
 pub enum SelectionSummary {
@@ -285,6 +286,11 @@ pub struct DeleteConfirmState {
     pub label: String,
 }
 
+pub struct ArchiveConfirmState {
+    pub experiment_id: String,
+    pub label: String,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NotifyLevel {
     Success,
@@ -354,6 +360,7 @@ pub struct AppState {
     pub run_picker: Option<RunPickerState>,
     pub run_browser: Option<RunBrowserState>,
     pub delete_confirm: Option<DeleteConfirmState>,
+    pub archive_confirm: Option<ArchiveConfirmState>,
     pub notification: Option<Notification>,
     // Phase 5: Registry, Lineage, TODOs
     pub models: Vec<crate::model::Model>,
@@ -378,6 +385,11 @@ pub struct AppState {
     /// SQLite data_version watermark — used to skip tick refresh work when
     /// the database hasn't changed since the last tick.
     pub last_data_version: i64,
+    pub show_archived: bool,
+    /// Inline tag editing state: Some(text) when actively editing, None otherwise.
+    pub tag_edit: Option<String>,
+    /// Note append popup: Some(text) when typing, None otherwise.
+    pub note_input: Option<String>,
 }
 
 pub struct TodoScopePicker {
@@ -430,6 +442,7 @@ impl AppState {
             run_picker: None,
             run_browser: None,
             delete_confirm: None,
+            archive_confirm: None,
             notification: None,
             models: Vec::new(),
             registry_cursor: 0,
@@ -447,6 +460,9 @@ impl AppState {
             show_help: false,
             g_pending: false,
             last_data_version: 0,
+            show_archived: false,
+            tag_edit: None,
+            note_input: None,
         })
     }
 
@@ -468,6 +484,9 @@ impl AppState {
 
     pub fn refresh_experiments(&mut self) -> Result<()> {
         self.experiments = self.db.list_experiments()?;
+        if !self.show_archived {
+            self.experiments.retain(|e| e.status != "archived");
+        }
         Ok(())
     }
 
@@ -475,6 +494,9 @@ impl AppState {
         if let Some(idx) = self.selected_experiment {
             if let Some(exp) = self.experiments.get(idx) {
                 self.runs = self.db.list_runs(&exp.id)?;
+                if !self.show_archived {
+                    self.runs.retain(|r| r.status != "archived");
+                }
             }
         }
         Ok(())
@@ -1162,9 +1184,12 @@ mod tests {
             .execute_batch(include_str!("../../schema/migrations/001_init.sql"))
             .unwrap();
         writer
+            .execute_batch(include_str!("../../schema/migrations/002_experiment_metadata.sql"))
+            .unwrap();
+        writer
             .execute_batch(
                 "INSERT INTO hierarchy VALUES (0, 'benchmark');
-                 INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark');
+                 INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark', NULL, NULL);
                  INSERT INTO runs VALUES ('r1', 'e1', 'run1', NULL, '2026-01-01T00:00:00Z', NULL, 'running', NULL, NULL, '[]', NULL, 10);
                  INSERT INTO curve_points VALUES ('r1', 'loss', 0, 1.0, 0.0);",
             )

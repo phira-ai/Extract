@@ -42,6 +42,96 @@ impl DetailPanel {
     }
 
     fn handle_key(&mut self, key: &KeyEvent, state: &mut AppState) -> Action {
+        // Tag inline edit mode
+        if state.tag_edit.is_some() {
+            match key.code {
+                crossterm::event::KeyCode::Enter => {
+                    let text = state.tag_edit.take().unwrap_or_default();
+                    let tags: Vec<String> = text
+                        .split(',')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+                    let db_path = state.store_root.join("extract.db");
+                    if let Some(idx) = state.selected_run {
+                        if let Some(run) = state.runs.get(idx) {
+                            let _ = crate::db::Db::update_tags(&db_path, "runs", &run.id, &tags_json);
+                        }
+                    } else if let Some(idx) = state.selected_experiment {
+                        if let Some(exp) = state.experiments.get(idx) {
+                            let _ = crate::db::Db::update_tags(&db_path, "experiments", &exp.id, &tags_json);
+                        }
+                    }
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Esc => {
+                    state.tag_edit = None;
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Backspace => {
+                    if let Some(ref mut input) = state.tag_edit {
+                        input.pop();
+                    }
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Char(c) => {
+                    if key.modifiers == crossterm::event::KeyModifiers::NONE
+                        || key.modifiers == crossterm::event::KeyModifiers::SHIFT
+                    {
+                        if let Some(ref mut input) = state.tag_edit {
+                            input.push(c);
+                        }
+                    }
+                    return Action::None;
+                }
+                _ => return Action::None,
+            }
+        }
+
+        // Note append input mode
+        if state.note_input.is_some() {
+            match key.code {
+                crossterm::event::KeyCode::Enter => {
+                    let line = state.note_input.take().unwrap_or_default();
+                    if !line.trim().is_empty() {
+                        let db_path = state.store_root.join("extract.db");
+                        if let Some(idx) = state.selected_run {
+                            if let Some(run) = state.runs.get(idx) {
+                                let _ = crate::db::Db::append_note(&db_path, "runs", &run.id, line.trim());
+                            }
+                        } else if let Some(idx) = state.selected_experiment {
+                            if let Some(exp) = state.experiments.get(idx) {
+                                let _ = crate::db::Db::append_note(&db_path, "experiments", &exp.id, line.trim());
+                            }
+                        }
+                    }
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Esc => {
+                    state.note_input = None;
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Backspace => {
+                    if let Some(ref mut input) = state.note_input {
+                        input.pop();
+                    }
+                    return Action::None;
+                }
+                crossterm::event::KeyCode::Char(c) => {
+                    if key.modifiers == crossterm::event::KeyModifiers::NONE
+                        || key.modifiers == crossterm::event::KeyModifiers::SHIFT
+                    {
+                        if let Some(ref mut input) = state.note_input {
+                            input.push(c);
+                        }
+                    }
+                    return Action::None;
+                }
+                _ => return Action::None,
+            }
+        }
+
         // S/I switch detail tabs
         if keys::matches_shift(key, keys::SUMMARY_TAB) {
             self.active_tab = DetailTab::Summary;
@@ -160,6 +250,99 @@ impl DetailPanel {
                     target: crate::app::DeleteTarget::Run { run_id },
                     label,
                 });
+            }
+            return Action::None;
+        }
+
+        // t: edit tags (Summary tab only)
+        if self.active_tab == DetailTab::Summary && keys::matches(key, keys::TAG_EDIT) {
+            let current_tags = if let Some(idx) = state.selected_run {
+                state.runs.get(idx).and_then(|r| r.tags.as_deref())
+            } else {
+                state.selected_experiment
+                    .and_then(|idx| state.experiments.get(idx))
+                    .and_then(|e| e.tags.as_deref())
+            };
+            let prefill = current_tags
+                .and_then(|t| serde_json::from_str::<Vec<String>>(t).ok())
+                .map(|tags| tags.join(", "))
+                .unwrap_or_default();
+            state.tag_edit = Some(prefill);
+            return Action::None;
+        }
+
+        // n: append note popup
+        if keys::matches(key, keys::NOTE_APPEND) {
+            state.note_input = Some(String::new());
+            return Action::None;
+        }
+
+        // Ctrl+E: open notes in $EDITOR
+        if key.code == crossterm::event::KeyCode::Char('e')
+            && key.modifiers == crossterm::event::KeyModifiers::CONTROL
+        {
+            if let Some(idx) = state.selected_run {
+                if let Some(run) = state.runs.get(idx) {
+                    return Action::SuspendForEditor {
+                        table: "runs".to_string(),
+                        id: run.id.clone(),
+                    };
+                }
+            } else if let Some(idx) = state.selected_experiment {
+                if let Some(exp) = state.experiments.get(idx) {
+                    return Action::SuspendForEditor {
+                        table: "experiments".to_string(),
+                        id: exp.id.clone(),
+                    };
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+F: mark failed (running runs only)
+        if keys::matches_shift(key, keys::MARK_FAILED) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                if run.status == "running" {
+                    let db_path = state.store_root.join("extract.db");
+                    let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "failed");
+                    state.notify(crate::app::NotifyLevel::Success, "Run marked failed");
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+C: mark completed (running or failed runs only)
+        if keys::matches_shift(key, keys::MARK_COMPLETED) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                if run.status == "running" || run.status == "failed" {
+                    let db_path = state.store_root.join("extract.db");
+                    let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "completed");
+                    state.notify(crate::app::NotifyLevel::Success, "Run marked completed");
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+A: archive run
+        if keys::matches_shift(key, keys::ARCHIVE) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                if run.status != "archived" {
+                    let db_path = state.store_root.join("extract.db");
+                    let _ = crate::db::Db::set_status(&db_path, "runs", &run.id, "archived");
+                    state.notify(crate::app::NotifyLevel::Success, "Run archived");
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+U: unarchive run
+        if keys::matches_shift(key, keys::UNARCHIVE) {
+            if let Some(run) = state.selected_run.and_then(|i| state.runs.get(i)) {
+                if run.status == "archived" {
+                    let db_path = state.store_root.join("extract.db");
+                    let _ = crate::db::Db::unarchive_item(&db_path, "runs", &run.id);
+                    state.notify(crate::app::NotifyLevel::Success, "Run unarchived");
+                }
             }
             return Action::None;
         }
@@ -307,6 +490,14 @@ impl DetailPanel {
                 .as_ref()
                 .map(|(r, c)| (r.as_str(), c.as_str())),
             preview_total_steps,
+            tags: if let Some(idx) = state.selected_run {
+                state.runs.get(idx).and_then(|r| r.tags.as_deref())
+            } else {
+                state.selected_experiment
+                    .and_then(|idx| state.experiments.get(idx))
+                    .and_then(|e| e.tags.as_deref())
+            },
+            tag_edit: state.tag_edit.as_deref(),
         };
 
         let sections = state.config.summary.sections.clone();
@@ -352,9 +543,6 @@ impl DetailPanel {
         }
         if let Some(ref git_sha) = run.git_sha {
             meta.push(("Git SHA", git_sha.clone(), None));
-        }
-        if let Some(ref tags) = run.tags {
-            meta.push(("Tags", tags.clone(), None));
         }
 
         let meta_key_width = meta.iter().map(|(k, _, _)| k.len()).max().unwrap_or(4);
@@ -461,5 +649,26 @@ impl DetailPanel {
             .wrap(Wrap { trim: false })
             .scroll((state.info_scroll, 0));
         frame.render_widget(paragraph, area);
+    }
+
+    pub fn render_note_popup(&self, frame: &mut Frame, area: Rect, input: &str) {
+        let popup_width = 50u16.min(area.width.saturating_sub(4));
+        let popup_height = 3u16;
+        let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+        let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+        frame.render_widget(ratatui::widgets::Clear, popup_area);
+
+        let block = Block::bordered()
+            .title(" Append Note ")
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(ratatui::symbols::border::ROUNDED);
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        let cursor = Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK));
+        let line = Line::from(vec![Span::raw(input), cursor]);
+        frame.render_widget(Paragraph::new(line), inner);
     }
 }

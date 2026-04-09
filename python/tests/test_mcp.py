@@ -913,7 +913,7 @@ class TestErrorMessages:
     def test_search_bad_status(self, populated_store):
         with pytest.raises(
             ValueError,
-            match=r"status must be one of: running, completed, failed \(got 'bogus'\)",
+            match=r"status must be one of: running, completed, failed, archived \(got 'bogus'\)",
         ):
             mcp_mod.search(filters={"status": "bogus"})
 
@@ -934,6 +934,150 @@ class TestErrorMessages:
     def test_get_lineage_bad_depth(self, populated_store):
         with pytest.raises(ValueError, match=r"depth must be between 1 and 5 \(got 7\)"):
             mcp_mod.get_lineage(node_type="run", node_id="x", depth=7)
+
+
+class TestArchiveFiltering:
+    """Archive filtering for list_experiments, list_runs, and search."""
+
+    def test_list_runs_excludes_archived(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_runs()
+        ids = {r["id"] for r in result["items"]}
+        assert r1a_id not in ids
+        assert result["total"] == 2
+
+    def test_list_runs_include_archived(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_runs(include_archived=True)
+        ids = {r["id"] for r in result["items"]}
+        assert r1a_id in ids
+        assert result["total"] == 3
+
+    def test_list_runs_excludes_archived_scoped(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        exp1_id = populated_store.test_ids["exp1"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_runs(experiment_id=exp1_id)
+        ids = {r["id"] for r in result["items"]}
+        assert r1a_id not in ids
+        assert result["total"] == 1
+
+    def test_list_runs_include_archived_scoped(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        exp1_id = populated_store.test_ids["exp1"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_runs(experiment_id=exp1_id, include_archived=True)
+        ids = {r["id"] for r in result["items"]}
+        assert r1a_id in ids
+        assert result["total"] == 2
+
+    def test_list_experiments_excludes_archived(self, populated_store):
+        exp1_id = populated_store.test_ids["exp1"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE experiments SET status = 'archived' WHERE id = ?", (exp1_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_experiments()
+        ids = {item["id"] for item in result["items"]}
+        assert exp1_id not in ids
+
+    def test_list_experiments_include_archived(self, populated_store):
+        exp1_id = populated_store.test_ids["exp1"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE experiments SET status = 'archived' WHERE id = ?", (exp1_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_experiments(include_archived=True)
+        ids = {item["id"] for item in result["items"]}
+        assert exp1_id in ids
+
+    def test_list_experiments_n_runs_excludes_archived(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        exp1_id = populated_store.test_ids["exp1"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_experiments(prefix="imagenet/resnet50")
+        leaf = next(
+            i for i in result["items"] if i["path"] == "imagenet/resnet50/lr_0.01"
+        )
+        assert leaf["n_runs"] == 1  # r1a archived, only r1b counted
+
+    def test_list_experiments_n_runs_includes_archived(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.list_experiments(
+            prefix="imagenet/resnet50", include_archived=True
+        )
+        leaf = next(
+            i for i in result["items"] if i["path"] == "imagenet/resnet50/lr_0.01"
+        )
+        assert leaf["n_runs"] == 2  # both runs counted
+
+    def test_search_excludes_archived(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.search()
+        ids = {i["id"] for i in result["items"]}
+        assert r1a_id not in ids
+        assert result["total"] == 2
+
+    def test_search_include_archived(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        result = mcp_mod.search(include_archived=True)
+        ids = {i["id"] for i in result["items"]}
+        assert r1a_id in ids
+        assert result["total"] == 3
+
+    def test_search_status_filter_archived(self, populated_store):
+        r1a_id = populated_store.test_ids["r1a"]
+        with populated_store.lock:
+            populated_store._conn.execute(
+                "UPDATE runs SET status = 'archived' WHERE id = ?", (r1a_id,)
+            )
+            populated_store._conn.commit()
+        # Explicitly filter for archived status; must include_archived to see them.
+        result = mcp_mod.search(
+            filters={"status": "archived"}, include_archived=True
+        )
+        ids = {i["id"] for i in result["items"]}
+        assert r1a_id in ids
+        assert result["total"] == 1
 
 
 class TestServerSmoke:

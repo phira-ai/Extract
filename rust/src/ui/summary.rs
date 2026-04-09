@@ -41,6 +41,8 @@ pub struct SummaryData<'a> {
     /// (extending if observed steps overflow). If None, falls back to the
     /// legacy auto-fit-to-max-step behavior.
     pub preview_total_steps: Option<i64>,
+    pub tags: Option<&'a str>,
+    pub tag_edit: Option<&'a str>,
 }
 
 pub struct SummaryRenderer {
@@ -134,6 +136,34 @@ impl SummaryRenderer {
             run_count,
             if run_count == 1 { "run" } else { "runs" }
         )));
+
+        // Tags row (editable or display)
+        if let Some(edit_text) = data.tag_edit {
+            lines.push(Line::from(vec![
+                Span::styled("  Tags: ", Style::default().add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    edit_text.to_string(),
+                    Style::default().fg(self.theme.accent),
+                ),
+                Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK)),
+            ]));
+        } else if let Some(tags_json) = data.tags {
+            if let Ok(tags) = serde_json::from_str::<Vec<String>>(tags_json) {
+                if !tags.is_empty() {
+                    let mut tag_spans: Vec<Span<'static>> = vec![Span::raw("  ")];
+                    for (i, tag) in tags.iter().enumerate() {
+                        if i > 0 {
+                            tag_spans.push(Span::styled(", ", Style::default().fg(self.theme.accent_dim)));
+                        }
+                        tag_spans.push(Span::styled(
+                            tag.clone(),
+                            Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD),
+                        ));
+                    }
+                    lines.push(Line::from(tag_spans));
+                }
+            }
+        }
     }
 
     fn build_runs(&self, lines: &mut Vec<Line<'static>>, data: &SummaryData) {

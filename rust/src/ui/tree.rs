@@ -304,6 +304,46 @@ impl TreePanel {
             return Action::None;
         }
 
+        // Shift+A: archive experiment (with confirmation)
+        if keys::matches_shift(key, keys::ARCHIVE) {
+            if let Some(idx) = state.selected_experiment {
+                if let Some(exp) = state.experiments.get(idx) {
+                    if exp.status != "archived" {
+                        state.archive_confirm = Some(crate::app::ArchiveConfirmState {
+                            experiment_id: exp.id.clone(),
+                            label: exp.name.clone(),
+                        });
+                    }
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+U: unarchive experiment (single node)
+        if keys::matches_shift(key, keys::UNARCHIVE) {
+            if let Some(idx) = state.selected_experiment {
+                if let Some(exp) = state.experiments.get(idx) {
+                    if exp.status == "archived" {
+                        let db_path = state.store_root.join("extract.db");
+                        let _ = crate::db::Db::unarchive_item(&db_path, "experiments", &exp.id);
+                        state.notify(crate::app::NotifyLevel::Success, "Experiment unarchived");
+                    }
+                }
+            }
+            return Action::None;
+        }
+
+        // Shift+H: toggle show archived
+        if keys::matches_shift(key, keys::TOGGLE_ARCHIVED) {
+            state.show_archived = !state.show_archived;
+            let _ = state.refresh_experiments();
+            let _ = state.refresh_runs();
+            let _ = state.refresh_selection_summary();
+            let label = if state.show_archived { "Showing archived" } else { "Hiding archived" };
+            state.notify(crate::app::NotifyLevel::Success, label);
+            return Action::None;
+        }
+
         Action::None
     }
 
@@ -412,7 +452,11 @@ fn build_tree_items<'a>(
                 let marker = if marked.contains(&exp.id) { "\u{25cf} " } else { "" };
                 let icon = node_icon(exp.node_type.as_deref(), sub_children.is_empty());
 
-                let label: Line = if sub_children.is_empty() {
+                let is_archived = exp.status == "archived";
+                let label: Line = if is_archived {
+                    let text = format!("{marker}{icon}{} (archived)", exp.name);
+                    Line::from(Span::styled(text, dim_style))
+                } else if sub_children.is_empty() {
                     Line::from(format!("{marker}{icon}{}", exp.name))
                 } else {
                     Line::from(vec![

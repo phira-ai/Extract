@@ -18,6 +18,7 @@ use crate::ui::popup::PopupRenderer;
 use crate::ui::registry::RegistryView;
 use crate::ui::search::SearchPopup;
 use crate::ui::selection::SelectionWindow;
+use crate::ui::statusbar::StatusBar;
 use crate::ui::theme::Theme;
 use crate::ui::todo::TodoView;
 use crate::ui::tree::TreePanel;
@@ -35,6 +36,7 @@ pub struct AppLayout {
     pub todo_view: TodoView,
     pub search: SearchPopup,
     pub help: HelpOverlay,
+    pub statusbar: StatusBar,
     theme: Theme,
 }
 
@@ -54,6 +56,7 @@ impl AppLayout {
             todo_view: TodoView::new(theme),
             search: SearchPopup::new(theme),
             help: HelpOverlay::new(theme),
+            statusbar: StatusBar::new(theme),
             theme,
         }
     }
@@ -171,6 +174,28 @@ impl AppLayout {
                         }
                     }
                     state.delete_confirm = None;
+                }
+                return Action::None;
+            }
+            if state.archive_confirm.is_some() {
+                if let Some(confirmed) = self.popup.handle_archive_confirm_key(key) {
+                    if confirmed {
+                        let confirm = state.archive_confirm.take().unwrap();
+                        let db_path = state.store_root.join("extract.db");
+                        match crate::db::Db::archive_experiment(&db_path, &confirm.experiment_id) {
+                            Ok(()) => {
+                                state.notify(crate::app::NotifyLevel::Success, format!("Archived '{}'", confirm.label));
+                                let _ = state.refresh_experiments();
+                                let _ = state.refresh_runs();
+                                let _ = state.refresh_selection_summary();
+                            }
+                            Err(e) => {
+                                state.notify(crate::app::NotifyLevel::Error, format!("Archive failed: {e}"));
+                            }
+                        }
+                    } else {
+                        state.archive_confirm = None;
+                    }
                 }
                 return Action::None;
             }
@@ -367,7 +392,15 @@ impl AppLayout {
         self.tree.apply_pending_select(state);
 
         let area = frame.area();
-        let main_area = area;
+
+        // Reserve bottom 1 line for the statusbar
+        let vertical = Layout::vertical([
+            Constraint::Min(0),
+            Constraint::Length(1),
+        ])
+        .split(area);
+        let main_area = vertical[0];
+        let statusbar_area = vertical[1];
 
         // Full-screen views
         match state.current_view {
@@ -445,6 +478,12 @@ impl AppLayout {
         if let Some(ref confirm) = state.delete_confirm {
             self.popup.render_delete_confirm(frame, area, confirm);
         }
+        if let Some(ref confirm) = state.archive_confirm {
+            self.popup.render_archive_confirm(frame, area, confirm);
+        }
+        if let Some(ref input) = state.note_input {
+            self.detail.render_note_popup(frame, area, input);
+        }
 
         // Notification toast
         if let Some(ref notif) = state.notification {
@@ -460,6 +499,9 @@ impl AppLayout {
         if state.show_help {
             self.help.render(frame, area);
         }
+
+        // Statusbar (always rendered at the bottom)
+        self.statusbar.render(frame, statusbar_area, state, self.detail.active_tab);
     }
 
     fn render_notification(&self, frame: &mut Frame, area: Rect, notif: &crate::app::Notification) {

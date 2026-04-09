@@ -144,13 +144,19 @@ def _listing(
 
 
 @_tool
-def list_experiments(prefix: str = "", limit: int = 50) -> dict:
+def list_experiments(
+    prefix: str = "",
+    limit: int = 50,
+    include_archived: bool = False,
+) -> dict:
     """List experiments, optionally filtered by a path prefix.
 
     Args:
         prefix: Filter to experiments whose path starts with this (e.g.
             "cifar100/ewc"). Empty string lists all experiments.
         limit: Max number of items to return (default 50, max 500).
+        include_archived: If True, include archived experiments and count
+            archived runs in n_runs. Default False.
 
     Returns a listing envelope:
         {items: [{id, path, name, node_type, parent_id, n_runs}],
@@ -163,25 +169,28 @@ def list_experiments(prefix: str = "", limit: int = 50) -> dict:
         raise ValueError(f"limit must be >= 1 (got {limit})")
     limit, clamped = _clamp_limit(limit)
 
+    status_filter = "" if include_archived else " AND status != 'archived'"
+    run_filter = "" if include_archived else " AND status != 'archived'"
+
     assert _store is not None
     with _store.lock:
         if prefix:
             rows = _store._conn.execute(
                 "SELECT id, path, name, node_type, parent_id "
-                "FROM experiments WHERE path = ? OR path LIKE ? "
+                f"FROM experiments WHERE (path = ? OR path LIKE ?){status_filter} "
                 "ORDER BY path",
                 (prefix, prefix.rstrip("/") + "/%"),
             ).fetchall()
         else:
             rows = _store._conn.execute(
                 "SELECT id, path, name, node_type, parent_id "
-                "FROM experiments ORDER BY path"
+                f"FROM experiments WHERE 1=1{status_filter} ORDER BY path"
             ).fetchall()
 
         items: list[dict] = []
         for row in rows:
             n_runs_row = _store._conn.execute(
-                "SELECT COUNT(*) FROM runs WHERE experiment_id = ?",
+                f"SELECT COUNT(*) FROM runs WHERE experiment_id = ?{run_filter}",
                 (row["id"],),
             ).fetchone()
             items.append({
@@ -197,13 +206,18 @@ def list_experiments(prefix: str = "", limit: int = 50) -> dict:
 
 
 @_tool
-def list_runs(experiment_id: str | None = None, limit: int = 50) -> dict:
+def list_runs(
+    experiment_id: str | None = None,
+    limit: int = 50,
+    include_archived: bool = False,
+) -> dict:
     """List runs in the store, optionally scoped to one experiment.
 
     Args:
         experiment_id: If provided, list runs for that experiment only.
             If omitted, list all runs newest-first.
         limit: Max rows (default 50, max 500).
+        include_archived: If True, include archived runs. Default False.
 
     Returns a listing envelope of run rows, each with id, label,
     experiment_id, experiment_path, name, status, started_at, ended_at,
@@ -213,6 +227,8 @@ def list_runs(experiment_id: str | None = None, limit: int = 50) -> dict:
     if limit < 1:
         raise ValueError(f"limit must be >= 1 (got {limit})")
     limit, clamped = _clamp_limit(limit)
+
+    status_filter = "" if include_archived else " AND r.status != 'archived'"
 
     assert _store is not None
     with _store.lock:
@@ -226,13 +242,14 @@ def list_runs(experiment_id: str | None = None, limit: int = 50) -> dict:
             rows = _store._conn.execute(
                 "SELECT r.*, e.path AS experiment_path "
                 "FROM runs r JOIN experiments e ON r.experiment_id = e.id "
-                "WHERE r.experiment_id = ? ORDER BY r.started_at",
+                f"WHERE r.experiment_id = ?{status_filter} ORDER BY r.started_at",
                 (experiment_id,),
             ).fetchall()
         else:
             rows = _store._conn.execute(
                 "SELECT r.*, e.path AS experiment_path "
                 "FROM runs r JOIN experiments e ON r.experiment_id = e.id "
+                f"WHERE 1=1{status_filter} "
                 "ORDER BY r.started_at DESC"
             ).fetchall()
 
@@ -451,7 +468,7 @@ def get_run(run_id: str) -> dict:
     }
 
 
-_VALID_STATUS = ("running", "completed", "failed")
+_VALID_STATUS = {"running", "completed", "failed", "archived"}
 _VALID_FILTERS = {
     "tag", "status", "experiment_prefix", "started_after", "started_before",
 }
@@ -462,6 +479,7 @@ def search(
     query: str = "",
     filters: dict | None = None,
     limit: int = 50,
+    include_archived: bool = False,
 ) -> dict:
     """Search runs by substring + structured filters.
 
@@ -470,11 +488,12 @@ def search(
             and notes. Empty string means no text filter.
         filters: Optional dict of AND-combined filters. Valid keys:
             - tag: str — run must contain this tag
-            - status: "running" | "completed" | "failed"
+            - status: "running" | "completed" | "failed" | "archived"
             - experiment_prefix: str — run's experiment path starts with this
             - started_after: ISO 8601 str (runs.started_at >= value)
             - started_before: ISO 8601 str (runs.started_at <= value)
         limit: Max rows (default 50, max 500).
+        include_archived: If True, include archived runs. Default False.
 
     Returns a listing envelope of run rows in the same shape as list_runs.
     """
@@ -493,7 +512,7 @@ def search(
 
     if "status" in filters and filters["status"] not in _VALID_STATUS:
         raise ValueError(
-            f"status must be one of: running, completed, failed "
+            f"status must be one of: running, completed, failed, archived "
             f"(got {filters['status']!r})"
         )
 
@@ -530,6 +549,9 @@ def search(
     if "started_before" in filters:
         clauses.append("r.started_at <= ?")
         params.append(filters["started_before"])
+
+    if not include_archived:
+        clauses.append("r.status != 'archived'")
 
     where_sql = (" WHERE " + " AND ".join(clauses)) if clauses else ""
 

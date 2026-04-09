@@ -167,6 +167,45 @@ impl PopupRenderer {
         }
     }
 
+    // ── Archive Confirmation ───────────────────────────────────────────
+
+    /// Handle key events for the archive confirmation popup.
+    pub fn handle_archive_confirm_key(&self, key: &KeyEvent) -> Option<bool> {
+        if keys::matches(key, keys::YES) {
+            Some(true)
+        } else {
+            Some(false)
+        }
+    }
+
+    pub fn render_archive_confirm(&self, frame: &mut Frame, area: Rect, confirm: &crate::app::ArchiveConfirmState) {
+        let msg = format!("Archive '{}' and all descendants?", confirm.label);
+        let width = (msg.len() as u16 + 6).min(area.width.saturating_sub(4));
+        let height = 5u16;
+        let popup_area = centered_rect(width, height, area);
+
+        frame.render_widget(Clear, popup_area);
+
+        let block = Block::bordered()
+            .title(" Archive ")
+            .border_style(Style::default().fg(self.theme.warning))
+            .border_set(border::ROUNDED);
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        let lines = vec![
+            Line::from(msg),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("[y]", Style::default().fg(self.theme.accent).add_modifier(Modifier::BOLD)),
+                Span::raw(" confirm  "),
+                Span::styled("[any]", Style::default().fg(self.theme.accent_dim)),
+                Span::raw(" cancel"),
+            ]),
+        ];
+        frame.render_widget(Paragraph::new(lines), inner);
+    }
+
     // ── Run Browser (r — navigate to run) ──────────────────────────────
 
     /// Handle key events for the run browser popup.

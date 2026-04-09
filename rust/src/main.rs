@@ -23,6 +23,37 @@ struct Cli {
     store: String,
 }
 
+fn open_editor(store_root: &std::path::Path, table: &str, id: &str) -> color_eyre::Result<()> {
+    assert!(table == "runs" || table == "experiments");
+    let db_path = store_root.join("extract.db");
+    let conn = rusqlite::Connection::open(&db_path)?;
+    conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+    let current: Option<String> = conn.query_row(
+        &format!("SELECT notes FROM {table} WHERE id = ?"),
+        rusqlite::params![id],
+        |row| row.get(0),
+    )?;
+
+    let tmp_path = std::env::temp_dir().join(format!("extract_notes_{id}.md"));
+    std::fs::write(&tmp_path, current.as_deref().unwrap_or(""))?;
+
+    let editor = std::env::var("VISUAL")
+        .or_else(|_| std::env::var("EDITOR"))
+        .unwrap_or_else(|_| "nvim".to_string());
+
+    let status = std::process::Command::new(&editor)
+        .arg(&tmp_path)
+        .status()?;
+
+    if status.success() {
+        let new_content = std::fs::read_to_string(&tmp_path)?;
+        db::Db::replace_notes(&db_path, table, id, new_content.trim_end())?;
+    }
+
+    let _ = std::fs::remove_file(&tmp_path);
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> color_eyre::Result<()> {
     color_eyre::install()?;
@@ -73,6 +104,28 @@ async fn main() -> color_eyre::Result<()> {
             Action::Quit => break,
             Action::Navigate(view) => {
                 app.current_view = view;
+            }
+            Action::SuspendForEditor { table, id } => {
+                // Suspend terminal
+                crossterm::terminal::disable_raw_mode()?;
+                crossterm::execute!(
+                    terminal.backend_mut(),
+                    crossterm::terminal::LeaveAlternateScreen
+                )?;
+
+                let result = open_editor(&app.store_root, &table, &id);
+
+                // Resume terminal
+                crossterm::execute!(
+                    terminal.backend_mut(),
+                    crossterm::terminal::EnterAlternateScreen
+                )?;
+                crossterm::terminal::enable_raw_mode()?;
+                terminal.clear()?;
+
+                if let Err(e) = result {
+                    app.notify(app::NotifyLevel::Error, format!("Editor failed: {e}"));
+                }
             }
             Action::None => {}
         }
