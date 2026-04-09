@@ -46,9 +46,10 @@ def main():
         config={"lr": 0.001, "weight_decay": 0.0}, total_steps=50
     ) as run:
         # Categorical params logged alongside numeric metrics
-        run.log(step=0, arch="resnet18", fisher_label="empirical")
+        run.log(arch="resnet18", fisher_label="empirical")
         for step in range(50):
-            run.log(step=step, loss=1.0 / (step + 1), accuracy=0.5 + 0.35 * (step / 49))
+            run.curve(step=step, loss=1.0 / (step + 1), accuracy=0.5 + 0.35 * (step / 49))
+        run.log(final_loss=1.0 / 50, final_accuracy=0.5 + 0.35 * (49 / 49))
 
         # Log accuracy matrix (5 tasks, lower-triangular fill pattern)
         acc_matrix = np.array([
@@ -69,9 +70,10 @@ def main():
     with store.experiment({"benchmark": "imagenet", "model": "resnet50", "variant": "lr_0.01"}).run(
         config={"lr": 0.0005, "weight_decay": 0.0}, total_steps=50
     ) as run:
-        run.log(step=0, arch="resnet18", fisher_label="diagonal")
+        run.log(arch="resnet18", fisher_label="diagonal")
         for step in range(50):
-            run.log(step=step, loss=0.95 / (step + 1), accuracy=0.5 + 0.38 * (step / 49))
+            run.curve(step=step, loss=0.95 / (step + 1), accuracy=0.5 + 0.38 * (step / 49))
+        run.log(final_loss=0.95 / 50, final_accuracy=0.5 + 0.38 * (49 / 49))
 
         acc_matrix = np.array([
             [0.94, 0.00, 0.00, 0.00, 0.00],
@@ -87,14 +89,16 @@ def main():
         config={"lr": 0.001, "weight_decay": 0.0, "use_momentum": True}, total_steps=50
     ) as run:
         for step in range(50):
-            run.log(step=step, loss=0.9 / (step + 1), accuracy=0.5 + 0.33 * (step / 49))
+            run.curve(step=step, loss=0.9 / (step + 1), accuracy=0.5 + 0.33 * (step / 49))
+        run.log(final_loss=0.9 / 50, final_accuracy=0.5 + 0.33 * (49 / 49))
 
     # ViT Base
     with store.experiment({"benchmark": "imagenet", "model": "vit_base", "variant": "lr_0.001"}).run(
         config={"lr": 0.001, "weight_decay": 0.01}, total_steps=50
     ) as run:
         for step in range(50):
-            run.log(step=step, loss=1.2 / (step + 1), accuracy=0.5 + 0.30 * (step / 49))
+            run.curve(step=step, loss=1.2 / (step + 1), accuracy=0.5 + 0.30 * (step / 49))
+        run.log(final_loss=1.2 / 50, final_accuracy=0.5 + 0.30 * (49 / 49))
 
         acc_matrix = np.array([
             [0.88, 0.00, 0.00, 0.00, 0.00],
@@ -114,7 +118,8 @@ def main():
         config={"lr": 0.001, "batch_size": 500}, total_steps=50
     ) as run:
         for step in range(50):
-            run.log(step=step, loss=0.8 / (step + 1), accuracy=0.5 + 0.32 * (step / 49))
+            run.curve(step=step, loss=0.8 / (step + 1), accuracy=0.5 + 0.32 * (step / 49))
+        run.log(final_loss=0.8 / 50, final_accuracy=0.5 + 0.32 * (49 / 49))
 
     # --- CIFAR10 experiments ---
 
@@ -122,13 +127,15 @@ def main():
         config={"lr": 0.0005, "batch_size": 1000}, total_steps=30
     ) as run:
         for step in range(30):
-            run.log(step=step, loss=1.5 / (step + 1), accuracy=0.4 + 0.25 * (step / 29))
+            run.curve(step=step, loss=1.5 / (step + 1), accuracy=0.4 + 0.25 * (step / 29))
+        run.log(final_loss=1.5 / 30, final_accuracy=0.4 + 0.25 * (29 / 29))
 
     with store.experiment({"benchmark": "cifar10", "model": "resnet50", "variant": "lr_0.005"}).run(
         config={"lr": 0.0005, "weight_decay": 0.01}, total_steps=30
     ) as run:
         for step in range(30):
-            run.log(step=step, loss=1.8 / (step + 1), accuracy=0.4 + 0.20 * (step / 29))
+            run.curve(step=step, loss=1.8 / (step + 1), accuracy=0.4 + 0.20 * (step / 29))
+        run.log(final_loss=1.8 / 30, final_accuracy=0.4 + 0.20 * (29 / 29))
 
     # --- Phase 5: Models, Lineage, TODOs ---
 

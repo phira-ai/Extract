@@ -109,7 +109,7 @@ class TestRunCurveBasic:
         """And vice versa — log() must NOT appear in curve_points."""
         run = _make_run(tmp_store, total_steps=10)
         with run as r:
-            r.log(step=0, Cl=0.7, Fgt=0.1)
+            r.log(Cl=0.7, Fgt=0.1)
 
         rows = tmp_store._conn.execute(
             "SELECT * FROM curve_points WHERE run_id = ?", (run.id,)
@@ -205,3 +205,40 @@ class TestRunCurveBuffering:
             assert count == 2  # both points now flushed
         finally:
             run.finish()
+
+
+class TestRunLogNoStep:
+    def test_log_rejects_step_kwarg(self, tmp_store):
+        """Passing step= to log() must raise TypeError with a migration message."""
+        run = _make_run(tmp_store)
+        with run as r:
+            with pytest.raises(TypeError, match="no longer accepts a 'step' argument"):
+                r.log(step=0, final_acc=0.9)
+
+    def test_log_overwrites_on_relog(self, tmp_store):
+        """Re-logging the same metric name overwrites the previous value."""
+        run = _make_run(tmp_store)
+        with run as r:
+            r.log(final_acc=0.5)
+            r.log(final_acc=0.9)
+
+        rows = tmp_store._conn.execute(
+            "SELECT step, value FROM scalar_metrics WHERE run_id = ? AND name = 'final_acc'",
+            (run.id,),
+        ).fetchall()
+        assert len(rows) == 1
+        assert rows[0]["step"] == 0
+        assert rows[0]["value"] == 0.9
+
+    def test_log_multiple_metrics_at_once(self, tmp_store):
+        """log() should handle multiple kwargs in a single call."""
+        run = _make_run(tmp_store)
+        with run as r:
+            r.log(Cl=0.7, Fgt=0.1, final_loss=0.3)
+
+        rows = tmp_store._conn.execute(
+            "SELECT name, value FROM scalar_metrics WHERE run_id = ? ORDER BY name",
+            (run.id,),
+        ).fetchall()
+        names = [r["name"] for r in rows]
+        assert names == ["Cl", "Fgt", "final_loss"]

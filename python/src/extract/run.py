@@ -88,19 +88,39 @@ class Run:
     # Scalar metrics
     # ------------------------------------------------------------------
 
-    def log(self, step: int, **kwargs: float | int | str) -> None:
-        """Log metrics at a given step.
+    def log(self, **kwargs: float | int | str) -> None:
+        """Record headline metrics for this run.
 
-        Numeric values (int, float) are stored as time-series scalar metrics.
-        String values are stored as run-level categorical parameters.
+        Numeric values (int, float) are stored in the `scalar_metrics` table,
+        overwriting any previous value for the same metric name (re-logging is
+        idempotent — the latest value wins). Shown in the TUI Summary panel,
+        branch rankings, and MCP `compare_runs` headline columns.
+
+        String values are stored as run-level categorical parameters in
+        `run_params`, deduplicated by name.
+
+        Headline metrics do not carry a step axis — use `Run.curve()` for
+        high-frequency per-step streaming values that drive the live chart.
+
+        Raises:
+            TypeError: if `step` is passed (it's no longer part of the API).
         """
+        if "step" in kwargs:
+            raise TypeError(
+                "Run.log() no longer accepts a 'step' argument. Headline metrics "
+                "are single values per run — drop the step kwarg. Use run.curve() "
+                "for per-step streaming values."
+            )
         self._check_active()
         wall_time = time.time() - self._start_time
         for name, value in kwargs.items():
             if isinstance(value, str):
                 self._log_param(name, value)
             else:
-                self._buffer.append((self._id, step, name, float(value), wall_time))
+                # Hardcoded step=0: headline metrics have no step axis, and
+                # INSERT OR REPLACE on UNIQUE(run_id, name, step=0) means
+                # re-logging the same metric overwrites the previous value.
+                self._buffer.append((self._id, 0, name, float(value), wall_time))
 
         if len(self._buffer) >= _FLUSH_THRESHOLD:
             self._flush()
