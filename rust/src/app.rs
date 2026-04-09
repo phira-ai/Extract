@@ -1162,9 +1162,12 @@ mod tests {
             .execute_batch(include_str!("../../schema/migrations/001_init.sql"))
             .unwrap();
         writer
+            .execute_batch(include_str!("../../schema/migrations/002_experiment_metadata.sql"))
+            .unwrap();
+        writer
             .execute_batch(
                 "INSERT INTO hierarchy VALUES (0, 'benchmark');
-                 INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark');
+                 INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark', NULL, NULL);
                  INSERT INTO runs VALUES ('r1', 'e1', 'run1', NULL, '2026-01-01T00:00:00Z', NULL, 'running', NULL, NULL, '[]', NULL, 10);
                  INSERT INTO curve_points VALUES ('r1', 'loss', 0, 1.0, 0.0);",
             )
