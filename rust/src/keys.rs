@@ -43,7 +43,6 @@ pub const GO_BOTTOM: KeyCode = KeyCode::Char('G');
 pub const RUN_BROWSER: KeyCode = KeyCode::Char('r');
 pub const TAG_EDIT: KeyCode = KeyCode::Char('t');
 pub const NOTE_APPEND: KeyCode = KeyCode::Char('n');
-pub const EDITOR_OPEN: KeyCode = KeyCode::Char('e'); // used with Ctrl modifier
 pub const MARK_FAILED: KeyCode = KeyCode::Char('F');
 pub const MARK_COMPLETED: KeyCode = KeyCode::Char('C'); // overlaps COMPARE_TAB — scoped to Detail panel only
 pub const ARCHIVE: KeyCode = KeyCode::Char('A');

@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use color_eyre::Result;
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::model::{Artifact, Experiment, LineageEdge, MetricAggregate, Model, Run, RunParam, ScalarMetric, Todo};
 
@@ -786,6 +786,110 @@ impl Db {
         )?;
         Ok(())
     }
+
+    /// Update tags (JSON string) on a run or experiment. Opens a writable connection.
+    pub fn update_tags(db_path: &Path, table: &str, id: &str, tags_json: &str) -> Result<()> {
+        assert!(table == "runs" || table == "experiments");
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute(
+            &format!("UPDATE {table} SET tags = ? WHERE id = ?"),
+            params![tags_json, id],
+        )?;
+        Ok(())
+    }
+
+    /// Append a line to an existing notes field. Opens a writable connection.
+    pub fn append_note(db_path: &Path, table: &str, id: &str, line: &str) -> Result<()> {
+        assert!(table == "runs" || table == "experiments");
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        let current: Option<String> = conn.query_row(
+            &format!("SELECT notes FROM {table} WHERE id = ?"),
+            params![id],
+            |row| row.get(0),
+        ).optional()?.flatten();
+        let updated = match current {
+            Some(existing) if !existing.is_empty() => format!("{existing}\n{line}"),
+            _ => line.to_string(),
+        };
+        conn.execute(
+            &format!("UPDATE {table} SET notes = ? WHERE id = ?"),
+            params![updated, id],
+        )?;
+        Ok(())
+    }
+
+    /// Replace the full notes content. Empty string clears to NULL. Opens a writable connection.
+    pub fn replace_notes(db_path: &Path, table: &str, id: &str, content: &str) -> Result<()> {
+        assert!(table == "runs" || table == "experiments");
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        let value: Option<&str> = if content.is_empty() { None } else { Some(content) };
+        conn.execute(
+            &format!("UPDATE {table} SET notes = ? WHERE id = ?"),
+            params![value, id],
+        )?;
+        Ok(())
+    }
+
+    /// Set status on a single run or experiment. Opens a writable connection.
+    pub fn set_status(db_path: &Path, table: &str, id: &str, status: &str) -> Result<()> {
+        assert!(table == "runs" || table == "experiments");
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute(
+            &format!("UPDATE {table} SET status = ? WHERE id = ?"),
+            params![status, id],
+        )?;
+        Ok(())
+    }
+
+    /// Archive an experiment and all descendants + their runs. Opens a writable connection.
+    pub fn archive_experiment(db_path: &Path, experiment_id: &str) -> Result<()> {
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+
+        // BFS to collect all descendant experiment IDs (same pattern as delete_experiment).
+        let mut exp_ids: Vec<String> = vec![experiment_id.to_string()];
+        let mut i = 0;
+        while i < exp_ids.len() {
+            let mut stmt = conn.prepare("SELECT id FROM experiments WHERE parent_id = ?")?;
+            let children: Vec<String> = stmt
+                .query_map(params![exp_ids[i]], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            exp_ids.extend(children);
+            i += 1;
+        }
+
+        let tx = conn.unchecked_transaction()?;
+        for eid in &exp_ids {
+            tx.execute(
+                "UPDATE experiments SET status = 'archived' WHERE id = ?",
+                params![eid],
+            )?;
+            tx.execute(
+                "UPDATE runs SET status = 'archived' WHERE experiment_id = ?",
+                params![eid],
+            )?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Unarchive a single item. Experiments → 'active', runs → 'completed'.
+    pub fn unarchive_item(db_path: &Path, table: &str, id: &str) -> Result<()> {
+        assert!(table == "runs" || table == "experiments");
+        let new_status = if table == "experiments" { "active" } else { "completed" };
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        conn.execute(
+            &format!("UPDATE {table} SET status = ? WHERE id = ?"),
+            params![new_status, id],
+        )?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -1110,5 +1214,109 @@ mod tests {
         let curve_count: i64 = reader.query_row("SELECT COUNT(*) FROM curve_points WHERE run_id = 'r1'", [], |r| r.get(0)).unwrap();
         assert_eq!(run_count, 0);
         assert_eq!(curve_count, 0);
+    }
+
+    // -- File-backed test helper for write methods --
+
+    use std::path::PathBuf;
+
+    struct TestDb {
+        db: Db,
+        path: PathBuf,
+    }
+
+    fn test_db_with_path() -> TestDb {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.into_path().join("test.db");
+        let conn = Connection::open(&path).unwrap();
+        conn.execute_batch(include_str!("../../schema/migrations/001_init.sql")).unwrap();
+        conn.execute_batch(include_str!("../../schema/migrations/002_experiment_metadata.sql")).unwrap();
+        conn.execute_batch(
+            "INSERT INTO hierarchy VALUES (0, 'benchmark');
+             INSERT INTO hierarchy VALUES (1, 'method');
+             INSERT INTO hierarchy VALUES (2, 'variant');
+             INSERT INTO experiments (id, path, name, parent_id, created_at, metadata, status, node_type, tags, notes) VALUES ('e_a', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark', NULL, NULL);
+             INSERT INTO experiments (id, path, name, parent_id, created_at, metadata, status, node_type, tags, notes) VALUES ('e_b', 'a/b', 'b', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active', 'method', NULL, NULL);
+             INSERT INTO experiments (id, path, name, parent_id, created_at, metadata, status, node_type, tags, notes) VALUES ('e_c', 'a/c', 'c', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active', 'method', NULL, NULL);
+             INSERT INTO experiments (id, path, name, parent_id, created_at, metadata, status, node_type, tags, notes) VALUES ('e_d', 'a/d', 'd', 'e_a', '2026-01-01T00:00:00Z', NULL, 'active', 'method', NULL, NULL);
+             INSERT INTO experiments (id, path, name, parent_id, created_at, metadata, status, node_type, tags, notes) VALUES ('e_e', 'a/d/e', 'e', 'e_d', '2026-01-01T00:00:00Z', NULL, 'active', 'variant', NULL, NULL);
+             INSERT INTO runs VALUES ('r1', 'e_b', 'run1', '{\"lr\": 0.01}', '2026-01-01T00:00:00Z', '2026-01-01T01:00:00Z', 'completed', NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO runs VALUES ('r2', 'e_b', 'run2', '{\"lr\": 0.001}', '2026-01-02T00:00:00Z', NULL, 'running', NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO runs VALUES ('r3', 'e_c', 'run3', '{\"lr\": 0.01}', '2026-01-03T00:00:00Z', '2026-01-03T01:00:00Z', 'completed', NULL, NULL, NULL, NULL, NULL);
+             INSERT INTO runs VALUES ('r4', 'e_e', 'run4', '{\"lr\": 0.1}', '2026-01-04T00:00:00Z', NULL, 'failed', NULL, NULL, NULL, NULL, NULL);"
+        ).unwrap();
+        drop(conn);
+        let db = Db::open(&path).unwrap();
+        TestDb { db, path }
+    }
+
+    #[test]
+    fn test_update_tags() {
+        let tdb = test_db_with_path();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert!(run.tags.is_none());
+        Db::update_tags(&tdb.path, "runs", "r1", r#"["alpha","beta"]"#).unwrap();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert_eq!(run.tags.as_deref(), Some(r#"["alpha","beta"]"#));
+    }
+
+    #[test]
+    fn test_append_note() {
+        let tdb = test_db_with_path();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert!(run.notes.is_none());
+        Db::append_note(&tdb.path, "runs", "r1", "first line").unwrap();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert_eq!(run.notes.as_deref(), Some("first line"));
+        Db::append_note(&tdb.path, "runs", "r1", "second line").unwrap();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert_eq!(run.notes.as_deref(), Some("first line\nsecond line"));
+    }
+
+    #[test]
+    fn test_replace_notes() {
+        let tdb = test_db_with_path();
+        Db::append_note(&tdb.path, "runs", "r1", "old content").unwrap();
+        Db::replace_notes(&tdb.path, "runs", "r1", "new content").unwrap();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert_eq!(run.notes.as_deref(), Some("new content"));
+        Db::replace_notes(&tdb.path, "runs", "r1", "").unwrap();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert!(run.notes.is_none());
+    }
+
+    #[test]
+    fn test_set_status() {
+        let tdb = test_db_with_path();
+        Db::set_status(&tdb.path, "runs", "r2", "failed").unwrap();
+        let run = tdb.db.get_run("r2").unwrap().unwrap();
+        assert_eq!(run.status, "failed");
+    }
+
+    #[test]
+    fn test_archive_experiment() {
+        let tdb = test_db_with_path();
+        Db::archive_experiment(&tdb.path, "e_d").unwrap();
+        let exp_d = tdb.db.get_experiment("e_d").unwrap().unwrap();
+        assert_eq!(exp_d.status, "archived");
+        let exp_e = tdb.db.get_experiment("e_e").unwrap().unwrap();
+        assert_eq!(exp_e.status, "archived");
+        let run = tdb.db.get_run("r4").unwrap().unwrap();
+        assert_eq!(run.status, "archived");
+        let exp_a = tdb.db.get_experiment("e_a").unwrap().unwrap();
+        assert_eq!(exp_a.status, "active");
+    }
+
+    #[test]
+    fn test_unarchive_single() {
+        let tdb = test_db_with_path();
+        Db::archive_experiment(&tdb.path, "e_d").unwrap();
+        Db::unarchive_item(&tdb.path, "experiments", "e_d").unwrap();
+        let exp_d = tdb.db.get_experiment("e_d").unwrap().unwrap();
+        assert_eq!(exp_d.status, "active");
+        let exp_e = tdb.db.get_experiment("e_e").unwrap().unwrap();
+        assert_eq!(exp_e.status, "archived");
+        let run = tdb.db.get_run("r4").unwrap().unwrap();
+        assert_eq!(run.status, "archived");
     }
 }
