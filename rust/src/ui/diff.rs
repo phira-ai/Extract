@@ -206,8 +206,9 @@ impl DiffView {
             return;
         }
 
-        let label_width: usize = 14;
-        let col_width: usize = 28;
+        let label_width: usize = 16;
+        let col_gap: usize = 5;
+        let col_width: usize = 28 + col_gap;
         let indent: usize = 2;
         // baseline col + non-baseline cols; baseline always shown
         let cols_for_others = ((available_width as usize).saturating_sub(indent + label_width + col_width) / col_width).max(1);
