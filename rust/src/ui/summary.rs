@@ -149,24 +149,38 @@ impl SummaryRenderer {
         let total = data.runs.len();
         let selected = data.selected_run.unwrap_or(0);
 
-        // Compute the visible window of at most 5 runs centered on the selected run.
-        let (start, end) = if total <= max_visible {
-            (0, total)
+        // Build display order: selected run first, then remaining runs in their
+        // original order (windowed).  The selected run always occupies the top
+        // slot, so the remaining window has max_visible-1 slots.
+        let max_others = max_visible.saturating_sub(1);
+        let others: Vec<usize> = (0..total).filter(|&i| i != selected).collect();
+        let others_total = others.len();
+
+        // Window the "others" list, centering around where the selected run
+        // would have been so the neighborhood stays visible.
+        let (o_start, o_end) = if others_total <= max_others {
+            (0, others_total)
         } else {
-            let half = max_visible / 2;
-            let s = if selected < half {
+            // Position of selected in original list maps to its neighbors.
+            let center = if selected > 0 { selected - 1 } else { 0 };
+            let center = center.min(others_total.saturating_sub(1));
+            let half = max_others / 2;
+            let s = if center < half {
                 0
-            } else if selected + max_visible - half > total {
-                total - max_visible
+            } else if center + max_others - half > others_total {
+                others_total - max_others
             } else {
-                selected - half
+                center - half
             };
-            (s, s + max_visible)
+            (s, s + max_others)
         };
+        let hidden_above = o_start;
+        let hidden_below = others_total.saturating_sub(o_end);
 
         lines.push(Line::from(""));
         let header_label = if total > max_visible {
-            format!("  Runs ({}/{})", end - start, total)
+            let shown = 1 + (o_end - o_start); // selected + visible others
+            format!("  Runs ({}/{})", shown, total)
         } else {
             "  Runs".to_string()
         };
@@ -178,14 +192,6 @@ impl SummaryRenderer {
         )));
         lines.push(self.separator());
 
-        // Show truncation indicator at top
-        if start > 0 {
-            lines.push(Line::from(Span::styled(
-                format!("  \u{25b2} {} more above", start),
-                Style::default().fg(self.theme.accent_dim),
-            )));
-        }
-
         let default_tag_colors = [
             Color::Magenta,
             Color::Blue,
@@ -195,24 +201,50 @@ impl SummaryRenderer {
         ];
         let panel_w = data.panel_width as usize;
 
-        for i in start..end {
+        // Build the ordered list of run indices to display: selected first,
+        // then the windowed others.
+        let mut display_indices: Vec<usize> = Vec::with_capacity(max_visible);
+        display_indices.push(selected);
+        display_indices.extend_from_slice(&others[o_start..o_end]);
+
+        for &i in &display_indices {
+            let is_focused = i == selected;
+
+            // Show truncation indicator before first non-selected run.
+            if !is_focused && i == others[o_start] && hidden_above > 0 {
+                lines.push(Line::from(Span::styled(
+                    format!("  \u{25b2} {} more above", hidden_above),
+                    Style::default().fg(self.theme.accent_dim),
+                )));
+            }
+
             let run = &data.runs[i];
-            let status_style = self.status_style(&run.status);
             let date = run.started_at.get(..10).unwrap_or(&run.started_at);
             let label = run.name.clone().unwrap_or_else(|| {
                 let id = &run.id;
                 if id.len() > 8 { id[id.len() - 8..].to_string() } else { id.clone() }
             });
 
+            // Dim style for non-focused runs.
+            let dim = !is_focused && total > 1;
+            let text_style = if dim {
+                Style::default().fg(self.theme.accent_dim)
+            } else {
+                Style::default()
+            };
+            let status_style = if dim {
+                Style::default().fg(self.theme.accent_dim)
+            } else {
+                self.status_style(&run.status)
+            };
+            let date_style = Style::default().fg(self.theme.accent_dim);
+
             // Build the base run info (label + status + date + metrics)
             let mut spans = vec![
                 Span::raw("  ".to_string()),
-                Span::raw(format!("{:<12}", label)),
+                Span::styled(format!("{:<12}", label), text_style),
                 Span::styled(" \u{25cf} ".to_string(), status_style),
-                Span::styled(
-                    format!("{date} "),
-                    Style::default().fg(self.theme.accent_dim),
-                ),
+                Span::styled(format!("{date} "), date_style),
             ];
 
             if let Some(metrics) = data.run_metrics.get(i) {
@@ -222,7 +254,7 @@ impl SummaryRenderer {
                     .map(|m| format!("{}: {:.3}", m.name, m.value))
                     .collect();
                 if !metric_strs.is_empty() {
-                    spans.push(Span::raw(format!(" {}", metric_strs.join("  "))));
+                    spans.push(Span::styled(format!(" {}", metric_strs.join("  ")), text_style));
                 }
             }
 
@@ -240,38 +272,30 @@ impl SummaryRenderer {
                 lines.push(Line::from(spans));
             } else {
                 // Build tag spans with chip styling.
-                // Each chip is " tag " (3 chars overhead) + separator space (1 char).
                 let mut tag_spans: Vec<(Span<'static>, usize)> = Vec::new();
                 for (ti, tag) in tags.iter().enumerate() {
-                    // Look up color from config definitions, fall back to cycling defaults.
                     let bg = data.tag_defs.iter()
                         .find(|d| d.name == *tag)
                         .map(|d| crate::config::parse_color(&d.color))
                         .unwrap_or(default_tag_colors[ti % default_tag_colors.len()]);
                     let chip = format!(" {} ", tag);
-                    let w = chip.len() + if ti + 1 < tags.len() { 1 } else { 0 }; // +1 for separator
-                    tag_spans.push((
-                        Span::styled(
-                            chip,
-                            Style::default().fg(Color::Black).bg(bg).add_modifier(Modifier::BOLD),
-                        ),
-                        w,
-                    ));
+                    let w = chip.len() + if ti + 1 < tags.len() { 1 } else { 0 };
+                    let chip_style = if dim {
+                        Style::default().fg(self.theme.accent_dim)
+                    } else {
+                        Style::default().fg(Color::Black).bg(bg).add_modifier(Modifier::BOLD)
+                    };
+                    tag_spans.push((Span::styled(chip, chip_style), w));
                 }
 
-                // Fit as many tags as possible on the first line after the metrics.
-                let avail_first = panel_w.saturating_sub(base_width + 1); // 1 for leading space
+                let avail_first = panel_w.saturating_sub(base_width + 1);
                 let mut first_line_tags: Vec<Span<'static>> = Vec::new();
                 let mut used = 0usize;
                 let mut remaining_start = 0usize;
 
                 for (ti, (span, w)) in tag_spans.iter().enumerate() {
                     if used + w <= avail_first || ti == 0 {
-                        if ti > 0 {
-                            first_line_tags.push(Span::raw(" "));
-                        } else {
-                            first_line_tags.push(Span::raw(" "));
-                        }
+                        first_line_tags.push(Span::raw(" "));
                         first_line_tags.push(span.clone());
                         used += w;
                         remaining_start = ti + 1;
@@ -283,8 +307,7 @@ impl SummaryRenderer {
                 spans.extend(first_line_tags);
                 lines.push(Line::from(spans));
 
-                // Wrap remaining tags to continuation lines, left-aligned with first tag.
-                let indent = base_width + 1; // align with first tag
+                let indent = base_width + 1;
                 let avail_wrap = panel_w.saturating_sub(indent);
                 let mut wrap_idx = remaining_start;
 
@@ -311,14 +334,14 @@ impl SummaryRenderer {
                     lines.push(Line::from(wrap_spans));
                 }
             }
-        }
 
-        // Show truncation indicator at bottom
-        if end < total {
-            lines.push(Line::from(Span::styled(
-                format!("  \u{25bc} {} more below", total - end),
-                Style::default().fg(self.theme.accent_dim),
-            )));
+            // Show truncation indicator after last non-selected run.
+            if !is_focused && i == others[o_end - 1] && hidden_below > 0 {
+                lines.push(Line::from(Span::styled(
+                    format!("  \u{25bc} {} more below", hidden_below),
+                    Style::default().fg(self.theme.accent_dim),
+                )));
+            }
         }
     }
 

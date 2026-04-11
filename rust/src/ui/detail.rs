@@ -328,11 +328,13 @@ impl DetailPanel {
         };
 
         let run_indicator = if focused && state.runs.len() > 1 {
-            format!(
-                " run {}/{} ",
-                state.selected_run.map(|i| i + 1).unwrap_or(0),
-                state.runs.len()
-            )
+            let idx = state.selected_run.unwrap_or(0);
+            let run_name = state.runs.get(idx).and_then(|r| r.name.as_deref()).unwrap_or("");
+            if run_name.is_empty() {
+                format!(" run {}/{} ", idx + 1, state.runs.len())
+            } else {
+                format!(" {} {}/{} ", run_name, idx + 1, state.runs.len())
+            }
         } else {
             String::new()
         };
