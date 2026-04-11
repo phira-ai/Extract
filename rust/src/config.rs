@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use ratatui::style::Color;
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -161,6 +161,39 @@ pub fn parse_hex_color(s: &str) -> Option<Color> {
     Some(Color::Rgb(r, g, b))
 }
 
+/// Controls the display order of metrics.
+#[derive(Debug, Clone, Default)]
+pub enum MetricOrder {
+    /// Alphabetical (a-z).
+    #[default]
+    Alpha,
+    /// Reverse alphabetical (z-a).
+    RevAlpha,
+    /// User-defined order; metrics not listed appear alphabetically after.
+    Custom(Vec<String>),
+}
+
+impl<'de> Deserialize<'de> for MetricOrder {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        match s.trim() {
+            "alpha" => Ok(MetricOrder::Alpha),
+            "rev_alpha" => Ok(MetricOrder::RevAlpha),
+            other => {
+                let names: Vec<String> = other.split('>')
+                    .map(|part| part.trim().to_string())
+                    .filter(|p| !p.is_empty())
+                    .collect();
+                if names.is_empty() {
+                    Ok(MetricOrder::Alpha)
+                } else {
+                    Ok(MetricOrder::Custom(names))
+                }
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct MetricsConfig {
     /// Metrics where lower values are better (e.g. "forgetting_rate").
@@ -169,6 +202,43 @@ pub struct MetricsConfig {
     /// Metrics where higher values are better (e.g. "custom_score").
     #[serde(default)]
     pub maximize: Vec<String>,
+    /// Display order: "alpha", "rev_alpha", or custom "metric_A > metric_B > ...".
+    #[serde(default)]
+    pub order: MetricOrder,
+}
+
+/// Sort a list of metric names according to the configured order.
+/// Return a comparison function for metric names according to the configured order.
+fn metric_cmp(order: &MetricOrder) -> impl Fn(&str, &str) -> std::cmp::Ordering + '_ {
+    move |a: &str, b: &str| match order {
+        MetricOrder::Alpha => a.cmp(b),
+        MetricOrder::RevAlpha => b.cmp(a),
+        MetricOrder::Custom(defined) => {
+            let pos_a = defined.iter().position(|d| d == a);
+            let pos_b = defined.iter().position(|d| d == b);
+            match (pos_a, pos_b) {
+                (Some(i), Some(j)) => i.cmp(&j),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => a.cmp(b),
+            }
+        }
+    }
+}
+
+/// Sort a list of metric names according to the configured order.
+pub fn sort_metrics(names: &mut Vec<String>, order: &MetricOrder) {
+    let cmp = metric_cmp(order);
+    names.sort_by(|a, b| cmp(a, b));
+}
+
+/// Sort a slice of items that have a metric name, using a name accessor.
+pub fn sort_by_metric_order<T, F>(items: &mut Vec<T>, order: &MetricOrder, name: F)
+where
+    F: Fn(&T) -> &str,
+{
+    let cmp = metric_cmp(order);
+    items.sort_by(|a, b| cmp(name(a), name(b)));
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]

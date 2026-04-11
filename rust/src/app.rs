@@ -982,7 +982,7 @@ impl AppState {
             }
         }
 
-        metric_names.sort();
+        config::sort_metrics(&mut metric_names, &self.config.metrics.order);
         param_names.sort();
         config_keys.retain(|k| config::key_passes_filters(k, &self.config.info.fields));
         config_keys.sort();
@@ -1067,7 +1067,11 @@ impl AppState {
                     }
                 })
                 .collect();
-            rankings.sort_by(|a, b| a.metric_name.cmp(&b.metric_name));
+            {
+                let mut names: Vec<String> = rankings.iter().map(|r| r.metric_name.clone()).collect();
+                config::sort_metrics(&mut names, &self.config.metrics.order);
+                rankings.sort_by_key(|r| names.iter().position(|n| *n == r.metric_name).unwrap_or(usize::MAX));
+            }
 
             self.selection_summary = SelectionSummary::Branch {
                 name: exp.name.clone(),
@@ -1082,14 +1086,17 @@ impl AppState {
         } else {
             let mut run_metrics = Vec::new();
             for run in &self.runs {
-                let metrics = self.db.get_latest_metrics(&run.id)?;
+                let mut metrics = self.db.get_latest_metrics(&run.id)?;
+                config::sort_by_metric_order(&mut metrics, &self.config.metrics.order, |m| &m.name);
                 run_metrics.push(metrics);
             }
+            let mut aggregate_metrics = self.db.aggregate_final_metrics(&exp.id)?;
+            config::sort_by_metric_order(&mut aggregate_metrics, &self.config.metrics.order, |m| &m.name);
             self.selection_summary = SelectionSummary::Leaf {
                 name: exp.name.clone(),
                 runs: self.runs.clone(),
                 run_metrics,
-                aggregate_metrics: self.db.aggregate_final_metrics(&exp.id)?,
+                aggregate_metrics,
                 unique_configs: self.db.count_unique_configs(&exp.id)?,
             };
         }
