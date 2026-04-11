@@ -49,13 +49,16 @@ impl HelpOverlay {
         for (key, desc) in &[
             ("j/k", "navigate"),
             ("gg/G", "top / bottom"),
+            ("\u{2190}/\u{2192}", "collapse / expand"),
             ("Enter", "expand / select"),
             ("Space", "mark run"),
             ("r", "browse runs"),
             ("c", "compare marked"),
             ("d", "diff marked"),
+            ("x", "delete experiment"),
             ("/", "search"),
             ("1/2/3", "focus panels"),
+            ("h/l", "prev / next panel"),
             ("Tab/S-Tab", "next / prev panel"),
         ] {
             lines.push(binding_line(key, desc, accent_bold, accent_dim));
@@ -71,7 +74,8 @@ impl HelpOverlay {
         for (key, desc) in &[
             ("j/k", "scroll"),
             ("gg/G", "top / bottom"),
-            ("h/l", "cycle runs"),
+            ("\u{2190}/\u{2192}", "cycle runs"),
+            ("r", "list runs"),
             ("S/I", "summary / info tab"),
             ("x", "delete run"),
         ] {
@@ -86,14 +90,32 @@ impl HelpOverlay {
             accent_bold,
         )));
         for (key, desc) in &[
-            ("t", "edit tags (summary)"),
+            ("t", "edit tags"),
             ("n", "append note"),
             ("Ctrl+E", "edit notes in $EDITOR"),
-            ("S-F", "mark run failed"),
-            ("S-C", "mark run completed"),
-            ("S-A", "archive"),
-            ("S-U", "unarchive"),
-            ("S-H", "toggle show archived"),
+            ("F", "mark run failed"),
+            ("C", "mark run completed"),
+            ("A", "archive experiment"),
+            ("U", "unarchive experiment"),
+            ("H", "toggle show archived"),
+        ] {
+            lines.push(binding_line(key, desc, accent_bold, accent_dim));
+        }
+
+        lines.push(Line::raw(""));
+
+        // Compare / Diff section
+        lines.push(Line::from(Span::styled(
+            " Compare / Diff",
+            accent_bold,
+        )));
+        for (key, desc) in &[
+            ("j/k", "scroll"),
+            ("gg/G", "top / bottom"),
+            ("b", "set baseline"),
+            ("C", "switch to compare"),
+            ("D", "switch to diff"),
+            ("3/Tab", "selection panel"),
         ] {
             lines.push(binding_line(key, desc, accent_bold, accent_dim));
         }

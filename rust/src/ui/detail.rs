@@ -485,10 +485,12 @@ impl DetailPanel {
             _ => None,
         };
         meta.push(("Status", run.status.clone(), status_style));
-        meta.push(("Started", run.started_at.clone(), None));
+        let time_fmt = &state.config.info.time_format;
+        let mut time_parts = vec![crate::config::format_timestamp(&run.started_at, time_fmt)];
         if let Some(ref ended) = run.ended_at {
-            meta.push(("Ended", ended.clone(), None));
+            time_parts.push(crate::config::format_timestamp(ended, time_fmt));
         }
+        meta.push(("Time", time_parts.join(" \u{2192} "), None));
         if let Some(ref hostname) = run.hostname {
             meta.push(("Host", hostname.clone(), None));
         }

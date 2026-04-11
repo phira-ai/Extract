@@ -227,6 +227,7 @@ curve_smooth = false
 # Prefix with ! to exclude: ["model.**", "!model.parent"]
 [info]
 fields = ["model.*", "task.num_train_epochs"]   # empty = show all
+time_format = "%Y-%m-%d %H:%M:%S"              # strftime format for timestamps
 
 # Compare view (c with marked runs)
 [compare]
@@ -242,6 +243,7 @@ curve_width = 50
 minimize = ["forgetting_rate"]    # lower is better
 maximize = ["custom_score"]       # higher is better
 # Unlisted metrics use name heuristics (e.g. "loss" → minimize)
+order = "alpha"                   # "alpha", "rev_alpha", or "metric_A > metric_B > ..."
 
 # Cell highlight rules for tables (first match wins)
 # Fields: eq (exact), min (inclusive), max (exclusive), pattern (substring), color (name or hex)

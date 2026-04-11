@@ -247,6 +247,25 @@ pub struct InfoConfig {
     /// If empty, all keys are shown.
     #[serde(default)]
     pub fields: Vec<String>,
+    /// strftime format for displaying timestamps (default: "%Y-%m-%d %H:%M:%S").
+    #[serde(default = "default_time_format")]
+    pub time_format: String,
+}
+
+fn default_time_format() -> String {
+    "%Y-%m-%d %H:%M:%S".to_string()
+}
+
+/// Format an ISO 8601 timestamp string using the configured time format.
+/// Falls back to the raw string on parse failure.
+pub fn format_timestamp(raw: &str, fmt: &str) -> String {
+    // Try parsing with fractional seconds + Z
+    chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S%.fZ")
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%SZ"))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S%.f"))
+        .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S"))
+        .map(|dt| dt.format(fmt).to_string())
+        .unwrap_or_else(|_| raw.to_string())
 }
 
 /// A user-defined tag with a display color.
