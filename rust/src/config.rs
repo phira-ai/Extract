@@ -256,15 +256,23 @@ fn default_time_format() -> String {
     "%Y-%m-%d %H:%M:%S".to_string()
 }
 
-/// Format an ISO 8601 timestamp string using the configured time format.
+/// Format an ISO 8601 timestamp string in the user's local timezone.
 /// Falls back to the raw string on parse failure.
 pub fn format_timestamp(raw: &str, fmt: &str) -> String {
-    // Try parsing with fractional seconds + Z
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(raw) {
+        return dt.with_timezone(&chrono::Local).format(fmt).to_string();
+    }
+
     chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S%.fZ")
         .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%SZ"))
         .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S%.f"))
         .or_else(|_| chrono::NaiveDateTime::parse_from_str(raw, "%Y-%m-%dT%H:%M:%S"))
-        .map(|dt| dt.format(fmt).to_string())
+        .map(|dt| {
+            chrono::DateTime::<chrono::Utc>::from_naive_utc_and_offset(dt, chrono::Utc)
+                .with_timezone(&chrono::Local)
+                .format(fmt)
+                .to_string()
+        })
         .unwrap_or_else(|_| raw.to_string())
 }
 
