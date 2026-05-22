@@ -1,8 +1,17 @@
 # Extract
 
-Local-first experiment tracking for deep learning. A Rust TUI for browsing, comparing, and analyzing experiments, paired with a Python SDK for logging metrics, artifacts, and models.
+Local-first experiment tracking for deep learning. Extract pairs a small Python SDK with a fast Rust TUI so you can log runs, watch training live, compare variants, inspect artifacts, and keep everything in a project-local SQLite store.
 
-Built for hierarchical experiment organization (benchmark > model > variant), run comparison, and artifact management — all stored in a single SQLite database with no server required.
+No hosted service. No daemon. No account. One `.extract/` directory per project.
+
+## Why Extract
+
+- **Local-first by default** — experiments live beside your code in `.extract/`.
+- **Hierarchical experiments** — organize runs as `benchmark > model > variant` or any hierarchy you choose.
+- **Live terminal UI** — stream curves during training, compare marked runs, browse artifacts, tags, notes, TODOs, lineage, and model registry entries.
+- **Separated metric surfaces** — `run.curve()` stores dense per-step training series; `run.log()` stores headline metrics for summaries and rankings.
+- **Portable stores** — sync with `rsync`, archive as `tar.gz`, or move one directory between machines.
+- **Agent-readable** — optional read-only MCP server exposes experiments to Claude Code, Claude Desktop, and other MCP hosts.
 
 ## Install
 
@@ -10,22 +19,19 @@ Built for hierarchical experiment organization (benchmark > model > variant), ru
 pip install extract-tracker
 ```
 
-### Development
+Then initialize a store in your project:
 
 ```bash
-nix develop          # dev shell with Rust, Python, SQLite, maturin
-pip install -e .     # editable install (builds Rust binary + links Python)
-```
-
-## Quick Start
-
-```bash
-pip install extract-tracker
 extract init
 ```
 
-`extract init` walks you through choosing a hierarchy and writes
-`.extract/config.toml`. After that:
+`extract init` writes `.extract/config.toml` and asks for your experiment hierarchy. Example hierarchy:
+
+```text
+benchmark > model > variant
+```
+
+## 60-second quickstart
 
 ```python
 from extract import Store
@@ -33,279 +39,191 @@ from extract import Store
 store = Store()
 exp = store.experiment({
     "benchmark": "imagenet",
-    "model":     "resnet50",
-    "variant":   "lr_0.01",
+    "model": "resnet50",
+    "variant": "lr_0.01",
 })
+
 with exp.run(config={"lr": 0.01}, total_steps=1000) as run:
     for step in range(1000):
         loss, acc = train_step(...)
-        run.curve(step=step, train_loss=loss, train_acc=acc)   # streams to live chart
-    run.log(final_acc=acc)                                     # headline metric
+        run.curve(step=step, train_loss=loss, train_acc=acc)
 
-# Browse with: extract tui
+    run.log(final_acc=acc, final_loss=loss)
+    run.tag("baseline")
+    run.note("Stable run; use as comparison anchor.")
 ```
 
-`run.curve()` streams high-frequency points to the live chart panel.
-`run.log()` records headline metrics that show up in the Summary tab and in
-ranking comparisons. The two write to physically separate tables, so streaming
-training losses never clutter your headline-metric surfaces.
-
-`total_steps=N` declares the training loop length so the chart's x-axis is
-pinned at `[0, N-1]` from the moment the chart appears — the curve fills
-left-to-right rather than rescaling.
-
-## Live Watching
-
-While a run is training, the TUI updates the detail and compare panels in
-place — curves fill in along their fixed axis, latest metrics tick over, and
-the status bar shows a `● LIVE` badge whenever any visible run is `running`.
-No keybinding to enable; the tick loop polls SQLite's `data_version` and only
-re-queries when the database has actually changed, so it stays cheap on idle
-TUIs and large stores.
-
-Open the TUI in a second terminal while training is running:
+Open another terminal while training runs:
 
 ```bash
 extract tui
 ```
 
-Navigate to a leaf experiment and the curves will fill in as the training
-loop calls `run.curve(...)`. Mark two runs with `Space` and press `c` to
-watch parallel variants race in the compare view.
+Curves update live. Mark runs with `Space`, press `c` to compare, press `d` to diff configs.
 
-## TUI Keybindings
+## Core concepts
 
-### Navigation
+### Store
+
+A store is a project-local `.extract/` directory:
+
+```text
+.extract/
+├── extract.db
+├── config.toml
+├── artifacts/
+└── models/
+```
+
+SQLite uses WAL mode, so training scripts can write while the TUI reads.
+
+### Experiment
+
+An experiment is a node in your configured hierarchy. With `benchmark > model > variant`, this call creates or reuses each path component:
+
+```python
+exp = store.experiment({
+    "benchmark": "mmlu",
+    "model": "llama-3.2-1b",
+    "variant": "lora-r16",
+})
+```
+
+### Run
+
+A run is one execution under an experiment. Runs track config, status, hostname, git SHA, timestamps, tags, notes, metrics, artifacts, models, lineage, and TODOs.
+
+```python
+with exp.run(config=config, name="seed-1", total_steps=len(loader)) as run:
+    ...
+```
+
+### Metrics
+
+Use `curve()` for dense per-step values and `log()` for final or headline metrics.
+
+```python
+run.curve(step=step, train_loss=loss, eval_acc=acc)  # live charts
+run.log(best_acc=best_acc, final_loss=final_loss)    # summary/ranking columns
+```
+
+### Artifacts and models
+
+```python
+run.log_table("confusion_matrix", matrix)
+run.log_text("notes", "Observed better calibration after warmup.")
+run.register_model("resnet50", "v1", "checkpoints/best.pt", framework="pytorch")
+```
+
+## CLI
+
+```bash
+extract init                             # create .extract/config.toml
+extract tui                              # open Rust TUI
+extract tui --store path/to/.extract     # browse another store
+extract sync push user@hpc:/path/.extract/
+extract sync pull user@hpc:/path/.extract/
+extract sync export backup.tar.gz
+extract sync import backup.tar.gz
+python -m extract.mcp --store .extract   # read-only MCP server
+```
+
+## TUI highlights
 
 | Key | Action |
-|-----|--------|
+|---|---|
 | `j` / `k` | Move down / up |
-| `gg` / `G` | Jump to top / bottom |
 | `Enter` | Expand / select |
-| `h` / `l` | Cycle panels (same as Tab / Shift+Tab) |
-| `Tab` / `Shift+Tab` | Cycle panels |
-| `1` / `2` / `3` | Focus Tree / Detail / Selection panel |
+| `Space` | Mark run for comparison |
+| `c` | Compare marked runs |
+| `d` | Diff marked run configs |
+| `r` | Run browser |
 | `/` | Search experiments and runs |
-| `?` | Help overlay |
+| `t` | Edit tags |
+| `n` | Append note |
+| `M` | Model registry |
+| `T` | TODO view |
+| `L` | Lineage DAG |
+| `?` | Help |
 | `q` | Quit |
 
-### Experiment Tree
-
-| Key | Action |
-|-----|--------|
-| `Left` | Go to parent node |
-| `Right` | Go to first child / enter leaf |
-| `Space` | Mark run for comparison |
-
-### Detail Panel
-
-| Key | Action |
-|-----|--------|
-| `Left` / `Right` | Cycle through runs |
-| `S` | Summary tab |
-| `I` | Info tab |
-
-### Actions
-
-| Key | Action |
-|-----|--------|
-| `t` | Edit tags (Summary tab) |
-| `n` | Append note |
-| `Ctrl+E` | Edit notes in $EDITOR |
-| `Shift+F` | Mark run failed |
-| `Shift+C` | Mark run completed |
-| `Shift+A` | Archive run / experiment |
-| `Shift+U` | Unarchive |
-| `Shift+H` | Toggle show archived |
-
-### Runs & Comparison
-
-| Key | Action |
-|-----|--------|
-| `r` | Open run browser |
-| `c` | Compare marked runs |
-| `d` | Diff marked runs (config) |
-| `x` | Delete run |
-
-### Views
-
-| Key | Action |
-|-----|--------|
-| `M` | Model registry |
-| `T` | TODOs |
-| `L` | Lineage DAG |
-
-### TODO View
-
-| Key | Action |
-|-----|--------|
-| `Space` | Toggle done |
-| `a` | Add TODO |
-| `x` | Delete TODO |
-| `0` / `1` / `2` | Set priority (low / mid / high) |
-| `A` / `G` / `E` / `R` | Filter: All / Global / Experiment / Run |
-
-## Sync
-
-Transfer experiment stores between machines:
-
-```bash
-extract sync push user@hpc:/path/.extract/     # upload via rsync
-extract sync pull user@hpc:/path/.extract/     # download + merge
-extract sync export backup.tar.gz              # archive to file
-extract sync import backup.tar.gz              # restore from archive
-```
-
-Sync merges databases intelligently — experiments match by path, runs use ULIDs so they never collide.
-
-## MCP Server
-
-Expose your store to LLM agents (Claude Code, Claude Desktop, any MCP-capable host) via a read-only MCP server. Agents can browse experiments, compare runs, search by tag, and walk lineage without you writing any glue code.
-
-```bash
-python -m extract.mcp [--store .extract]
-```
-
-Run by an MCP host as a subprocess over stdio. The default `--store .extract` resolves relative to the host's cwd, so launching `claude` in a project folder automatically binds to that project's store.
-
-### Register with Claude Code
-
-Drop a `.mcp.json` at your project root:
-
-```json
-{
-  "mcpServers": {
-    "extract": {
-      "command": ".venv/bin/python",
-      "args": ["-m", "extract.mcp"]
-    }
-  }
-}
-```
-
-Then ask the agent things like *"compare the two resnet50 runs and tell me which had the lowest final loss"* or *"what experiments are tagged production-candidate?"* — it will reach for the matching tools automatically.
-
-### Tools (all read-only)
-
-| Tool | Purpose |
-|---|---|
-| `list_experiments` | Browse the experiment hierarchy with run counts |
-| `list_runs` | List runs (all or for one experiment) with labels and config summaries |
-| `get_run` | Full detail for one run: config, final metrics, params, artifacts, todos |
-| `compare_runs` | 2–10 runs with rankings, optional histories, config diffs |
-| `search` | Substring + structured filters (tag, status, prefix, date range) |
-| `list_todos` | TODOs scoped global / experiment / run |
-| `get_lineage` | BFS walk of the lineage DAG (ancestors, descendants, or both) |
-| `list_models` | Registered models with metadata |
-
-Full schemas, response shapes, and error catalog: see [DOC.md](DOC.md#mcp-server).
+Full keymap: [manual/tui.md](manual/tui.md).
 
 ## Configuration
 
-Edit `.extract/config.toml`. Settings are grouped by what they affect:
-
-### Store Setup
+Edit `.extract/config.toml`:
 
 ```toml
 [store]
 hierarchy = "benchmark > model > variant"
-```
 
-### View Layout — what each TUI panel/view displays
-
-```toml
-# Summary tab in Detail panel (S)
 [summary]
 sections = ["runs", "metrics", "tables", "curves"]
-curve_width = 80       # chart width as % of panel
-# curve_height = 10    # chart height in lines (default: auto-scales by metric count)
+curve_width = 80
 curve_smooth = false
 
-# Info tab in Detail panel (I) + Config section in Compare/Diff views
-# Nested configs are flattened with dot-notation (model.lora_r, task.num_train_epochs)
-# Full glob syntax: * (single segment), ** (multi-segment), ? (single char), {a,b}
-# Prefix with ! to exclude: ["model.**", "!model.parent"]
-[info]
-fields = ["model.*", "task.num_train_epochs"]   # empty = show all
-time_format = "%Y-%m-%d %H:%M:%S"              # strftime format for timestamps
-
-# Compare view (c with marked runs)
-[compare]
-sections = ["pivot", "config", "tables", "curves"]
-curve_width = 50
-# curve_height = 10
-```
-
-### Data Interpretation — how metrics and table values are evaluated
-
-```toml
 [metrics]
-minimize = ["forgetting_rate"]    # lower is better
-maximize = ["custom_score"]       # higher is better
-# Unlisted metrics use name heuristics (e.g. "loss" → minimize)
-order = "alpha"                   # "alpha", "rev_alpha", or "metric_A > metric_B > ..."
+minimize = ["loss", "forgetting_rate"]
+maximize = ["accuracy", "f1", "custom_score"]
+order = "alpha"
 
-# Cell highlight rules for tables (first match wins)
-# Fields: eq (exact), min (inclusive), max (exclusive), pattern (substring), color (name or hex)
-# Colors: red, green, yellow, blue, cyan, magenta, white, orange, none, or hex (#ff6600)
-[[tables.highlight]]
-min = 0.7
-color = "red"
-```
-
-### Tags — pre-defined tags with custom colors
-
-```toml
 [[tags.definitions]]
 name = "baseline"
 color = "blue"
 
-[[tags.definitions]]
-name = "production"
-color = "#a6e3a1"
-
-[[tags.definitions]]
-name = "deprecated"
-color = "red"
-```
-
-Press `t` to open the tag picker. Type to fuzzy-filter, Enter to toggle, or create new tags on the fly.
-
-### Appearance
-
-```toml
 [theme]
-fg = "#cdd6f4"
-bg = "#1e1e2e"
 accent = "#89b4fa"
-accent_dim = "#585b70"
-success = "#a6e3a1"
-warning = "#f9e2af"
 error = "#f38ba8"
-border = "#585b70"
-border_focused = "#89b4fa"
-
-[notifications]
-timeout = 3
 ```
 
-## Store Structure
+Full config reference: [manual/config.md](manual/config.md).
 
-```
-.extract/
-├── extract.db           # SQLite database (WAL mode)
-├── config.toml          # TUI configuration
-├── artifacts/
-│   └── {run_id}/
-│       ├── matrices/*.npy
-│       └── text/*.md
-└── models/
-    └── {name}/{version}/
+## Sync between machines
+
+```bash
+extract sync push user@hpc:/scratch/project/.extract/
+extract sync pull user@hpc:/scratch/project/.extract/
 ```
 
-## Tech Stack
+Pull merges by experiment path and run ULID, so stores can move between laptop, workstation, and HPC jobs without a central server.
 
-- **TUI**: Rust + ratatui + crossterm + rusqlite
-- **SDK**: Python 3.10+ + numpy + ulid
-- **Storage**: SQLite (WAL mode) + .npy artifacts
-- **Dev**: Nix flake
+More: [manual/sync.md](manual/sync.md).
+
+## MCP server
+
+Expose your store to LLM agents with a read-only MCP server:
+
+```bash
+python -m extract.mcp --store .extract
+```
+
+Agents can list experiments, inspect runs, compare metrics, search tags/status, list TODOs, walk lineage, and read model registry metadata.
+
+More: [manual/mcp.md](manual/mcp.md).
+
+## Development
+
+Use Nix for project dependencies:
+
+```bash
+nix develop
+pip install -e .
+pytest python/tests
+```
+
+Build distributions locally:
+
+```bash
+python -m build
+python -m twine check dist/*
+pip install dist/*.whl
+extract --help
+```
+
+Packaging and release notes: [manual/packaging.md](manual/packaging.md).
+
+## Project status
+
+Extract is early-stage and optimized for local ML research workflows. Current package name is `extract-tracker`; Python import and CLI are both `extract`.
+
+License not declared yet. Choose and add `LICENSE` before public distribution.

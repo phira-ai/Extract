@@ -1,3 +1,7 @@
+include README.md
+include pyproject.toml
+include MANIFEST.in
+recursive-include manual *.md
 include rust/Cargo.toml
 include rust/Cargo.lock
 recursive-include rust/src *.rs
