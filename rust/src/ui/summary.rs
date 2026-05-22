@@ -563,15 +563,23 @@ impl SummaryRenderer {
                 .add_modifier(Modifier::BOLD),
         )));
 
-        // Determine cell display width based on content
-        let cell_width = 6;
+        // Fixed numeric width plus explicit inter-column padding keeps signed
+        // values like -100.00 from visually merging with adjacent cells.
+        let cell_width = 8;
+        let cell_gap = 2;
+        let cell_step = cell_width + cell_gap;
 
         // Column header
         if data.table_axes.is_some() {
             let mut header_spans: Vec<Span<'static>> = vec![Span::raw("       ".to_string())];
             for c in 0..table.cols {
                 header_spans.push(Span::styled(
-                    format!("{:>width$}", format!("C{}", c + 1), width = cell_width),
+                    format!(
+                        "{:>width$}{}",
+                        format!("C{}", c + 1),
+                        " ".repeat(cell_gap),
+                        width = cell_width
+                    ),
                     Style::default().fg(self.theme.accent_dim),
                 ));
             }
@@ -590,9 +598,9 @@ impl SummaryRenderer {
                 let cell = &table.values[r][c];
                 let color_name = match_highlight_rule(cell, &tables_config.highlight);
                 if color_name == "transparent" {
-                    spans.push(Span::raw(" ".repeat(cell_width)));
+                    spans.push(Span::raw(" ".repeat(cell_step)));
                 } else {
-                    let display = cell.display(cell_width);
+                    let display = format!("{}{}", cell.display(cell_width), " ".repeat(cell_gap));
                     spans.push(Span::styled(display, Style::default().fg(parse_color(color_name))));
                 }
             }

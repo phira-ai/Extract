@@ -406,7 +406,9 @@ impl DiffView {
             return;
         }
 
-        let cell_width: usize = 8;
+        let cell_width: usize = 9;
+        let cell_gap: usize = 2;
+        let cell_step: usize = cell_width + cell_gap;
         let row_label_w: usize = 7; // "  R{r}  "
         let gap: usize = 3;
 
@@ -455,7 +457,7 @@ impl DiffView {
             )));
             lines.push(self.separator());
 
-            let table_w = row_label_w + baseline.cols * cell_width;
+            let table_w = row_label_w + baseline.cols * cell_step;
             let avail = available_width as usize;
             let tables_per_row = if table_w + gap <= avail {
                 ((avail + gap) / (table_w + gap)).min(delta_runs.len()).max(1)
@@ -493,7 +495,12 @@ impl DiffView {
                     col_header_spans.push(Span::raw(" ".repeat(row_label_w)));
                     for c in 0..baseline.cols {
                         col_header_spans.push(Span::styled(
-                            format!("{:>width$}", format!("C{}", c + 1), width = cell_width),
+                            format!(
+                                "{:>width$}{}",
+                                format!("C{}", c + 1),
+                                " ".repeat(cell_gap),
+                                width = cell_width
+                            ),
                             Style::default().fg(self.theme.accent_dim),
                         ));
                     }
@@ -529,8 +536,9 @@ impl DiffView {
                                     let sign = if delta > 0.0 { "+" } else { "" };
                                     spans.push(Span::styled(
                                         format!(
-                                            "{:>width$}",
+                                            "{:>width$}{}",
                                             format!("{sign}{:.2}", delta),
+                                            " ".repeat(cell_gap),
                                             width = cell_width
                                         ),
                                         Style::default().fg(color),
@@ -539,9 +547,9 @@ impl DiffView {
                                 _ => {
                                     spans.push(Span::styled(
                                         format!(
-                                            "{:>width$}",
+                                            "{}{}",
                                             CellValue::Float(f64::NAN).display(cell_width),
-                                            width = cell_width
+                                            " ".repeat(cell_gap)
                                         ),
                                         Style::default().fg(self.theme.accent_dim),
                                     ));

@@ -379,7 +379,9 @@ impl CompareView {
             return;
         }
 
-        let cell_width: usize = 6;
+        let cell_width: usize = 8;
+        let cell_gap: usize = 2;
+        let cell_step: usize = cell_width + cell_gap;
         let row_label_w: usize = 6; // "  R{r} "
         let gap: usize = 3;
 
@@ -412,7 +414,7 @@ impl CompareView {
 
             // Compute table width based on max cols across runs
             let max_cols = run_tables.iter().map(|(_, t)| t.cols).max().unwrap_or(0);
-            let table_w = row_label_w + max_cols * cell_width;
+            let table_w = row_label_w + max_cols * cell_step;
 
             // Compute tables_per_row
             let avail = available_width as usize;
@@ -456,9 +458,10 @@ impl CompareView {
                                 let color_name =
                                     match_highlight_rule(cell, &tables_config.highlight);
                                 if color_name == "transparent" {
-                                    spans.push(Span::raw(" ".repeat(cell_width)));
+                                    spans.push(Span::raw(" ".repeat(cell_step)));
                                 } else {
-                                    let display = cell.display(cell_width);
+                                    let display =
+                                        format!("{}{}", cell.display(cell_width), " ".repeat(cell_gap));
                                     spans.push(Span::styled(
                                         display,
                                         Style::default().fg(parse_color(color_name)),
