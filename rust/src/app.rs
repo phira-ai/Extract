@@ -631,13 +631,18 @@ impl AppState {
 
     /// Capture current state into a Session and save to disk.
     pub fn save_session(&self, detail_tab: &str) {
-        let experiment_path = self.selected_experiment
-            .and_then(|idx| self.experiments.get(idx))
+        let selected_run = self.selected_run.and_then(|idx| self.runs.get(idx));
+
+        let experiment_path = selected_run
+            .and_then(|run| {
+                self.experiments
+                    .iter()
+                    .find(|e| e.id.as_str() == run.experiment_id.as_str())
+            })
+            .or_else(|| self.selected_experiment.and_then(|idx| self.experiments.get(idx)))
             .map(|e| e.path.clone());
 
-        let run_id = self.selected_run
-            .and_then(|idx| self.runs.get(idx))
-            .map(|r| r.id.clone());
+        let run_id = selected_run.map(|r| r.id.clone());
 
         let focus = match self.focus {
             Focus::Tree => "tree",
