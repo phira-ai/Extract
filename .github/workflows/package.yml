@@ -1,18 +1,9 @@
 name: Package and publish
 "on":
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      publish_to_pypi:
-        description: "Publish built distributions to PyPI"
-        required: false
-        default: false
-        type: boolean
-      checkout_ref:
-        description: "Git ref to package"
-        required: false
-        default: ""
-        type: string
+  repository_dispatch:
+    types:
+      - publish-package
   release:
     types:
       - published
@@ -31,7 +22,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.checkout_ref || github.ref }}
+          ref: >-
+            ${{
+
+              github.event.client_payload.checkout_ref ||
+              github.event.release.tag_name ||
+              github.ref
+            }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -61,7 +58,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.checkout_ref || github.ref }}
+          ref: >-
+            ${{
+
+              github.event.client_payload.checkout_ref ||
+              github.event.release.tag_name ||
+              github.ref
+            }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -90,7 +93,9 @@ jobs:
     if: >-
       ${{
 
-        inputs.publish_to_pypi ||
+
+        github.event_name == 'repository_dispatch' &&
+        github.event.client_payload.publish_to_pypi ||
         github.event_name == 'release' &&
         github.actor != 'github-actions[bot]'
       }}

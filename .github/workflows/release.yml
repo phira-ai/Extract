@@ -23,15 +23,12 @@ name: Release
         type: boolean
 permissions:
   contents: write
-  id-token: write
 concurrency:
   group: release-main
   cancel-in-progress: false
 jobs:
   release:
     runs-on: ubuntu-22.04
-    outputs:
-      target_version: ${{ steps.sync_versions.outputs.target_version }}
     env:
       RELEASE_TYPE: ${{ inputs.release_type }}
       EXACT_VERSION: ${{ inputs.exact_version }}
@@ -187,6 +184,23 @@ jobs:
             --title "v$TARGET_VERSION" \
             --generate-notes \
             --verify-tag
+      - name: Queue package and publish workflow
+        if: ${{ !inputs.validate_only }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET_VERSION: ${{ steps.sync_versions.outputs.target_version }}
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/dispatches" \
+            --method POST \
+            --input - <<EOF
+          {
+            "event_type": "publish-package",
+            "client_payload": {
+              "checkout_ref": "v$TARGET_VERSION",
+              "publish_to_pypi": true
+            }
+          }
+          EOF
       - name: Report validate-only completion
         if: ${{ inputs.validate_only }}
         env:
@@ -194,14 +208,3 @@ jobs:
         run: |
           echo "Validated release workflow for v$TARGET_VERSION" \
             "without creating commit or tag."
-  package-and-publish:
-    name: Package and publish release
-    needs: release
-    if: ${{ !inputs.validate_only }}
-    uses: ./.github/workflows/package.yml
-    permissions:
-      contents: read
-      id-token: write
-    with:
-      publish_to_pypi: true
-      checkout_ref: v${{ needs.release.outputs.target_version }}
