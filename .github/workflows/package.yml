@@ -54,6 +54,10 @@ jobs:
           CIBW_BUILD: "cp310-*"
           CIBW_SKIP: "*-musllinux* pp*"
           CIBW_TEST_COMMAND: "extract --help"
+          CIBW_BEFORE_ALL_LINUX: |
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+              sh -s -- -y --profile minimal --default-toolchain stable
+          CIBW_ENVIRONMENT_LINUX: 'PATH="$HOME/.cargo/bin:$PATH"'
         run: python -m cibuildwheel --output-dir dist
       - name: Check wheel metadata
         run: python -m twine check dist/*
