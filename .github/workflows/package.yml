@@ -1,18 +1,21 @@
 name: Package and publish
 "on":
   workflow_dispatch:
+  workflow_call:
     inputs:
-      target:
-        description: "Optional publish target"
-        required: true
-        default: "none"
-        type: choice
-        options:
-          - none
-          - testpypi
-  push:
-    tags:
-      - "v*"
+      publish_to_pypi:
+        description: "Publish built distributions to PyPI"
+        required: false
+        default: false
+        type: boolean
+      checkout_ref:
+        description: "Git ref to package"
+        required: false
+        default: ""
+        type: string
+  release:
+    types:
+      - published
 permissions:
   contents: read
 jobs:
@@ -21,6 +24,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -43,6 +48,8 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.checkout_ref || github.ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -65,27 +72,16 @@ jobs:
         with:
           name: wheels-${{ matrix.os }}
           path: dist/*
-  publish-testpypi:
-    name: Publish to TestPyPI
-    needs: [sdist, wheels]
-    if: inputs.target == 'testpypi'
-    runs-on: ubuntu-latest
-    environment: testpypi
-    permissions:
-      id-token: write
-      contents: read
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
   publish-pypi:
     name: Publish to PyPI
     needs: [sdist, wheels]
-    if: github.ref_type == 'tag'
+    if: |
+      ${{
+        github.event_name == 'release' &&
+        github.actor != 'github-actions[bot]' ||
+        github.event_name == 'workflow_call' &&
+        inputs.publish_to_pypi
+      }}
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
