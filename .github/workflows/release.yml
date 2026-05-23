@@ -49,19 +49,14 @@ jobs:
           persist-credentials: false
       - name: Configure authenticated origin remote
         env:
-          RELEASE_WORKFLOW_TOKEN: ${{ secrets.RELEASE_WORKFLOW_TOKEN }}
           GITHUB_TOKEN_VALUE: ${{ github.token }}
         run: |
-          token="$RELEASE_WORKFLOW_TOKEN"
-          if [[ -z "$token" ]]; then
-            token="$GITHUB_TOKEN_VALUE"
-          fi
-          if [[ -z "$token" ]]; then
-            echo "No token available for authenticated origin remote" >&2
+          if [[ -z "$GITHUB_TOKEN_VALUE" ]]; then
+            echo "No GITHUB_TOKEN available for authenticated origin remote" >&2
             exit 1
           fi
           git remote set-url origin \
-            "https://x-access-token:${token}@github.com/${GITHUB_REPOSITORY}.git"
+            "https://x-access-token:${GITHUB_TOKEN_VALUE}@github.com/${GITHUB_REPOSITORY}.git"
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -164,15 +159,6 @@ jobs:
             echo "origin/main moved during release run." >&2
             echo "start=$BASE_MAIN_SHA" >&2
             echo "current=$remote_main_sha" >&2
-            exit 1
-          fi
-      - name: Require release push token
-        if: ${{ !inputs.validate_only }}
-        env:
-          RELEASE_WORKFLOW_TOKEN: ${{ secrets.RELEASE_WORKFLOW_TOKEN }}
-        run: |
-          if [[ -z "$RELEASE_WORKFLOW_TOKEN" ]]; then
-            echo "Missing required secret RELEASE_WORKFLOW_TOKEN" >&2
             exit 1
           fi
       - name: Create and push release commit
