@@ -10,7 +10,6 @@ name: Package and publish
         options:
           - none
           - testpypi
-          - pypi
   push:
     tags:
       - "v*"
@@ -82,7 +81,7 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: [sdist, wheels]
-    if: github.ref_type == 'tag' || inputs.target == 'pypi'
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
