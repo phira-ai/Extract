@@ -21,6 +21,12 @@ permissions:
 jobs:
   sdist:
     name: Source distribution
+    if: >-
+      ${{
+
+        github.event_name != 'release' ||
+        github.actor != 'github-actions[bot]'
+      }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,6 +47,12 @@ jobs:
           path: dist/*
   wheels:
     name: Wheels (${{ matrix.os }})
+    if: >-
+      ${{
+
+        github.event_name != 'release' ||
+        github.actor != 'github-actions[bot]'
+      }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -75,12 +87,12 @@ jobs:
   publish-pypi:
     name: Publish to PyPI
     needs: [sdist, wheels]
-    if: |
+    if: >-
       ${{
+
+        inputs.publish_to_pypi ||
         github.event_name == 'release' &&
-        github.actor != 'github-actions[bot]' ||
-        github.event_name == 'workflow_call' &&
-        inputs.publish_to_pypi
+        github.actor != 'github-actions[bot]'
       }}
     runs-on: ubuntu-latest
     environment: pypi
