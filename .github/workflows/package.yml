@@ -1,6 +1,16 @@
-name: Package
+name: Package and publish
 "on":
   workflow_dispatch:
+    inputs:
+      target:
+        description: "Optional publish target"
+        required: true
+        default: "none"
+        type: choice
+        options:
+          - none
+          - testpypi
+          - pypi
   push:
     tags:
       - "v*"
@@ -42,7 +52,7 @@ jobs:
         run: python -m pip install --upgrade cibuildwheel twine
       - name: Build wheels
         env:
-          CIBW_BUILD: "cp310-* cp311-* cp312-*"
+          CIBW_BUILD: "cp310-*"
           CIBW_SKIP: "*-musllinux* pp*"
           CIBW_TEST_COMMAND: "extract --help"
         run: python -m cibuildwheel --output-dir dist
@@ -52,10 +62,27 @@ jobs:
         with:
           name: wheels-${{ matrix.os }}
           path: dist/*
-  publish:
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: [sdist, wheels]
+    if: inputs.target == 'testpypi'
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+  publish-pypi:
     name: Publish to PyPI
     needs: [sdist, wheels]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref_type == 'tag' || inputs.target == 'pypi'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
