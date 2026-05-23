@@ -2,22 +2,37 @@
 .direnv/
 .mcp.json
 CLAUDE.md
-AGENTS.md 
+AGENTS.md
 .pi/
 docs/
 
 # Python
 .python-version
+.venv/
 python/.venv/
+python/uv.lock
 __pycache__/
-*.pyc
+*.py[cod]
 *.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
 
-# Build
+# Build / distribution
 build/
+dist/
+*.whl
+*.tar.gz
 
 # Rust
 rust/target/
+target/
+
+# OS / logs
+.DS_Store
+*.log
 
 # Extract store
 .extract/
