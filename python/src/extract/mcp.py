@@ -12,9 +12,9 @@ import json
 import sys
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
-
+import tomli
 from extract.store import Store
+from mcp.server.fastmcp import FastMCP
 
 # Module-level state. Set by main() at startup; monkey-patched by tests.
 _store: Store | None = None
@@ -31,8 +31,17 @@ def _tool(fn):
 # ----------------------------------------------------------------------
 
 _MIN_METRIC_PATTERNS = (
-    "loss", "error", "perplexity", "mse", "mae", "rmse",
-    "nll", "cer", "wer", "fid", "divergence",
+    "loss",
+    "error",
+    "perplexity",
+    "mse",
+    "mae",
+    "rmse",
+    "nll",
+    "cer",
+    "wer",
+    "fid",
+    "divergence",
 )
 
 
@@ -70,13 +79,52 @@ def _flatten_config(config: dict, prefix: str = "") -> dict:
     return result
 
 
-def _metric_direction(name: str) -> str:
-    """Return 'min' if metric name matches a minimize pattern, else 'max'."""
+def _metric_direction(
+    name: str,
+    overrides: tuple[set[str], set[str]] | None = None,
+) -> str:
+    """Return 'min' or 'max' using config overrides, then heuristics."""
+    if overrides is not None:
+        minimize, maximize = overrides
+        if name in minimize:
+            return "min"
+        if name in maximize:
+            return "max"
+
     lowered = name.lower()
     for pat in _MIN_METRIC_PATTERNS:
         if pat in lowered:
             return "min"
     return "max"
+
+
+def _metric_direction_overrides(store: Store) -> tuple[set[str], set[str]]:
+    """Read [metrics] minimize/maximize overrides from config.toml."""
+    config_path = store.root / "config.toml"
+    if not config_path.exists():
+        return set(), set()
+
+    with config_path.open("rb") as f:
+        data = tomli.load(f)
+
+    metrics = data.get("metrics", {})
+    if not isinstance(metrics, dict):
+        return set(), set()
+
+    minimize = metrics.get("minimize", [])
+    maximize = metrics.get("maximize", [])
+    return (
+        (
+            {m for m in minimize if isinstance(m, str)}
+            if isinstance(minimize, list)
+            else set()
+        ),
+        (
+            {m for m in maximize if isinstance(m, str)}
+            if isinstance(maximize, list)
+            else set()
+        ),
+    )
 
 
 def _config_diffs(runs_configs: list[tuple[str, dict]]) -> dict:
@@ -96,8 +144,9 @@ def _config_diffs(runs_configs: list[tuple[str, dict]]) -> dict:
     result: dict = {}
     for key in all_keys:
         values = [(rid, flat.get(key, _MISSING)) for rid, flat in flattened]
-        distinct = {id(v) if v is _MISSING else (type(v).__name__, repr(v))
-                    for _, v in values}
+        distinct = {
+            id(v) if v is _MISSING else (type(v).__name__, repr(v)) for _, v in values
+        }
         if len(distinct) > 1:
             result[key] = {rid: v for rid, v in values if v is not _MISSING}
     return result
@@ -193,14 +242,16 @@ def list_experiments(
                 f"SELECT COUNT(*) FROM runs WHERE experiment_id = ?{run_filter}",
                 (row["id"],),
             ).fetchone()
-            items.append({
-                "id": row["id"],
-                "path": row["path"],
-                "name": row["name"],
-                "node_type": row["node_type"],
-                "parent_id": row["parent_id"],
-                "n_runs": n_runs_row[0],
-            })
+            items.append(
+                {
+                    "id": row["id"],
+                    "path": row["path"],
+                    "name": row["name"],
+                    "node_type": row["node_type"],
+                    "parent_id": row["parent_id"],
+                    "n_runs": n_runs_row[0],
+                }
+            )
 
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
@@ -257,23 +308,25 @@ def list_runs(
     for row in rows:
         config_dict = json.loads(row["config"]) if row["config"] else {}
         top_keys = list(config_dict.keys())
-        items.append({
-            "id": row["id"],
-            "label": _label(row["experiment_path"], row["name"], row["id"]),
-            "experiment_id": row["experiment_id"],
-            "experiment_path": row["experiment_path"],
-            "name": row["name"],
-            "status": row["status"],
-            "started_at": row["started_at"],
-            "ended_at": row["ended_at"],
-            "tags": json.loads(row["tags"]) if row["tags"] else [],
-            "git_sha": row["git_sha"],
-            "hostname": row["hostname"],
-            "config_summary": {
-                "n_keys": len(top_keys),
-                "top_level_keys": top_keys,
-            },
-        })
+        items.append(
+            {
+                "id": row["id"],
+                "label": _label(row["experiment_path"], row["name"], row["id"]),
+                "experiment_id": row["experiment_id"],
+                "experiment_path": row["experiment_path"],
+                "name": row["name"],
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "ended_at": row["ended_at"],
+                "tags": json.loads(row["tags"]) if row["tags"] else [],
+                "git_sha": row["git_sha"],
+                "hostname": row["hostname"],
+                "config_summary": {
+                    "n_keys": len(top_keys),
+                    "top_level_keys": top_keys,
+                },
+            }
+        )
 
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
@@ -308,16 +361,18 @@ def list_models(name_prefix: str = "", limit: int = 50) -> dict:
 
     items: list[dict] = []
     for row in rows:
-        items.append({
-            "id": row["id"],
-            "name": row["name"],
-            "version": row["version"],
-            "run_id": row["run_id"],
-            "framework": row["framework"],
-            "artifact_path": row["artifact_path"],
-            "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
-            "created_at": row["created_at"],
-        })
+        items.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "version": row["version"],
+                "run_id": row["run_id"],
+                "framework": row["framework"],
+                "artifact_path": row["artifact_path"],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                "created_at": row["created_at"],
+            }
+        )
 
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
@@ -429,14 +484,16 @@ def get_run(run_id: str) -> dict:
         ).fetchall()
         artifacts: list[dict] = []
         for a in art_rows:
-            artifacts.append({
-                "name": a["name"],
-                "kind": a["kind"],
-                "step": a["step"],
-                "rel_path": a["rel_path"],
-                "shape": json.loads(a["shape"]) if a["shape"] else None,
-                "dtype": a["dtype"],
-            })
+            artifacts.append(
+                {
+                    "name": a["name"],
+                    "kind": a["kind"],
+                    "step": a["step"],
+                    "rel_path": a["rel_path"],
+                    "shape": json.loads(a["shape"]) if a["shape"] else None,
+                    "dtype": a["dtype"],
+                }
+            )
 
         todo_rows = _store._conn.execute(
             "SELECT id, content, priority, done, created_at, completed_at "
@@ -470,7 +527,11 @@ def get_run(run_id: str) -> dict:
 
 _VALID_STATUS = {"running", "completed", "failed", "archived"}
 _VALID_FILTERS = {
-    "tag", "status", "experiment_prefix", "started_after", "started_before",
+    "tag",
+    "status",
+    "experiment_prefix",
+    "started_after",
+    "started_before",
 }
 
 
@@ -568,23 +629,25 @@ def search(
     for row in rows:
         config_dict = json.loads(row["config"]) if row["config"] else {}
         top_keys = list(config_dict.keys())
-        items.append({
-            "id": row["id"],
-            "label": _label(row["experiment_path"], row["name"], row["id"]),
-            "experiment_id": row["experiment_id"],
-            "experiment_path": row["experiment_path"],
-            "name": row["name"],
-            "status": row["status"],
-            "started_at": row["started_at"],
-            "ended_at": row["ended_at"],
-            "tags": json.loads(row["tags"]) if row["tags"] else [],
-            "git_sha": row["git_sha"],
-            "hostname": row["hostname"],
-            "config_summary": {
-                "n_keys": len(top_keys),
-                "top_level_keys": top_keys,
-            },
-        })
+        items.append(
+            {
+                "id": row["id"],
+                "label": _label(row["experiment_path"], row["name"], row["id"]),
+                "experiment_id": row["experiment_id"],
+                "experiment_path": row["experiment_path"],
+                "name": row["name"],
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "ended_at": row["ended_at"],
+                "tags": json.loads(row["tags"]) if row["tags"] else [],
+                "git_sha": row["git_sha"],
+                "hostname": row["hostname"],
+                "config_summary": {
+                    "n_keys": len(top_keys),
+                    "top_level_keys": top_keys,
+                },
+            }
+        )
 
     return _listing(items, total=len(items), limit=limit, limit_clamped=clamped)
 
@@ -617,7 +680,9 @@ def compare_runs(run_ids: list[str], include_curves: bool = False) -> dict:
         }
     """
     if len(run_ids) < 2:
-        raise ValueError(f"compare_runs requires at least 2 run_ids (got {len(run_ids)})")
+        raise ValueError(
+            f"compare_runs requires at least 2 run_ids (got {len(run_ids)})"
+        )
     if len(run_ids) > 10:
         raise ValueError(
             f"compare_runs supports at most 10 runs per call (got {len(run_ids)})"
@@ -627,7 +692,9 @@ def compare_runs(run_ids: list[str], include_curves: bool = False) -> dict:
     runs_out: list[dict] = []
     configs: list[tuple[str, dict]] = []
     metric_values: dict[str, dict[str, float]] = {}  # name -> {run_id: final_val}
-    curves_out: dict[str, dict[str, list[list]]] = {}  # name -> {run_id: [[step, value], ...]}
+    curves_out: dict[str, dict[str, list[list]]] = (
+        {}
+    )  # name -> {run_id: [[step, value], ...]}
 
     with _store.lock:
         for rid in run_ids:
@@ -640,12 +707,14 @@ def compare_runs(run_ids: list[str], include_curves: bool = False) -> dict:
             if row is None:
                 raise ValueError(f"Run not found: {rid!r}")
 
-            runs_out.append({
-                "id": row["id"],
-                "label": _label(row["experiment_path"], row["name"], row["id"]),
-                "experiment_path": row["experiment_path"],
-                "status": row["status"],
-            })
+            runs_out.append(
+                {
+                    "id": row["id"],
+                    "label": _label(row["experiment_path"], row["name"], row["id"]),
+                    "experiment_path": row["experiment_path"],
+                    "status": row["status"],
+                }
+            )
             cfg = json.loads(row["config"]) if row["config"] else {}
             configs.append((rid, cfg))
 
@@ -671,13 +740,15 @@ def compare_runs(run_ids: list[str], include_curves: bool = False) -> dict:
                     )
 
     # Build the metrics dict.
+    direction_overrides = _metric_direction_overrides(_store)
     metrics_out: dict[str, dict] = {}
     for name, vals in metric_values.items():
-        direction = _metric_direction(name)
-        reverse = (direction == "max")
-        ranking = [rid for rid, _ in sorted(
-            vals.items(), key=lambda kv: kv[1], reverse=reverse
-        )]
+        direction = _metric_direction(name, direction_overrides)
+        reverse = direction == "max"
+        ranking = [
+            rid
+            for rid, _ in sorted(vals.items(), key=lambda kv: kv[1], reverse=reverse)
+        ]
         metrics_out[name] = {
             "direction": direction,
             "values": vals,
@@ -767,7 +838,9 @@ def get_lineage(
     with _store.lock:
         root_label = _lookup_node_label(_store._conn, node_type, node_id)
         if root_label is None:
-            pretty = {"run": "Run", "experiment": "Experiment", "model": "Model"}[node_type]
+            pretty = {"run": "Run", "experiment": "Experiment", "model": "Model"}[
+                node_type
+            ]
             raise ValueError(f"{pretty} not found: {node_id!r}")
 
         visited: set[tuple[str, str]] = {(node_type, node_id)}
@@ -776,7 +849,7 @@ def get_lineage(
 
         for _hop in range(depth):
             next_frontier: list[tuple[str, str]] = []
-            for (nt, nid) in frontier:
+            for nt, nid in frontier:
                 # Descendants: I am the parent.
                 if direction in ("descendants", "both"):
                     rows = _store._conn.execute(
@@ -811,14 +884,19 @@ def get_lineage(
         seen_edges: set[tuple] = set()
         unique_edges: list[dict] = []
         for e in edges_out:
-            key = (e["parent_type"], e["parent_id"],
-                   e["child_type"], e["child_id"], e["relation"])
+            key = (
+                e["parent_type"],
+                e["parent_id"],
+                e["child_type"],
+                e["child_id"],
+                e["relation"],
+            )
             if key not in seen_edges:
                 seen_edges.add(key)
                 unique_edges.append(e)
 
         nodes_out: list[dict] = []
-        for (nt, nid) in visited:
+        for nt, nid in visited:
             if (nt, nid) == (node_type, node_id):
                 continue  # root is emitted separately
             label = _lookup_node_label(_store._conn, nt, nid)
