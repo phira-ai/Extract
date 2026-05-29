@@ -1,0 +1,15 @@
+{
+  "name": "extract-pi-tools",
+  "version": "0.1.0",
+  "description": "Pi tools for querying Extract experiment stores through the Extract CLI.",
+  "files": ["extensions", "README.md"],
+  "keywords": ["pi-package", "extract", "experiment-tracking"],
+  "type": "module",
+  "peerDependencies": {
+    "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}

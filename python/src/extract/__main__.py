@@ -29,7 +29,9 @@ def _find_tui_binary() -> str | None:
     return None
 
 
-def _print_merge_stats(verb: str, src: object, dst: object, stats: dict[str, int]) -> None:
+def _print_merge_stats(
+    verb: str, src: object, dst: object, stats: dict[str, int]
+) -> None:
     print(f"{verb} {src} → {dst}")
     exps = stats.get("experiments", 0)
     runs = stats.get("runs", 0)
@@ -45,29 +47,39 @@ def _print_merge_stats(verb: str, src: object, dst: object, stats: dict[str, int
 
 
 def main(argv: list[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(prog="extract", description="Extract experiment tracker")
+    parser = argparse.ArgumentParser(
+        prog="extract", description="Extract experiment tracker"
+    )
     sub = parser.add_subparsers(dest="command")
+
+    from extract.cli_query import add_query_parsers, run_query_command
+
+    add_query_parsers(sub)
 
     # --- tui ---
     tui_parser = sub.add_parser("tui", help="Launch the TUI explorer")
-    tui_parser.add_argument("--store", default=".extract", help="Path to .extract/ directory")
+    tui_parser.add_argument(
+        "--store", default=".extract", help="Path to .extract/ directory"
+    )
 
     # --- init ---
     init_parser = sub.add_parser(
         "init", help="Bootstrap a .extract/ store with a hierarchy"
     )
     init_parser.add_argument(
-        "path", nargs="?", default=".extract",
-        help="Path to create the store at (default: .extract)"
+        "path",
+        nargs="?",
+        default=".extract",
+        help="Path to create the store at (default: .extract)",
     )
     init_parser.add_argument(
-        "--hierarchy", default=None,
+        "--hierarchy",
+        default=None,
         help="Skip the interactive picker; use this hierarchy "
-             "(e.g. 'benchmark > model > variant')"
+        "(e.g. 'benchmark > model > variant')",
     )
     init_parser.add_argument(
-        "--no-gitignore", action="store_true",
-        help="Do not add .extract/ to .gitignore"
+        "--no-gitignore", action="store_true", help="Do not add .extract/ to .gitignore"
     )
 
     # --- sync ---
@@ -84,13 +96,23 @@ def main(argv: list[str] | None = None) -> None:
 
     export_p = sync_sub.add_parser("export", help="Archive .extract/ to tar.gz")
     export_p.add_argument("output", help="Output archive path, e.g. experiments.tar.gz")
-    export_p.add_argument("--root", default=".extract", help="Local .extract/ directory")
+    export_p.add_argument(
+        "--root", default=".extract", help="Local .extract/ directory"
+    )
 
-    import_p = sync_sub.add_parser("import", help="Import tar.gz archive into .extract/")
+    import_p = sync_sub.add_parser(
+        "import", help="Import tar.gz archive into .extract/"
+    )
     import_p.add_argument("archive", help="Archive path to import")
-    import_p.add_argument("--root", default=".extract", help="Target .extract/ directory")
+    import_p.add_argument(
+        "--root", default=".extract", help="Target .extract/ directory"
+    )
 
     args = parser.parse_args(argv)
+
+    query_exit = run_query_command(args)
+    if query_exit is not None:
+        sys.exit(query_exit)
 
     if args.command == "tui":
         binary = _find_tui_binary()
@@ -105,7 +127,10 @@ def main(argv: list[str] | None = None) -> None:
         os.execvp(binary, [binary, "--store", args.store])
 
     elif args.command == "init":
-        from extract import init  # lazy import — pulls in rich/questionary only when needed
+        from extract import (
+            init,
+        )  # lazy import — pulls in rich/questionary only when needed
+
         sys.exit(init.run(args))
 
     elif args.command == "sync":
