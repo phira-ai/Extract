@@ -306,6 +306,7 @@ pub struct RunBrowserState {
     pub filtered: Vec<usize>,
     pub cursor: usize,
     pub search_query: Option<String>,
+    pub rename_buffer: Option<String>,
     pub scroll_offset: usize,
 }
 
@@ -318,6 +319,7 @@ impl RunBrowserState {
             filtered,
             cursor: 0,
             search_query: None,
+            rename_buffer: None,
             scroll_offset: 0,
         }
     }

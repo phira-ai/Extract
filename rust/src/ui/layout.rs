@@ -82,7 +82,14 @@ impl AppLayout {
         // focused panel's input handler see every keystroke unmodified.
         let in_text_input = state.tag_picker.is_some()
             || state.note_input.is_some()
-            || state.todo_input.is_some();
+            || state.todo_input.is_some()
+            || state
+                .run_picker
+                .as_ref()
+                .is_some_and(|picker| picker.search_query.is_some())
+            || state.run_browser.as_ref().is_some_and(|browser| {
+                browser.search_query.is_some() || browser.rename_buffer.is_some()
+            });
 
         if !in_text_input {
             // Global keys: gg/G, ?, work in all views

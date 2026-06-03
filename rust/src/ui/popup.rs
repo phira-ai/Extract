@@ -1,4 +1,5 @@
-use crossterm::event::{KeyCode, KeyEvent};
+use chrono::{DateTime, Local};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::symbols::border;
@@ -216,6 +217,70 @@ impl PopupRenderer {
         };
 
         let is_searching = browser.search_query.is_some();
+        let is_renaming = browser.rename_buffer.is_some();
+
+        // Rename mode
+        if is_renaming {
+            match key.code {
+                KeyCode::Esc => {
+                    browser.rename_buffer = None;
+                    return false;
+                }
+                KeyCode::Enter => {
+                    if let Some(&run_idx) = browser.filtered.get(browser.cursor) {
+                        if let Some(run) = browser.runs.get(run_idx) {
+                            let run_id = run.id.clone();
+                            let new_name = browser.rename_buffer.take().unwrap_or_default();
+                            let db_path = state.store_root.join("extract.db");
+                            match crate::db::Db::rename_run(&db_path, &run_id, &new_name) {
+                                Ok(()) => {
+                                    let trimmed = new_name.trim();
+                                    let value = if trimmed.is_empty() {
+                                        None
+                                    } else {
+                                        Some(trimmed.to_string())
+                                    };
+                                    if let Some(run) = browser.runs.get_mut(run_idx) {
+                                        run.name = value.clone();
+                                    }
+                                    if let Some(state_idx) = state.runs.iter().position(|r| r.id == run_id) {
+                                        state.runs[state_idx].name = value;
+                                    }
+                                    let _ = state.refresh_selection_summary();
+                                    state.notify(crate::app::NotifyLevel::Success, "Run renamed");
+                                }
+                                Err(err) => {
+                                    state.notify(
+                                        crate::app::NotifyLevel::Error,
+                                        format!("Rename failed: {err}"),
+                                    );
+                                }
+                            }
+                        } else {
+                            browser.rename_buffer = None;
+                        }
+                    } else {
+                        browser.rename_buffer = None;
+                    }
+                    return false;
+                }
+                KeyCode::Backspace => {
+                    if let Some(ref mut name) = browser.rename_buffer {
+                        name.pop();
+                    }
+                    return false;
+                }
+                KeyCode::Char(c) => {
+                    if accepts_text_modifiers(key) {
+                        if let Some(ref mut name) = browser.rename_buffer {
+                            name.push(c);
+                        }
+                    }
+                    return false;
+                }
+                _ => return false,
+            }
+        }
 
         // Search mode
         if is_searching {
@@ -287,6 +352,15 @@ impl PopupRenderer {
 
         if keys::matches(key, keys::SEARCH) {
             browser.search_query = Some(String::new());
+            return false;
+        }
+
+        if is_rename_key(key) {
+            if let Some(&run_idx) = browser.filtered.get(browser.cursor) {
+                if let Some(run) = browser.runs.get(run_idx) {
+                    browser.rename_buffer = Some(run.name.clone().unwrap_or_default());
+                }
+            }
             return false;
         }
 
@@ -499,6 +573,7 @@ impl PopupRenderer {
         browser: &mut RunBrowserState,
     ) {
         let is_searching = browser.search_query.is_some();
+        let is_renaming = browser.rename_buffer.is_some();
         let width = POPUP_WIDTH.min(area.width.saturating_sub(4));
         let height = POPUP_HEIGHT.min(area.height.saturating_sub(4));
         let popup_area = centered_rect(width, height, area);
@@ -508,12 +583,16 @@ impl PopupRenderer {
         let title = format!(" {} — runs ", browser.experiment_name);
         let footer_spans = if is_searching {
             search_footer_spans(&self.theme)
+        } else if is_renaming {
+            rename_footer_spans(&self.theme)
         } else {
             vec![
                 Span::styled("j/k", Style::default().fg(self.theme.accent)),
                 Span::styled(" nav  ", Style::default().fg(self.theme.accent_dim)),
                 Span::styled("Enter", Style::default().fg(self.theme.accent)),
                 Span::styled(" select  ", Style::default().fg(self.theme.accent_dim)),
+                Span::styled("R", Style::default().fg(self.theme.accent)),
+                Span::styled(" rename  ", Style::default().fg(self.theme.accent_dim)),
                 Span::styled("/", Style::default().fg(self.theme.accent)),
                 Span::styled(" search  ", Style::default().fg(self.theme.accent_dim)),
                 Span::styled("x", Style::default().fg(self.theme.accent)),
@@ -570,11 +649,19 @@ impl PopupRenderer {
                 Style::default()
             };
 
-            let label = run
-                .name
-                .as_deref()
-                .map(|n| format!("{} ", n))
-                .unwrap_or_default();
+            let label = if is_cursor {
+                browser
+                    .rename_buffer
+                    .as_ref()
+                    .map(|name| format!("{name}_ "))
+                    .or_else(|| run.name.as_deref().map(|n| format!("{} ", n)))
+                    .unwrap_or_default()
+            } else {
+                run.name
+                    .as_deref()
+                    .map(|n| format!("{} ", n))
+                    .unwrap_or_default()
+            };
             let date = format_date(run);
             let config_summary = differing_config_summary(run, &diff_keys);
 
@@ -624,14 +711,24 @@ fn compute_scroll(cursor: usize, current_offset: usize, list_height: usize) -> u
     }
 }
 
-/// Format a run's date for display (first 19 chars of ended_at or started_at).
+/// Format a run timestamp for display in the user's local timezone.
 fn format_date(run: &Run) -> String {
-    run.ended_at
-        .as_deref()
-        .unwrap_or(&run.started_at)
-        .chars()
-        .take(19)
-        .collect()
+    let raw = run.ended_at.as_deref().unwrap_or(&run.started_at);
+    format_local_timestamp(raw).unwrap_or_else(|| raw.chars().take(19).collect())
+}
+
+fn format_local_timestamp(raw: &str) -> Option<String> {
+    DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string())
+}
+
+fn is_rename_key(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('R')) && accepts_text_modifiers(key)
+}
+
+fn accepts_text_modifiers(key: &KeyEvent) -> bool {
+    key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT
 }
 
 /// Build search input line with blinking cursor.
@@ -650,6 +747,17 @@ fn search_footer_spans(theme: &Theme) -> Vec<Span<'static>> {
         Span::styled(" filter  ", Style::default().fg(theme.accent_dim)),
         Span::styled("Enter", Style::default().fg(theme.accent)),
         Span::styled(" confirm  ", Style::default().fg(theme.accent_dim)),
+        Span::styled("Esc", Style::default().fg(theme.accent)),
+        Span::styled(" cancel", Style::default().fg(theme.accent_dim)),
+    ]
+}
+
+fn rename_footer_spans(theme: &Theme) -> Vec<Span<'static>> {
+    vec![
+        Span::styled("Type", Style::default().fg(theme.accent)),
+        Span::styled(" name  ", Style::default().fg(theme.accent_dim)),
+        Span::styled("Enter", Style::default().fg(theme.accent)),
+        Span::styled(" save  ", Style::default().fg(theme.accent_dim)),
         Span::styled("Esc", Style::default().fg(theme.accent)),
         Span::styled(" cancel", Style::default().fg(theme.accent_dim)),
     ]

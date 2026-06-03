@@ -854,6 +854,19 @@ impl Db {
         Ok(())
     }
 
+    /// Rename a run. Empty string clears the name. Opens a writable connection.
+    pub fn rename_run(db_path: &Path, id: &str, name: &str) -> Result<()> {
+        let conn = Connection::open(db_path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        let trimmed = name.trim();
+        let value: Option<&str> = if trimmed.is_empty() { None } else { Some(trimmed) };
+        conn.execute(
+            "UPDATE runs SET name = ? WHERE id = ?",
+            params![value, id],
+        )?;
+        Ok(())
+    }
+
     /// Set status on a single run or experiment. Opens a writable connection.
     pub fn set_status(db_path: &Path, table: &str, id: &str, status: &str) -> Result<()> {
         assert!(table == "runs" || table == "experiments");
@@ -1312,6 +1325,18 @@ mod tests {
         Db::set_status(&tdb.path, "runs", "r2", "failed").unwrap();
         let run = tdb.db.get_run("r2").unwrap().unwrap();
         assert_eq!(run.status, "failed");
+    }
+
+    #[test]
+    fn test_rename_run() {
+        let tdb = test_db_with_path();
+        Db::rename_run(&tdb.path, "r1", "renamed").unwrap();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert_eq!(run.name.as_deref(), Some("renamed"));
+
+        Db::rename_run(&tdb.path, "r1", "   ").unwrap();
+        let run = tdb.db.get_run("r1").unwrap().unwrap();
+        assert!(run.name.is_none());
     }
 
     #[test]

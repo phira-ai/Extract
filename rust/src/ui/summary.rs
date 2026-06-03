@@ -1,3 +1,4 @@
+use chrono::{DateTime, Local};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
@@ -219,7 +220,7 @@ impl SummaryRenderer {
             }
 
             let run = &data.runs[i];
-            let date = run.started_at.get(..10).unwrap_or(&run.started_at);
+            let date = format_run_time(run);
             let label = run.name.clone().unwrap_or_else(|| {
                 let id = &run.id;
                 if id.len() > 8 { id[id.len() - 8..].to_string() } else { id.clone() }
@@ -630,6 +631,13 @@ impl SummaryRenderer {
             _ => Style::default(),
         }
     }
+}
+
+fn format_run_time(run: &Run) -> String {
+    DateTime::parse_from_rfc3339(&run.started_at)
+        .ok()
+        .map(|dt| dt.with_timezone(&Local).format("%Y-%m-%d %H:%M:%S").to_string())
+        .unwrap_or_else(|| run.started_at.chars().take(19).collect())
 }
 
 /// Catmull-Rom spline interpolation.
