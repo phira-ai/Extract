@@ -357,11 +357,6 @@ function registerExtractTool(
 		name: definition.name,
 		label: definition.label,
 		description: `${definition.description} Returns compact summaries only; use context-mode with meta.command for large/raw analysis.`,
-		promptSnippet: definition.description,
-		promptGuidelines: [
-			`Use ${definition.name} for bounded Extract store discovery and summaries, not for raw full JSON analysis.`,
-			`When Extract output needs full configs, curves, or bulk aggregation, use ctx_execute with the CLI command from ${definition.name} meta.command and print only the derived answer.`,
-		],
 		parameters: definition.parameters as never,
 		async execute(_toolCallId, params: ExtractParams, signal, _onUpdate, ctx) {
 			return runExtractCli(pi, ctx, signal, definition.name, definition.buildArgs(params), params, definition.summarize);
