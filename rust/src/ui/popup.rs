@@ -224,6 +224,7 @@ impl PopupRenderer {
             match key.code {
                 KeyCode::Esc => {
                     browser.rename_buffer = None;
+                    browser.rename_cursor = 0;
                     return false;
                 }
                 KeyCode::Enter => {
@@ -231,6 +232,7 @@ impl PopupRenderer {
                         if let Some(run) = browser.runs.get(run_idx) {
                             let run_id = run.id.clone();
                             let new_name = browser.rename_buffer.take().unwrap_or_default();
+                            browser.rename_cursor = 0;
                             let db_path = state.store_root.join("extract.db");
                             match crate::db::Db::rename_run(&db_path, &run_id, &new_name) {
                                 Ok(()) => {
@@ -258,22 +260,39 @@ impl PopupRenderer {
                             }
                         } else {
                             browser.rename_buffer = None;
+                            browser.rename_cursor = 0;
                         }
                     } else {
                         browser.rename_buffer = None;
+                        browser.rename_cursor = 0;
                     }
                     return false;
                 }
                 KeyCode::Backspace => {
                     if let Some(ref mut name) = browser.rename_buffer {
-                        name.pop();
+                        let cursor = browser.rename_cursor.min(name.chars().count());
+                        browser.rename_cursor = remove_char_before_cursor(name, cursor);
+                    }
+                    return false;
+                }
+                KeyCode::Left => {
+                    browser.rename_cursor = browser.rename_cursor.saturating_sub(1);
+                    return false;
+                }
+                KeyCode::Right => {
+                    if let Some(ref name) = browser.rename_buffer {
+                        let len = name.chars().count();
+                        browser.rename_cursor = (browser.rename_cursor + 1).min(len);
                     }
                     return false;
                 }
                 KeyCode::Char(c) => {
                     if accepts_text_modifiers(key) {
                         if let Some(ref mut name) = browser.rename_buffer {
-                            name.push(c);
+                            let cursor = browser.rename_cursor.min(name.chars().count());
+                            let byte_idx = char_to_byte_index(name, cursor);
+                            name.insert(byte_idx, c);
+                            browser.rename_cursor = cursor + 1;
                         }
                     }
                     return false;
@@ -358,7 +377,9 @@ impl PopupRenderer {
         if is_rename_key(key) {
             if let Some(&run_idx) = browser.filtered.get(browser.cursor) {
                 if let Some(run) = browser.runs.get(run_idx) {
-                    browser.rename_buffer = Some(run.name.clone().unwrap_or_default());
+                    let name = run.name.clone().unwrap_or_default();
+                    browser.rename_cursor = name.chars().count();
+                    browser.rename_buffer = Some(name);
                 }
             }
             return false;
@@ -649,34 +670,40 @@ impl PopupRenderer {
                 Style::default()
             };
 
-            let label = if is_cursor {
+            let date = format_date(run);
+            let config_summary = differing_config_summary(run, &diff_keys);
+            let mut row_spans = if is_cursor {
                 browser
                     .rename_buffer
                     .as_ref()
-                    .map(|name| format!("{name}_ "))
-                    .or_else(|| run.name.as_deref().map(|n| format!("{} ", n)))
-                    .unwrap_or_default()
+                    .map(|name| rename_label_spans(name, browser.rename_cursor, line_style))
+                    .unwrap_or_else(|| {
+                        let label = run
+                            .name
+                            .as_deref()
+                            .map(|n| format!("{} ", n))
+                            .unwrap_or_default();
+                        vec![Span::styled(format!("  {}", label), line_style)]
+                    })
             } else {
-                run.name
+                let label = run
+                    .name
                     .as_deref()
                     .map(|n| format!("{} ", n))
-                    .unwrap_or_default()
+                    .unwrap_or_default();
+                vec![Span::styled(format!("  {}", label), line_style)]
             };
-            let date = format_date(run);
-            let config_summary = differing_config_summary(run, &diff_keys);
+            row_spans.push(Span::styled(format!("{} ", date), line_style));
+            row_spans.push(Span::styled(
+                config_summary,
+                if is_cursor {
+                    line_style
+                } else {
+                    Style::default().fg(self.theme.accent_dim)
+                },
+            ));
 
-            lines.push(Line::from(vec![
-                Span::styled(format!("  {}", label), line_style),
-                Span::styled(format!("{} ", date), line_style),
-                Span::styled(
-                    config_summary,
-                    if is_cursor {
-                        line_style
-                    } else {
-                        Style::default().fg(self.theme.accent_dim)
-                    },
-                ),
-            ]));
+            lines.push(Line::from(row_spans));
         }
 
         // Bottom padding
@@ -756,11 +783,56 @@ fn rename_footer_spans(theme: &Theme) -> Vec<Span<'static>> {
     vec![
         Span::styled("Type", Style::default().fg(theme.accent)),
         Span::styled(" name  ", Style::default().fg(theme.accent_dim)),
+        Span::styled("←/→", Style::default().fg(theme.accent)),
+        Span::styled(" cursor  ", Style::default().fg(theme.accent_dim)),
         Span::styled("Enter", Style::default().fg(theme.accent)),
         Span::styled(" save  ", Style::default().fg(theme.accent_dim)),
         Span::styled("Esc", Style::default().fg(theme.accent)),
         Span::styled(" cancel", Style::default().fg(theme.accent_dim)),
     ]
+}
+
+fn rename_label_spans(name: &str, cursor: usize, line_style: Style) -> Vec<Span<'static>> {
+    let cursor = cursor.min(name.chars().count());
+    let mut chars = name.chars();
+    let before: String = chars.by_ref().take(cursor).collect();
+    let cursor_style = line_style.add_modifier(Modifier::REVERSED | Modifier::SLOW_BLINK);
+    let mut spans = vec![Span::styled("  ", line_style)];
+
+    if !before.is_empty() {
+        spans.push(Span::styled(before, line_style));
+    }
+
+    if let Some(cursor_char) = chars.next() {
+        spans.push(Span::styled(cursor_char.to_string(), cursor_style));
+        let after: String = chars.collect();
+        if !after.is_empty() {
+            spans.push(Span::styled(after, line_style));
+        }
+    } else {
+        spans.push(Span::styled(" ", cursor_style));
+    }
+
+    spans.push(Span::styled(" ", line_style));
+    spans
+}
+
+fn remove_char_before_cursor(name: &mut String, cursor: usize) -> usize {
+    if cursor == 0 {
+        return 0;
+    }
+
+    let start = char_to_byte_index(name, cursor - 1);
+    let end = char_to_byte_index(name, cursor);
+    name.replace_range(start..end, "");
+    cursor - 1
+}
+
+fn char_to_byte_index(value: &str, char_idx: usize) -> usize {
+    value
+        .char_indices()
+        .nth(char_idx)
+        .map_or(value.len(), |(byte_idx, _)| byte_idx)
 }
 
 /// Compare configs across all runs and return only the keys whose values differ.

@@ -307,6 +307,7 @@ pub struct RunBrowserState {
     pub cursor: usize,
     pub search_query: Option<String>,
     pub rename_buffer: Option<String>,
+    pub rename_cursor: usize,
     pub scroll_offset: usize,
 }
 
@@ -320,6 +321,7 @@ impl RunBrowserState {
             cursor: 0,
             search_query: None,
             rename_buffer: None,
+            rename_cursor: 0,
             scroll_offset: 0,
         }
     }
