@@ -26,6 +26,100 @@ pub(crate) fn pinned_x_bounds(observed_x_max: f64, total_steps: Option<i64>) -> 
     (0.0, x_max)
 }
 
+pub(crate) const CURVE_COLORS: [Color; 12] = [
+    Color::Cyan,
+    Color::Magenta,
+    Color::Green,
+    Color::Yellow,
+    Color::Blue,
+    Color::Red,
+    Color::LightCyan,
+    Color::LightMagenta,
+    Color::LightGreen,
+    Color::LightYellow,
+    Color::LightBlue,
+    Color::LightRed,
+];
+
+#[derive(Debug, Clone)]
+pub(crate) struct CurveGroup {
+    pub title: String,
+    pub metrics: Vec<String>,
+}
+
+pub(crate) fn curve_series_label(name: &str) -> &str {
+    match name.rsplit_once('/') {
+        Some((prefix, suffix)) if !prefix.is_empty() && !suffix.is_empty() => suffix,
+        _ => name,
+    }
+}
+
+pub(crate) fn group_curve_names<'a, I>(names: I) -> Vec<CurveGroup>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    let mut groups: Vec<CurveGroup> = Vec::new();
+    let mut group_ids: Vec<String> = Vec::new();
+
+    for name in names {
+        let (group_id, title) = match name.rsplit_once('/') {
+            Some((prefix, suffix)) if !prefix.is_empty() && !suffix.is_empty() => {
+                (format!("p:{prefix}"), prefix.to_string())
+            }
+            _ => (format!("m:{name}"), name.to_string()),
+        };
+
+        if let Some(idx) = group_ids.iter().position(|id| id == &group_id) {
+            if !groups[idx].metrics.iter().any(|metric| metric == name) {
+                groups[idx].metrics.push(name.to_string());
+            }
+        } else {
+            group_ids.push(group_id);
+            groups.push(CurveGroup {
+                title,
+                metrics: vec![name.to_string()],
+            });
+        }
+    }
+
+    groups
+}
+
+pub(crate) fn push_curve_legend(
+    lines: &mut Vec<Line<'static>>,
+    entries: &[(String, Color)],
+    available_width: u16,
+) {
+    if entries.is_empty() {
+        return;
+    }
+
+    let avail = available_width as usize;
+    let mut row_spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
+    let mut row_len: usize = 2;
+
+    for (i, (label, color)) in entries.iter().enumerate() {
+        let entry = format!("── {label}");
+        let entry_len = entry.chars().count() + 2;
+
+        if i > 0 && row_len + entry_len > avail {
+            lines.push(Line::from(row_spans));
+            row_spans = vec![Span::raw("  ".to_string())];
+            row_len = 2;
+        } else if i > 0 {
+            row_spans.push(Span::raw("  ".to_string()));
+            row_len += 2;
+        }
+
+        row_spans.push(Span::styled(entry.clone(), Style::default().fg(*color)));
+        row_len += entry.chars().count();
+    }
+
+    if row_spans.len() > 1 {
+        lines.push(Line::from(row_spans));
+    }
+}
+
 /// All data needed to render a summary panel.
 pub struct SummaryData<'a> {
     pub name: &'a str,
@@ -403,91 +497,128 @@ impl SummaryRenderer {
             return;
         }
 
-        // Use configured height or auto-scale based on number of metrics
-        let chart_height: u16 = height_override.unwrap_or_else(|| match data.metric_histories.len() {
+        let groups = group_curve_names(data.metric_histories.iter().map(|(name, _)| name.as_str()));
+
+        // Use configured height or auto-scale based on number of curve groups.
+        let chart_height: u16 = height_override.unwrap_or_else(|| match groups.len() {
             1 => 12,
             2 => 10,
             3 => 8,
             _ => 6,
         });
 
-        for (name, history) in data.metric_histories {
-            if history.is_empty() {
+        for group in groups {
+            let mut series: Vec<(Vec<(f64, f64)>, Color)> = Vec::new();
+            let mut legend_entries: Vec<(String, Color)> = Vec::new();
+
+            for metric_name in &group.metrics {
+                let Some((_, history)) = data
+                    .metric_histories
+                    .iter()
+                    .find(|(name, _)| name == metric_name)
+                else {
+                    continue;
+                };
+                if history.is_empty() {
+                    continue;
+                }
+
+                let raw_points: Vec<(f64, f64)> = history
+                    .iter()
+                    .map(|m| (m.step as f64, m.value))
+                    .collect();
+                let points = if smooth && raw_points.len() >= 3 {
+                    catmull_rom_interpolate(&raw_points, (raw_points.len() * 4).max(100))
+                } else {
+                    raw_points
+                };
+                let color = if group.metrics.len() == 1 {
+                    self.theme.chart_line_1
+                } else {
+                    CURVE_COLORS[series.len() % CURVE_COLORS.len()]
+                };
+                series.push((points, color));
+                if group.metrics.len() > 1 {
+                    legend_entries.push((curve_series_label(metric_name).to_string(), color));
+                }
+            }
+
+            if series.iter().all(|(points, _)| points.is_empty()) {
                 continue;
             }
 
+            let title = if group.metrics.len() == 1 {
+                group.metrics[0].as_str()
+            } else {
+                group.title.as_str()
+            };
+
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                format!("  {name}"),
+                format!("  {title}"),
                 Style::default()
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
             )));
+            push_curve_legend(lines, &legend_entries, width);
 
-            let chart_lines = self.render_chart_to_lines(
-                history,
+            let chart_lines = self.render_series_chart_to_lines(
+                &series,
                 width,
                 chart_height,
-                smooth,
                 data.preview_total_steps,
             );
             lines.extend(chart_lines);
         }
     }
 
-    fn render_chart_to_lines(
+    fn render_series_chart_to_lines(
         &self,
-        history: &[ScalarMetric],
+        series: &[(Vec<(f64, f64)>, Color)],
         width: u16,
         height: u16,
-        smooth: bool,
         total_steps: Option<i64>,
     ) -> Vec<Line<'static>> {
-        let raw_points: Vec<(f64, f64)> = history
-            .iter()
-            .map(|m| (m.step as f64, m.value))
-            .collect();
-
-        let points = if smooth && raw_points.len() >= 3 {
-            catmull_rom_interpolate(&raw_points, (raw_points.len() * 4).max(100))
-        } else {
-            raw_points
-        };
-
         // Defensive: caller should already filter empty histories, but if a
         // future call site forgets, return early rather than rendering a
         // degenerate [0, 1] x-range chart with no data.
-        if points.is_empty() {
+        if series.iter().all(|(points, _)| points.is_empty()) {
             return Vec::new();
         }
 
-        let observed_max_x = points
-            .iter()
-            .map(|(x, _)| *x)
-            .fold(f64::MIN, f64::max);
+        let mut observed_max_x = f64::MIN;
+        let mut y_min = f64::MAX;
+        let mut y_max = f64::MIN;
+        for (points, _) in series {
+            for &(x, y) in points {
+                observed_max_x = observed_max_x.max(x);
+                y_min = y_min.min(y);
+                y_max = y_max.max(y);
+            }
+        }
 
         let (x_min, x_max) = pinned_x_bounds(observed_max_x, total_steps);
-        let (y_min, y_max) = points
-            .iter()
-            .fold((f64::MAX, f64::MIN), |(min, max), (_, y)| {
-                (min.min(*y), max.max(*y))
-            });
 
         let y_range = y_max - y_min;
         let y_pad = if y_range > 0.0 { y_range * 0.1 } else { 0.1 };
         let y_lo = y_min - y_pad;
         let y_hi = y_max + y_pad;
 
-        let dataset = Dataset::default()
-            .marker(symbols::Marker::Braille)
-            .graph_type(GraphType::Line)
-            .style(Style::default().fg(self.theme.chart_line_1))
-            .data(&points);
+        let datasets: Vec<Dataset> = series
+            .iter()
+            .map(|(points, color)| {
+                Dataset::default()
+                    .marker(symbols::Marker::Braille)
+                    .graph_type(GraphType::Line)
+                    .style(Style::default().fg(*color))
+                    .data(points)
+            })
+            .collect();
 
         let x_labels = vec![format!("{:.0}", x_min), format!("{:.0}", x_max)];
         let y_labels = vec![format!("{:.3}", y_lo), format!("{:.3}", y_hi)];
 
-        let chart = Chart::new(vec![dataset])
+        let chart = Chart::new(datasets)
             .x_axis(
                 Axis::default()
                     .title("step")
@@ -798,6 +929,33 @@ mod tests {
         // Single point at step 0, no declaration → x_max clamped to 1.0
         // to prevent empty [0, 0] range that would break the chart widget.
         assert_eq!(pinned_x_bounds(0.0, None), (0.0, 1.0));
+    }
+
+    #[test]
+    fn test_group_curve_names_groups_slash_prefixes() {
+        let groups = group_curve_names(["task/train_loss", "task/reg_loss", "loss"]);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].title, "task");
+        assert_eq!(groups[0].metrics, vec!["task/train_loss", "task/reg_loss"]);
+        assert_eq!(groups[1].title, "loss");
+        assert_eq!(groups[1].metrics, vec!["loss"]);
+    }
+
+    #[test]
+    fn test_curve_series_label_uses_suffix_after_last_slash() {
+        assert_eq!(curve_series_label("task/train_loss"), "train_loss");
+        assert_eq!(curve_series_label("outer/task/reg_loss"), "reg_loss");
+        assert_eq!(curve_series_label("loss"), "loss");
+    }
+
+    #[test]
+    fn test_group_curve_names_does_not_merge_plain_name_with_prefix() {
+        let groups = group_curve_names(["task", "task/train_loss"]);
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].title, "task");
+        assert_eq!(groups[0].metrics, vec!["task"]);
+        assert_eq!(groups[1].title, "task");
+        assert_eq!(groups[1].metrics, vec!["task/train_loss"]);
     }
 
     #[test]

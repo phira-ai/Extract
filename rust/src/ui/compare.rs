@@ -12,23 +12,11 @@ use crate::app::{format_json_value, resolve_dotted_key, Action, AppState, Compar
 use crate::config::{parse_color, CompareSection};
 use crate::event::AppEvent;
 use crate::keys;
-use crate::ui::summary::match_highlight_rule;
+use crate::ui::summary::{
+    curve_series_label, group_curve_names, match_highlight_rule, pinned_x_bounds,
+    push_curve_legend, CURVE_COLORS,
+};
 use crate::ui::theme::Theme;
-
-const RUN_COLORS: [Color; 12] = [
-    Color::Cyan,
-    Color::Magenta,
-    Color::Green,
-    Color::Yellow,
-    Color::Blue,
-    Color::Red,
-    Color::LightCyan,
-    Color::LightMagenta,
-    Color::LightGreen,
-    Color::LightYellow,
-    Color::LightBlue,
-    Color::LightRed,
-];
 
 pub struct CompareView {
     theme: Theme,
@@ -218,7 +206,7 @@ impl CompareView {
             // Column headers
             let mut header_spans = vec![Span::raw(format!("  {:<label_width$}", ""))];
             for &i in chunk {
-                let color = RUN_COLORS[i % RUN_COLORS.len()];
+                let color = CURVE_COLORS[i % CURVE_COLORS.len()];
                 let label = data.runs[i].label();
                 header_spans.push(Span::styled(
                     format!("{:<col_width$}", label),
@@ -328,7 +316,7 @@ impl CompareView {
             // Column headers
             let mut header_spans = vec![Span::raw(format!("  {:<label_width$}", ""))];
             for &i in chunk {
-                let color = RUN_COLORS[i % RUN_COLORS.len()];
+                let color = CURVE_COLORS[i % CURVE_COLORS.len()];
                 let label = data.runs[i].label();
                 header_spans.push(Span::styled(
                     format!("{:<col_width$}", label),
@@ -432,7 +420,7 @@ impl CompareView {
                     if ci > 0 {
                         header_spans.push(Span::raw(" ".repeat(gap)));
                     }
-                    let color = RUN_COLORS[run_idx % RUN_COLORS.len()];
+                    let color = CURVE_COLORS[run_idx % CURVE_COLORS.len()];
                     header_spans.push(Span::styled(
                         format!("  {:<width$}", data.runs[run_idx].label(), width = table_w.saturating_sub(2)),
                         Style::default().fg(color).add_modifier(Modifier::BOLD),
@@ -501,72 +489,70 @@ impl CompareView {
         )));
         lines.push(self.separator());
 
-        // All legends first, wrapped into rows that fit the width
-        let avail = available_width as usize;
-        let mut row_spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
-        let mut row_len: usize = 2;
+        let groups = group_curve_names(data.curve_names.iter().map(String::as_str));
 
-        for (i, rd) in data.runs.iter().enumerate() {
-            let color = RUN_COLORS[i % RUN_COLORS.len()];
-            let entry = format!("\u{2500}\u{2500} {}", rd.label());
-            let entry_len = entry.len() + 2; // +2 for gap
-
-            if i > 0 && row_len + entry_len > avail {
-                // Wrap to next line
-                lines.push(Line::from(row_spans));
-                row_spans = vec![Span::raw("  ".to_string())];
-                row_len = 2;
-            } else if i > 0 {
-                row_spans.push(Span::raw("  ".to_string()));
-                row_len += 2;
-            }
-
-            row_spans.push(Span::styled(entry.clone(), Style::default().fg(color)));
-            row_len += entry.len();
-        }
-        if row_spans.len() > 1 {
-            lines.push(Line::from(row_spans));
-        }
-
-        // Use configured height or auto-scale based on number of timeseries
-        let chart_height: u16 = height_override.unwrap_or_else(|| match data.curve_names.len() {
+        // Use configured height or auto-scale based on number of curve groups.
+        let chart_height: u16 = height_override.unwrap_or_else(|| match groups.len() {
             1 => 12,
             2 => 10,
             3 => 8,
             _ => 6,
         });
 
-        for metric_name in &data.curve_names {
+        for group in groups {
             let mut all_points: Vec<(Vec<(f64, f64)>, Color)> = Vec::new();
-            let mut has_data = false;
+            let mut legend_entries: Vec<(String, Color)> = Vec::new();
+            let multi_metric = group.metrics.len() > 1;
 
-            for (i, rd) in data.runs.iter().enumerate() {
-                let color = RUN_COLORS[i % RUN_COLORS.len()];
-                if let Some((_, history)) = rd
-                    .metric_histories
-                    .iter()
-                    .find(|(n, _)| n == metric_name)
-                {
-                    if !history.is_empty() {
-                        has_data = true;
+            for metric_name in &group.metrics {
+                for (run_idx, rd) in data.runs.iter().enumerate() {
+                    let Some((_, history)) = rd
+                        .metric_histories
+                        .iter()
+                        .find(|(name, _)| name == metric_name)
+                    else {
+                        continue;
+                    };
+                    if history.is_empty() {
+                        continue;
                     }
+
+                    let color = if multi_metric {
+                        CURVE_COLORS[all_points.len() % CURVE_COLORS.len()]
+                    } else {
+                        CURVE_COLORS[run_idx % CURVE_COLORS.len()]
+                    };
                     let points: Vec<(f64, f64)> =
                         history.iter().map(|m| (m.step as f64, m.value)).collect();
                     all_points.push((points, color));
+
+                    let label = if multi_metric {
+                        format!("{}: {}", rd.label(), curve_series_label(metric_name))
+                    } else {
+                        rd.label()
+                    };
+                    legend_entries.push((label, color));
                 }
             }
 
-            if !has_data {
+            if all_points.iter().all(|(points, _)| points.is_empty()) {
                 continue;
             }
 
+            let title = if group.metrics.len() == 1 {
+                group.metrics[0].as_str()
+            } else {
+                group.title.as_str()
+            };
+
             lines.push(Line::from(""));
             lines.push(Line::from(Span::styled(
-                format!("  {metric_name}"),
+                format!("  {title}"),
                 Style::default()
                     .fg(self.theme.accent)
                     .add_modifier(Modifier::BOLD),
             )));
+            push_curve_legend(lines, &legend_entries, available_width);
 
             // Pin the compare-view x-axis to the largest total_steps across
             // the runs being compared, so all curves share a single axis and
@@ -615,7 +601,7 @@ impl CompareView {
             }
         }
 
-        let (x_min, x_max) = crate::ui::summary::pinned_x_bounds(observed_x_max, total_steps_max);
+        let (x_min, x_max) = pinned_x_bounds(observed_x_max, total_steps_max);
 
         let y_range = y_max - y_min;
         let y_pad = if y_range > 0.0 { y_range * 0.1 } else { 0.1 };
