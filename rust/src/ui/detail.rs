@@ -1,4 +1,4 @@
-use crossterm::event::KeyEvent;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::symbols::border;
@@ -45,6 +45,12 @@ impl DetailPanel {
         // Tag picker popup mode
         if state.tag_picker.is_some() {
             self.handle_tag_picker_key(key, state);
+            return Action::None;
+        }
+
+        // Run rename input mode
+        if state.run_rename.is_some() {
+            self.handle_run_rename_key(key, state);
             return Action::None;
         }
 
@@ -120,6 +126,12 @@ impl DetailPanel {
         if keys::matches(key, keys::BACK_ESC) {
             state.focus = Focus::Tree;
             state.current_view = View::Explorer;
+            return Action::None;
+        }
+
+        // Summary tab: Shift+R renames the focused run.
+        if self.active_tab == DetailTab::Summary && keys::matches_shift(key, keys::RUN_RENAME) {
+            self.open_run_rename(state);
             return Action::None;
         }
 
@@ -606,6 +618,80 @@ impl DetailPanel {
         frame.render_widget(paragraph, area);
     }
 
+    fn open_run_rename(&self, state: &mut AppState) {
+        let Some(run) = state.selected_run.and_then(|idx| state.runs.get(idx)) else {
+            return;
+        };
+        let buffer = run.name.clone().unwrap_or_default();
+        let cursor = buffer.chars().count();
+        state.run_rename = Some(crate::app::RunRenameState {
+            run_id: run.id.clone(),
+            buffer,
+            cursor,
+        });
+    }
+
+    fn handle_run_rename_key(&self, key: &KeyEvent, state: &mut AppState) {
+        let Some(rename) = state.run_rename.as_mut() else {
+            return;
+        };
+
+        match key.code {
+            KeyCode::Esc => {
+                state.run_rename = None;
+            }
+            KeyCode::Enter => {
+                let rename = state.run_rename.take().unwrap();
+                let db_path = state.store_root.join("extract.db");
+                match crate::db::Db::rename_run(&db_path, &rename.run_id, &rename.buffer) {
+                    Ok(()) => {
+                        let trimmed = rename.buffer.trim();
+                        let value = if trimmed.is_empty() {
+                            None
+                        } else {
+                            Some(trimmed.to_string())
+                        };
+                        if let Some(run) = state
+                            .runs
+                            .iter_mut()
+                            .find(|run| run.id == rename.run_id)
+                        {
+                            run.name = value;
+                        }
+                        let _ = state.refresh_selection_summary();
+                        state.notify(crate::app::NotifyLevel::Success, "Run renamed");
+                    }
+                    Err(err) => {
+                        state.notify(
+                            crate::app::NotifyLevel::Error,
+                            format!("Rename failed: {err}"),
+                        );
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                let cursor = rename.cursor.min(rename.buffer.chars().count());
+                rename.cursor = remove_char_before_cursor(&mut rename.buffer, cursor);
+            }
+            KeyCode::Left => {
+                rename.cursor = rename.cursor.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                let len = rename.buffer.chars().count();
+                rename.cursor = (rename.cursor + 1).min(len);
+            }
+            KeyCode::Char(c) => {
+                if accepts_text_modifiers(key) {
+                    let cursor = rename.cursor.min(rename.buffer.chars().count());
+                    let byte_idx = char_to_byte_index(&rename.buffer, cursor);
+                    rename.buffer.insert(byte_idx, c);
+                    rename.cursor = cursor + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn open_tag_picker(&self, state: &mut AppState) {
         // Determine target entity and current tags.
         let (table, id, current_tags_json) = if let Some(idx) = state.selected_run {
@@ -817,6 +903,19 @@ impl DetailPanel {
     }
 
     pub fn render_note_popup(&self, frame: &mut Frame, area: Rect, input: &str) {
+        self.render_text_input_popup(frame, area, " Append Note ", input);
+    }
+
+    pub fn render_run_rename_popup(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        rename: &crate::app::RunRenameState,
+    ) {
+        let cursor = rename.cursor.min(rename.buffer.chars().count());
+        let byte_idx = char_to_byte_index(&rename.buffer, cursor);
+        let before = &rename.buffer[..byte_idx];
+        let after = &rename.buffer[byte_idx..];
         let popup_width = 50u16.min(area.width.saturating_sub(4));
         let popup_height = 3u16;
         let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
@@ -826,16 +925,69 @@ impl DetailPanel {
         frame.render_widget(ratatui::widgets::Clear, popup_area);
 
         let block = Block::bordered()
-            .title(" Append Note ")
+            .title(" Rename Run ")
             .border_style(Style::default().fg(self.theme.accent))
             .border_set(ratatui::symbols::border::ROUNDED);
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
 
         let cursor = Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK));
-        let line = Line::from(vec![Span::raw(input), cursor]);
+        let line = Line::from(vec![
+            Span::raw(before.to_string()),
+            cursor,
+            Span::raw(after.to_string()),
+        ]);
         frame.render_widget(Paragraph::new(line), inner);
     }
+
+    fn render_text_input_popup(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        title: &'static str,
+        input: &str,
+    ) {
+        let popup_width = 50u16.min(area.width.saturating_sub(4));
+        let popup_height = 3u16;
+        let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+        let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+        let popup_area = Rect::new(x, y, popup_width, popup_height);
+
+        frame.render_widget(ratatui::widgets::Clear, popup_area);
+
+        let block = Block::bordered()
+            .title(title)
+            .border_style(Style::default().fg(self.theme.accent))
+            .border_set(ratatui::symbols::border::ROUNDED);
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        let cursor = Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK));
+        let line = Line::from(vec![Span::raw(input.to_string()), cursor]);
+        frame.render_widget(Paragraph::new(line), inner);
+    }
+}
+
+fn accepts_text_modifiers(key: &KeyEvent) -> bool {
+    key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT
+}
+
+fn char_to_byte_index(s: &str, char_idx: usize) -> usize {
+    s.char_indices()
+        .nth(char_idx)
+        .map(|(idx, _)| idx)
+        .unwrap_or_else(|| s.len())
+}
+
+fn remove_char_before_cursor(s: &mut String, cursor: usize) -> usize {
+    if cursor == 0 || s.is_empty() {
+        return cursor;
+    }
+    let remove_at = cursor - 1;
+    let start = char_to_byte_index(s, remove_at);
+    let end = char_to_byte_index(s, cursor);
+    s.replace_range(start..end, "");
+    remove_at
 }
 
 /// Render a single line of notes text, highlighting LaTeX math delimiters.
@@ -935,4 +1087,104 @@ fn latex_to_unicode(math: &str) -> String {
     // Clean up braces that were part of LaTeX grouping.
     s = s.replace('{', "").replace('}', "");
     s.trim().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use rusqlite::Connection;
+
+    fn setup_state() -> (tempfile::TempDir, AppState, DetailPanel) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db_path = tmp.path().join("extract.db");
+
+        let writer = Connection::open(&db_path).unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+        writer
+            .execute_batch(include_str!("../../../schema/migrations/001_init.sql"))
+            .unwrap();
+        writer
+            .execute_batch(include_str!("../../../schema/migrations/002_experiment_metadata.sql"))
+            .unwrap();
+        writer
+            .execute_batch(
+                "INSERT INTO hierarchy VALUES (0, 'benchmark');
+                 INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark', NULL, NULL);
+                 INSERT INTO runs VALUES ('r1', 'e1', 'old', NULL, '2026-01-01T00:00:00Z', NULL, 'completed', NULL, NULL, '[]', NULL, 10);",
+            )
+            .unwrap();
+        drop(writer);
+
+        let db = crate::db::Db::open(&db_path).unwrap();
+        let mut state = AppState::new(db, tmp.path().to_path_buf()).unwrap();
+        state.selected_experiment = Some(0);
+        state.refresh_runs().unwrap();
+        state.selected_run = Some(0);
+        state.load_run_preview(0).unwrap();
+        state.focus = Focus::Detail;
+
+        let mut panel = DetailPanel::new(Theme::default());
+        panel.active_tab = DetailTab::Summary;
+        (tmp, state, panel)
+    }
+
+    #[test]
+    fn shift_r_opens_summary_run_rename_for_selected_run() {
+        let (_tmp, mut state, mut panel) = setup_state();
+
+        panel.handle_event(
+            &AppEvent::Key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT)),
+            &mut state,
+        );
+
+        let rename = state.run_rename.as_ref().expect("rename input should open");
+        assert_eq!(rename.run_id, "r1");
+        assert_eq!(rename.buffer, "old");
+        assert_eq!(rename.cursor, 3);
+    }
+
+    #[test]
+    fn summary_run_rename_commits_to_db_and_visible_state() {
+        let (_tmp, mut state, mut panel) = setup_state();
+
+        panel.handle_event(
+            &AppEvent::Key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT)),
+            &mut state,
+        );
+        let rename = state.run_rename.as_mut().unwrap();
+        rename.buffer = "new name".to_string();
+        rename.cursor = rename.buffer.chars().count();
+
+        panel.handle_event(
+            &AppEvent::Key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            &mut state,
+        );
+
+        assert!(state.run_rename.is_none());
+        assert_eq!(
+            state.db.get_run("r1").unwrap().unwrap().name.as_deref(),
+            Some("new name")
+        );
+        assert_eq!(state.runs[0].name.as_deref(), Some("new name"));
+        match &state.selection_summary {
+            SelectionSummary::Leaf { runs, .. } => {
+                assert_eq!(runs[0].name.as_deref(), Some("new name"));
+            }
+            _ => panic!("expected leaf selection summary"),
+        }
+    }
+
+    #[test]
+    fn shift_r_does_not_open_rename_on_info_tab() {
+        let (_tmp, mut state, mut panel) = setup_state();
+        panel.active_tab = DetailTab::Info;
+
+        panel.handle_event(
+            &AppEvent::Key(KeyEvent::new(KeyCode::Char('R'), KeyModifiers::SHIFT)),
+            &mut state,
+        );
+
+        assert!(state.run_rename.is_none());
+    }
 }

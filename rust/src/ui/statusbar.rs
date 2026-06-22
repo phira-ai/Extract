@@ -43,10 +43,18 @@ impl StatusBar {
                     .map(|r| r.status.as_str());
 
                 match run_status {
-                    Some("archived") => vec![("S-U", "unarchive")],
+                    Some("archived") => {
+                        let mut b = vec![];
+                        if detail_tab == DetailTab::Summary {
+                            b.push(("S-r", "rename"));
+                        }
+                        b.push(("S-U", "unarchive"));
+                        b
+                    }
                     Some("running") => {
                         let mut b = vec![];
                         if detail_tab == DetailTab::Summary {
+                            b.push(("S-r", "rename"));
                             b.push(("t", "tags"));
                         }
                         b.push(("n", "note"));
@@ -58,6 +66,7 @@ impl StatusBar {
                     Some("completed") | Some("failed") => {
                         let mut b = Vec::new();
                         if detail_tab == DetailTab::Summary {
+                            b.push(("S-r", "rename"));
                             b.push(("t", "tags"));
                         }
                         b.push(("n", "note"));

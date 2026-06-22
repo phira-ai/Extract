@@ -41,6 +41,7 @@ pub const HELP: KeyCode = KeyCode::Char('?');
 pub const GO_TOP_G: KeyCode = KeyCode::Char('g');
 pub const GO_BOTTOM: KeyCode = KeyCode::Char('G');
 pub const RUN_BROWSER: KeyCode = KeyCode::Char('r');
+pub const RUN_RENAME: KeyCode = KeyCode::Char('R');
 pub const TAG_EDIT: KeyCode = KeyCode::Char('t');
 pub const NOTE_APPEND: KeyCode = KeyCode::Char('n');
 pub const MARK_FAILED: KeyCode = KeyCode::Char('F');

@@ -76,6 +76,7 @@ impl HelpOverlay {
             ("gg/G", "top / bottom"),
             ("\u{2190}/\u{2192}", "cycle runs"),
             ("r", "list runs"),
+            ("S-r", "rename run on summary tab"),
             ("S/I", "summary / info tab"),
             ("x", "delete run"),
         ] {

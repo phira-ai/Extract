@@ -311,6 +311,13 @@ pub struct RunBrowserState {
     pub scroll_offset: usize,
 }
 
+/// State for renaming the currently focused run from the Summary tab.
+pub struct RunRenameState {
+    pub run_id: String,
+    pub buffer: String,
+    pub cursor: usize,
+}
+
 impl RunBrowserState {
     pub fn new(experiment_name: String, _experiment_id: String, runs: Vec<Run>) -> Self {
         let filtered = (0..runs.len()).collect();
@@ -444,6 +451,7 @@ pub struct AppState {
     pub selection_cursor: usize,
     pub run_picker: Option<RunPickerState>,
     pub run_browser: Option<RunBrowserState>,
+    pub run_rename: Option<RunRenameState>,
     pub delete_confirm: Option<DeleteConfirmState>,
     pub archive_confirm: Option<ArchiveConfirmState>,
     pub notification: Option<Notification>,
@@ -598,6 +606,7 @@ impl AppState {
             selection_cursor: 0,
             run_picker: None,
             run_browser: None,
+            run_rename: None,
             delete_confirm: None,
             archive_confirm: None,
             notification: None,

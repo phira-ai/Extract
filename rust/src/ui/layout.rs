@@ -81,6 +81,7 @@ impl AppLayout {
         // Skip global keybindings when a text input mode is active — let the
         // focused panel's input handler see every keystroke unmodified.
         let in_text_input = state.tag_picker.is_some()
+            || state.run_rename.is_some()
             || state.note_input.is_some()
             || state.todo_input.is_some()
             || state
@@ -258,73 +259,78 @@ impl AppLayout {
             _ => {}
         }
 
-        // Explorer-only panel shortcuts (1, 2, 3) and view shortcuts
-        if let AppEvent::Key(key) = event {
-            if keys::matches(key, keys::PANEL_1) {
-                state.focus = Focus::Tree;
-                return Action::None;
-            }
-            if keys::matches(key, keys::PANEL_2) {
-                if state.selected_run.is_none() && !state.runs.is_empty() {
-                    state.selected_run = Some(state.runs.len() - 1);
-                    let _ = state.load_run_preview(state.runs.len() - 1);
+        // Explorer-only panel shortcuts (1, 2, 3) and view shortcuts.
+        // Text input modes own printable/navigation keys; input handler owns Esc.
+        if !in_text_input {
+            if let AppEvent::Key(key) = event {
+                if keys::matches(key, keys::PANEL_1) {
+                    state.focus = Focus::Tree;
+                    return Action::None;
                 }
-                state.focus = Focus::Detail;
-                return Action::None;
-            }
-            if keys::matches(key, keys::PANEL_3) {
-                if !state.selected_runs_for_compare.is_empty() {
-                    state.focus = Focus::Selection;
+                if keys::matches(key, keys::PANEL_2) {
+                    if state.selected_run.is_none() && !state.runs.is_empty() {
+                        state.selected_run = Some(state.runs.len() - 1);
+                        let _ = state.load_run_preview(state.runs.len() - 1);
+                    }
+                    state.focus = Focus::Detail;
+                    return Action::None;
                 }
-                return Action::None;
-            }
+                if keys::matches(key, keys::PANEL_3) {
+                    if !state.selected_runs_for_compare.is_empty() {
+                        state.focus = Focus::Selection;
+                    }
+                    return Action::None;
+                }
 
-            // View shortcuts
-            if keys::matches_shift(key, keys::REGISTRY) {
-                let _ = state.load_registry_data();
-                state.current_view = View::Registry;
-                return Action::None;
-            }
-            if keys::matches_shift(key, keys::TODOS) {
-                let _ = state.load_todo_data();
-                state.current_view = View::TodoGlobal;
-                return Action::None;
-            }
-            if keys::matches_shift(key, keys::LINEAGE) {
-                let _ = state.load_lineage_data();
-                state.current_view = View::Lineage;
-                return Action::None;
-            }
-            if keys::matches(key, keys::SEARCH) {
-                state.search = Some(crate::app::SearchState {
-                    query: String::new(),
-                    results: Vec::new(),
-                    cursor: 0,
-                });
-                return Action::None;
-            }
-            if keys::matches(key, keys::RUN_BROWSER) {
-                // Open run browser for current leaf experiment with multiple runs
-                if let Some(idx) = state.selected_experiment {
-                    if let Some(exp) = state.experiments.get(idx) {
-                        let has_children = state.experiments.iter()
-                            .any(|e| e.parent_id.as_deref() == Some(&exp.id));
-                        if !has_children && state.runs.len() > 1 {
-                            let mut sorted_runs = state.runs.clone();
-                            sorted_runs.sort_by(|a, b| {
-                                let a_time = a.ended_at.as_deref().unwrap_or(&a.started_at);
-                                let b_time = b.ended_at.as_deref().unwrap_or(&b.started_at);
-                                b_time.cmp(a_time)
-                            });
-                            state.run_browser = Some(crate::app::RunBrowserState::new(
-                                exp.name.clone(),
-                                exp.id.clone(),
-                                sorted_runs,
-                            ));
+                // View shortcuts
+                if keys::matches_shift(key, keys::REGISTRY) {
+                    let _ = state.load_registry_data();
+                    state.current_view = View::Registry;
+                    return Action::None;
+                }
+                if keys::matches_shift(key, keys::TODOS) {
+                    let _ = state.load_todo_data();
+                    state.current_view = View::TodoGlobal;
+                    return Action::None;
+                }
+                if keys::matches_shift(key, keys::LINEAGE) {
+                    let _ = state.load_lineage_data();
+                    state.current_view = View::Lineage;
+                    return Action::None;
+                }
+                if keys::matches(key, keys::SEARCH) {
+                    state.search = Some(crate::app::SearchState {
+                        query: String::new(),
+                        results: Vec::new(),
+                        cursor: 0,
+                    });
+                    return Action::None;
+                }
+                if keys::matches(key, keys::RUN_BROWSER) {
+                    // Open run browser for current leaf experiment with multiple runs
+                    if let Some(idx) = state.selected_experiment {
+                        if let Some(exp) = state.experiments.get(idx) {
+                            let has_children = state
+                                .experiments
+                                .iter()
+                                .any(|e| e.parent_id.as_deref() == Some(&exp.id));
+                            if !has_children && state.runs.len() > 1 {
+                                let mut sorted_runs = state.runs.clone();
+                                sorted_runs.sort_by(|a, b| {
+                                    let a_time = a.ended_at.as_deref().unwrap_or(&a.started_at);
+                                    let b_time = b.ended_at.as_deref().unwrap_or(&b.started_at);
+                                    b_time.cmp(a_time)
+                                });
+                                state.run_browser = Some(crate::app::RunBrowserState::new(
+                                    exp.name.clone(),
+                                    exp.id.clone(),
+                                    sorted_runs,
+                                ));
+                            }
                         }
                     }
+                    return Action::None;
                 }
-                return Action::None;
             }
         }
 
@@ -499,6 +505,9 @@ impl AppLayout {
         if let Some(ref input) = state.note_input {
             self.detail.render_note_popup(frame, area, input);
         }
+        if let Some(ref rename) = state.run_rename {
+            self.detail.render_run_rename_popup(frame, area, rename);
+        }
         if let Some(ref picker) = state.tag_picker {
             self.detail.render_tag_picker(frame, area, picker);
         }
@@ -560,5 +569,85 @@ impl AppLayout {
 
         let text = Paragraph::new(Line::from(Span::raw(msg.clone())));
         frame.render_widget(text, inner);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use rusqlite::Connection;
+
+    fn setup_detail_rename_state() -> (tempfile::TempDir, AppState, AppLayout) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let db_path = tmp.path().join("extract.db");
+
+        let writer = Connection::open(&db_path).unwrap();
+        writer.execute_batch("PRAGMA journal_mode=WAL").unwrap();
+        writer
+            .execute_batch(include_str!("../../../schema/migrations/001_init.sql"))
+            .unwrap();
+        writer
+            .execute_batch(include_str!("../../../schema/migrations/002_experiment_metadata.sql"))
+            .unwrap();
+        writer
+            .execute_batch(
+                "INSERT INTO hierarchy VALUES (0, 'benchmark');
+                 INSERT INTO experiments VALUES ('e1', 'a', 'a', NULL, '2026-01-01T00:00:00Z', NULL, 'active', 'benchmark', NULL, NULL);
+                 INSERT INTO runs VALUES ('r1', 'e1', 'old', NULL, '2026-01-01T00:00:00Z', NULL, 'completed', NULL, NULL, '[]', NULL, 10);",
+            )
+            .unwrap();
+        drop(writer);
+
+        let db = crate::db::Db::open(&db_path).unwrap();
+        let mut state = AppState::new(db, tmp.path().to_path_buf()).unwrap();
+        state.selected_experiment = Some(0);
+        state.refresh_runs().unwrap();
+        state.selected_run = Some(0);
+        state.load_run_preview(0).unwrap();
+        state.focus = Focus::Detail;
+
+        let layout = AppLayout::new(&state.config);
+        (tmp, state, layout)
+    }
+
+    #[test]
+    fn run_rename_popup_treats_panel_number_and_nav_keys_as_text() {
+        let (_tmp, mut state, mut layout) = setup_detail_rename_state();
+        state.run_rename = Some(crate::app::RunRenameState {
+            run_id: "r1".to_string(),
+            buffer: "old".to_string(),
+            cursor: 3,
+        });
+
+        for c in ['1', 'h', 'l'] {
+            layout.handle_event(
+                &AppEvent::Key(KeyEvent::new(KeyCode::Char(c), KeyModifiers::NONE)),
+                &mut state,
+            );
+        }
+
+        let rename = state.run_rename.as_ref().expect("rename should remain open");
+        assert_eq!(rename.buffer, "old1hl");
+        assert_eq!(rename.cursor, 6);
+        assert_eq!(state.focus, Focus::Detail);
+    }
+
+    #[test]
+    fn run_rename_popup_esc_closes_without_panel_navigation() {
+        let (_tmp, mut state, mut layout) = setup_detail_rename_state();
+        state.run_rename = Some(crate::app::RunRenameState {
+            run_id: "r1".to_string(),
+            buffer: "old".to_string(),
+            cursor: 3,
+        });
+
+        layout.handle_event(
+            &AppEvent::Key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE)),
+            &mut state,
+        );
+
+        assert!(state.run_rename.is_none());
+        assert_eq!(state.focus, Focus::Detail);
     }
 }
