@@ -912,10 +912,6 @@ impl DetailPanel {
         area: Rect,
         rename: &crate::app::RunRenameState,
     ) {
-        let cursor = rename.cursor.min(rename.buffer.chars().count());
-        let byte_idx = char_to_byte_index(&rename.buffer, cursor);
-        let before = &rename.buffer[..byte_idx];
-        let after = &rename.buffer[byte_idx..];
         let popup_width = 50u16.min(area.width.saturating_sub(4));
         let popup_height = 3u16;
         let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
@@ -931,12 +927,7 @@ impl DetailPanel {
         let inner = block.inner(popup_area);
         frame.render_widget(block, popup_area);
 
-        let cursor = Span::styled("_", Style::default().add_modifier(Modifier::SLOW_BLINK));
-        let line = Line::from(vec![
-            Span::raw(before.to_string()),
-            cursor,
-            Span::raw(after.to_string()),
-        ]);
+        let line = Line::from(rename_input_spans(&rename.buffer, rename.cursor));
         frame.render_widget(Paragraph::new(line), inner);
     }
 
@@ -966,6 +957,30 @@ impl DetailPanel {
         let line = Line::from(vec![Span::raw(input.to_string()), cursor]);
         frame.render_widget(Paragraph::new(line), inner);
     }
+}
+
+fn rename_input_spans(input: &str, cursor: usize) -> Vec<Span<'static>> {
+    let cursor = cursor.min(input.chars().count());
+    let mut chars = input.chars();
+    let before: String = chars.by_ref().take(cursor).collect();
+    let cursor_style = Style::default().add_modifier(Modifier::REVERSED | Modifier::SLOW_BLINK);
+    let mut spans = Vec::new();
+
+    if !before.is_empty() {
+        spans.push(Span::raw(before));
+    }
+
+    if let Some(cursor_char) = chars.next() {
+        spans.push(Span::styled(cursor_char.to_string(), cursor_style));
+        let after: String = chars.collect();
+        if !after.is_empty() {
+            spans.push(Span::raw(after));
+        }
+    } else {
+        spans.push(Span::styled(" ", cursor_style));
+    }
+
+    spans
 }
 
 fn accepts_text_modifiers(key: &KeyEvent) -> bool {
@@ -1127,6 +1142,26 @@ mod tests {
         let mut panel = DetailPanel::new(Theme::default());
         panel.active_tab = DetailTab::Summary;
         (tmp, state, panel)
+    }
+
+    #[test]
+    fn rename_input_uses_block_cursor_at_end() {
+        let spans = rename_input_spans("old", 3);
+        let cursor = spans.last().expect("cursor span");
+
+        assert_eq!(cursor.content.as_ref(), " ");
+        assert!(cursor.style.add_modifier.contains(Modifier::REVERSED));
+        assert!(cursor.style.add_modifier.contains(Modifier::SLOW_BLINK));
+    }
+
+    #[test]
+    fn rename_input_uses_block_cursor_over_character() {
+        let spans = rename_input_spans("old", 1);
+        let cursor = &spans[1];
+
+        assert_eq!(cursor.content.as_ref(), "l");
+        assert!(cursor.style.add_modifier.contains(Modifier::REVERSED));
+        assert!(!spans.iter().any(|span| span.content.as_ref() == "_"));
     }
 
     #[test]
